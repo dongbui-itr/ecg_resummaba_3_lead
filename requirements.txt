@@ -1,0 +1,23 @@
+# Pinned to what this project is developed and run against (conda env `beat`).
+tensorflow[and-cuda]==2.20.0     # plain `tensorflow` has no cuDNN/cuBLAS -> CPU only
+keras>=3.10
+numpy>=1.26
+scipy>=1.11                      # butter/filtfilt/resample_poly in signal_ops
+pandas>=2.0
+wfdb>=4.1
+tqdm>=4.66
+
+# tensorboard 2.18+ still `import pkg_resources`, and setuptools >= 81 removed that module -
+# without this line the `tensorboard` command dies with ModuleNotFoundError and looks
+# uninstalled.
+setuptools<81
+
+# tests/
+pytest>=8.0
+
+# XLA needs <cuda>/nvvm/libdevice/libdevice.10.bc, which the tensorflow[and-cuda] wheels do
+# NOT ship, and TF routes some fused activation gradients through XLA whatever jit_compile
+# says - so without it every training stage dies at its first step with
+# `libdevice not found at ./libdevice.10.bc`. ecgr/xla.py finds a copy automatically (a
+# system CUDA toolkit, this wheel, or Triton's bundled one). Install it if it cannot:
+# nvidia-cuda-nvcc-cu12
