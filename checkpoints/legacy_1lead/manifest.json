@@ -1,0 +1,241 @@
+{
+  "run_tag": "260917_resumamba",
+  "produced": "2026-09-17",
+  "contract": {
+    "input": [
+      2500,
+      1
+    ],
+    "output": [
+      500,
+      4
+    ],
+    "sampling_rate_hz": 250,
+    "seconds": 10,
+    "ms_per_step": 20,
+    "classes": [
+      "None",
+      "N",
+      "V",
+      "S"
+    ]
+  },
+  "training": {
+    "loss": "poly2",
+    "poly2_eps": [
+      0.3,
+      -0.5
+    ],
+    "monitor": "val_weighted_f1",
+    "ckpt_start_epoch": 10,
+    "batch_size": 128,
+    "lr": 0.0014,
+    "epochs_max": 30,
+    "patience": 8,
+    "class_weights": [
+      0.3,
+      1.0,
+      2.0,
+      2.5
+    ],
+    "context_encoder": "CPC-pretrained, frozen"
+  },
+  "data": {
+    "tfrecord": "tfrecord_label_01 (1 channel)",
+    "holdout": "dataset-eval v4 studies excluded from train and eval splits"
+  },
+  "models": {
+    "resumamba_1m": {
+      "file": "resumamba_1m.keras",
+      "cpc_weights": "resumamba_1m_cpc.weights.h5",
+      "params": 933660,
+      "flops_per_10s_segment": 796000000.0,
+      "val_weighted_f1": 0.8523,
+      "epoch": 15,
+      "ec57_gross": {
+        "afdb": {
+          "Q_Se": "97.45",
+          "Q_+P": "95.08",
+          "V_Se": "-",
+          "V_+P": "0.00",
+          "S_Se": "-",
+          "S_+P": "0.00",
+          "records": "23"
+        },
+        "ahadb": {
+          "Q_Se": "99.88",
+          "Q_+P": "99.83",
+          "V_Se": "88.57",
+          "V_+P": "98.70",
+          "S_Se": "-",
+          "S_+P": "0.00",
+          "records": "79"
+        },
+        "dataset-v4-beat": {
+          "Q_Se": "99.82",
+          "Q_+P": "99.61",
+          "V_Se": "96.70",
+          "V_+P": "95.08",
+          "S_Se": "84.03",
+          "S_+P": "91.10",
+          "records": "5227"
+        },
+        "escdb": {
+          "Q_Se": "99.90",
+          "Q_+P": "99.86",
+          "V_Se": "96.00",
+          "V_+P": "94.72",
+          "S_Se": "49.86",
+          "S_+P": "31.14",
+          "records": "90"
+        },
+        "mitdb": {
+          "Q_Se": "99.95",
+          "Q_+P": "99.92",
+          "V_Se": "95.37",
+          "V_+P": "96.02",
+          "S_Se": "30.49",
+          "S_+P": "63.27",
+          "records": "44"
+        },
+        "nstdb": {
+          "Q_Se": "96.76",
+          "Q_+P": "87.13",
+          "V_Se": "81.43",
+          "V_+P": "92.38",
+          "S_Se": "74.61",
+          "S_+P": "51.40",
+          "records": "12"
+        }
+      }
+    },
+    "resumamba_100k": {
+      "file": "resumamba_100k.keras",
+      "cpc_weights": "resumamba_100k_cpc.weights.h5",
+      "params": 93235,
+      "flops_per_10s_segment": 72600000.0,
+      "val_weighted_f1": 0.8329,
+      "epoch": 12,
+      "ec57_gross": {
+        "afdb": {
+          "Q_Se": "97.46",
+          "Q_+P": "94.87",
+          "V_Se": "-",
+          "V_+P": "0.00",
+          "S_Se": "-",
+          "S_+P": "0.00",
+          "records": "23"
+        },
+        "ahadb": {
+          "Q_Se": "99.87",
+          "Q_+P": "99.72",
+          "V_Se": "89.53",
+          "V_+P": "98.07",
+          "S_Se": "-",
+          "S_+P": "0.00",
+          "records": "79"
+        },
+        "dataset-v4-beat": {
+          "Q_Se": "99.81",
+          "Q_+P": "99.47",
+          "V_Se": "95.94",
+          "V_+P": "94.15",
+          "S_Se": "80.62",
+          "S_+P": "90.07",
+          "records": "5227"
+        },
+        "escdb": {
+          "Q_Se": "99.88",
+          "Q_+P": "99.77",
+          "V_Se": "95.41",
+          "V_+P": "89.15",
+          "S_Se": "50.60",
+          "S_+P": "33.50",
+          "records": "90"
+        },
+        "mitdb": {
+          "Q_Se": "99.93",
+          "Q_+P": "99.86",
+          "V_Se": "94.02",
+          "V_+P": "95.34",
+          "S_Se": "30.75",
+          "S_+P": "61.61",
+          "records": "44"
+        },
+        "nstdb": {
+          "Q_Se": "96.26",
+          "Q_+P": "85.55",
+          "V_Se": "81.52",
+          "V_+P": "85.61",
+          "S_Se": "64.92",
+          "S_+P": "42.46",
+          "records": "12"
+        }
+      }
+    },
+    "resumamba_30k": {
+      "file": "resumamba_30k.keras",
+      "cpc_weights": "resumamba_30k_cpc.weights.h5",
+      "params": 29575,
+      "flops_per_10s_segment": 22900000.0,
+      "val_weighted_f1": 0.8318,
+      "epoch": 12,
+      "ec57_gross": {
+        "afdb": {
+          "Q_Se": "97.45",
+          "Q_+P": "94.75",
+          "V_Se": "-",
+          "V_+P": "0.00",
+          "S_Se": "-",
+          "S_+P": "0.00",
+          "records": "23"
+        },
+        "ahadb": {
+          "Q_Se": "99.88",
+          "Q_+P": "99.58",
+          "V_Se": "85.64",
+          "V_+P": "95.43",
+          "S_Se": "-",
+          "S_+P": "0.00",
+          "records": "79"
+        },
+        "dataset-v4-beat": {
+          "Q_Se": "99.74",
+          "Q_+P": "99.37",
+          "V_Se": "95.82",
+          "V_+P": "93.72",
+          "S_Se": "81.55",
+          "S_+P": "89.06",
+          "records": "5227"
+        },
+        "escdb": {
+          "Q_Se": "99.89",
+          "Q_+P": "99.67",
+          "V_Se": "96.27",
+          "V_+P": "80.63",
+          "S_Se": "49.21",
+          "S_+P": "24.24",
+          "records": "90"
+        },
+        "mitdb": {
+          "Q_Se": "99.94",
+          "Q_+P": "99.86",
+          "V_Se": "93.31",
+          "V_+P": "95.37",
+          "S_Se": "43.35",
+          "S_+P": "62.08",
+          "records": "44"
+        },
+        "nstdb": {
+          "Q_Se": "96.73",
+          "Q_+P": "84.19",
+          "V_Se": "80.99",
+          "V_+P": "81.68",
+          "S_Se": "67.25",
+          "S_+P": "47.80",
+          "records": "12"
+        }
+      }
+    }
+  }
+}

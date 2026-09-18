@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.tmp
+
+# Run logs: hundreds of MB of progress bars per sweep; the numbers that matter are in the
+# run directory's eval/ and ec57/ trees and summarised in README section 8b.
+logs/*.log
+
+# Trained weights are excluded by checkpoints/.gitignore; force them in for a release:
+#   git add -f checkpoints/*.keras checkpoints/*.weights.h5
+
+# The reference paper is a paywalled Elsevier publication - not redistributed from a public
+# repo. docs/references/README.md carries the citation and DOI.
+docs/references/*.pdf

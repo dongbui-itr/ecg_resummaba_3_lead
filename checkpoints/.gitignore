@@ -1,0 +1,4 @@
+# Trained weights are ~14 MB of binary and git history cannot be rewritten later.
+# Force them in deliberately when a release needs them: git add -f checkpoints/*.keras
+*.keras
+*.weights.h5

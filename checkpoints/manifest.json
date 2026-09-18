@@ -1,0 +1,610 @@
+{
+  "run_tag": "260917_3lead",
+  "produced": "2026-09-18",
+  "contract": {
+    "input": [
+      2500,
+      3
+    ],
+    "output": [
+      500,
+      4
+    ],
+    "sampling_rate_hz": 250,
+    "seconds": 10,
+    "ms_per_step": 20,
+    "classes": [
+      "None",
+      "N",
+      "V",
+      "S"
+    ],
+    "lead_0": "the annotated lead",
+    "ec57_lead_mode": "auto (physionet: lead 0 duplicated x3; portal: native 3 leads)"
+  },
+  "data": {
+    "tfrecord": "tfrecord_3lead",
+    "train_segments": 542721,
+    "eval_segments": 133920,
+    "fixes": [
+      "reviewed-span arithmetic (19,763 records recovered, ~95k windows re-aligned)",
+      "2499-sample spans accepted (114,920 records)",
+      "dataset-2 byte-identical duplicate recordings dropped (11,652)"
+    ]
+  },
+  "training": {
+    "loss": "poly2",
+    "poly2_eps": [
+      0.3,
+      -0.5
+    ],
+    "monitor": "val_weighted_f1",
+    "ckpt_start_epoch": 10,
+    "batch_size": 128,
+    "lr": 0.0014,
+    "epochs_max": 30,
+    "patience": 8,
+    "class_weights": [
+      0.3,
+      1.0,
+      2.0,
+      2.5
+    ],
+    "self_supervised": {
+      "ssl": "masked span (35%, 12-step spans) + masked lead (p=0.5) reconstruction, 8x600 steps",
+      "cpc": "InfoNCE, horizons (1,2), 5x400 steps, encoder frozen in train"
+    },
+    "note": "resumamba_30k and resumamba_100k SSL/CPC weights were saved at the LAST epoch; 1m/2m at the BEST epoch (restore_best_weights fix landed between them)"
+  },
+  "portal_split_sample": {
+    "records_per_split": 5000,
+    "order": "md5 of study_event",
+    "note": "portal-train is seen data: overfitting diagnostic only"
+  },
+  "models": {
+    "resumamba_2m": {
+      "keras_name": "resumamba_seq2seq_2m",
+      "params": 1977660,
+      "val_weighted_f1": 0.9262,
+      "epoch": 13,
+      "epochs_run": 21,
+      "ssl_val_nmse": {
+        "per_epoch": [
+          0.6712,
+          0.613,
+          0.5898,
+          0.5609,
+          0.536,
+          0.5132,
+          0.4875,
+          0.5155
+        ],
+        "best": 0.4875,
+        "saved": "best"
+      },
+      "cpc_val_top1": {
+        "per_epoch": [
+          0.04,
+          0.0415,
+          0.0377,
+          0.0395,
+          0.0379
+        ],
+        "best": 0.0415,
+        "chance": 0.00087
+      },
+      "files": {
+        "model": "resumamba_2m.keras",
+        "ssl_backbone": "resumamba_2m_ssl_backbone.weights.h5",
+        "cpc_context": "resumamba_2m_cpc_context.weights.h5"
+      },
+      "source_checkpoint": "/mnt/md0/Dong_data/portal_data/train/260917_3lead/checkpoints/resumamba_seq2seq_2m/BEST_F1/best_model_f1_0.9262_epoch_13.keras",
+      "ec57": {
+        "afdb": {
+          "records": "23",
+          "Q_Se": "97.44",
+          "Q_+P": "94.77",
+          "V_Se": "-",
+          "V_+P": "0.00",
+          "S_Se": "-",
+          "S_+P": "0.00",
+          "total_QRS": "1119211",
+          "total_VEB": "0",
+          "total_SVEB": "0"
+        },
+        "ahadb": {
+          "records": "79",
+          "Q_Se": "99.87",
+          "Q_+P": "99.57",
+          "V_Se": "89.21",
+          "V_+P": "97.25",
+          "S_Se": "-",
+          "S_+P": "0.00",
+          "total_QRS": "179010",
+          "total_VEB": "16496",
+          "total_SVEB": "0"
+        },
+        "dataset-v4-beat": {
+          "records": "5227",
+          "Q_Se": "99.68",
+          "Q_+P": "99.56",
+          "V_Se": "97.19",
+          "V_+P": "95.11",
+          "S_Se": "85.86",
+          "S_+P": "90.92",
+          "total_QRS": "72762",
+          "total_VEB": "8281",
+          "total_SVEB": "7888"
+        },
+        "escdb": {
+          "records": "90",
+          "Q_Se": "99.90",
+          "Q_+P": "99.81",
+          "V_Se": "98.08",
+          "V_+P": "86.37",
+          "S_Se": "51.26",
+          "S_+P": "21.49",
+          "total_QRS": "759878",
+          "total_VEB": "4375",
+          "total_SVEB": "1075"
+        },
+        "mitdb": {
+          "records": "44",
+          "Q_Se": "99.90",
+          "Q_+P": "99.86",
+          "V_Se": "95.64",
+          "V_+P": "94.10",
+          "S_Se": "45.79",
+          "S_+P": "61.17",
+          "total_QRS": "83978",
+          "total_VEB": "5900",
+          "total_SVEB": "2745"
+        },
+        "nstdb": {
+          "records": "12",
+          "Q_Se": "96.42",
+          "Q_+P": "83.72",
+          "V_Se": "83.42",
+          "V_+P": "67.11",
+          "S_Se": "78.88",
+          "S_+P": "23.94",
+          "total_QRS": "21462",
+          "total_VEB": "2262",
+          "total_SVEB": "516"
+        },
+        "portal-eval": {
+          "records": "5000",
+          "Q_Se": "99.68",
+          "Q_+P": "99.45",
+          "V_Se": "94.62",
+          "V_+P": "94.28",
+          "S_Se": "89.72",
+          "S_+P": "85.27",
+          "total_QRS": "74237",
+          "total_VEB": "4179",
+          "total_SVEB": "6071"
+        },
+        "portal-train": {
+          "records": "5000",
+          "Q_Se": "99.60",
+          "Q_+P": "99.53",
+          "V_Se": "95.98",
+          "V_+P": "94.24",
+          "S_Se": "88.99",
+          "S_+P": "87.79",
+          "total_QRS": "74564",
+          "total_VEB": "3904",
+          "total_SVEB": "6450"
+        }
+      }
+    },
+    "resumamba_1m": {
+      "keras_name": "resumamba_seq2seq_1m",
+      "params": 934476,
+      "val_weighted_f1": 0.9249,
+      "epoch": 10,
+      "epochs_run": 18,
+      "ssl_val_nmse": {
+        "per_epoch": [
+          0.6691,
+          0.6164,
+          0.5913,
+          0.5718,
+          0.5437,
+          0.5428,
+          0.5131,
+          0.5196
+        ],
+        "best": 0.5131,
+        "saved": "best"
+      },
+      "cpc_val_top1": {
+        "per_epoch": [
+          0.0381,
+          0.0385,
+          0.0391,
+          0.0351,
+          0.0335
+        ],
+        "best": 0.0391,
+        "chance": 0.00087
+      },
+      "files": {
+        "model": "resumamba_1m.keras",
+        "ssl_backbone": "resumamba_1m_ssl_backbone.weights.h5",
+        "cpc_context": "resumamba_1m_cpc_context.weights.h5"
+      },
+      "source_checkpoint": "/mnt/md0/Dong_data/portal_data/train/260917_3lead/checkpoints/resumamba_seq2seq_1m/BEST_F1/best_model_f1_0.9249_epoch_10.keras",
+      "ec57": {
+        "afdb": {
+          "records": "23",
+          "Q_Se": "97.40",
+          "Q_+P": "95.00",
+          "V_Se": "-",
+          "V_+P": "0.00",
+          "S_Se": "-",
+          "S_+P": "0.00",
+          "total_QRS": "1119211",
+          "total_VEB": "0",
+          "total_SVEB": "0"
+        },
+        "ahadb": {
+          "records": "79",
+          "Q_Se": "99.84",
+          "Q_+P": "99.51",
+          "V_Se": "82.45",
+          "V_+P": "97.91",
+          "S_Se": "-",
+          "S_+P": "0.00",
+          "total_QRS": "179010",
+          "total_VEB": "16496",
+          "total_SVEB": "0"
+        },
+        "dataset-v4-beat": {
+          "records": "5227",
+          "Q_Se": "99.67",
+          "Q_+P": "99.53",
+          "V_Se": "96.73",
+          "V_+P": "95.24",
+          "S_Se": "85.17",
+          "S_+P": "89.07",
+          "total_QRS": "72762",
+          "total_VEB": "8281",
+          "total_SVEB": "7888"
+        },
+        "escdb": {
+          "records": "90",
+          "Q_Se": "99.89",
+          "Q_+P": "99.83",
+          "V_Se": "96.39",
+          "V_+P": "96.61",
+          "S_Se": "64.56",
+          "S_+P": "19.53",
+          "total_QRS": "759878",
+          "total_VEB": "4375",
+          "total_SVEB": "1075"
+        },
+        "mitdb": {
+          "records": "44",
+          "Q_Se": "99.89",
+          "Q_+P": "99.87",
+          "V_Se": "95.05",
+          "V_+P": "94.43",
+          "S_Se": "49.44",
+          "S_+P": "36.63",
+          "total_QRS": "83978",
+          "total_VEB": "5900",
+          "total_SVEB": "2745"
+        },
+        "nstdb": {
+          "records": "12",
+          "Q_Se": "95.90",
+          "Q_+P": "83.86",
+          "V_Se": "80.73",
+          "V_+P": "85.89",
+          "S_Se": "75.00",
+          "S_+P": "27.49",
+          "total_QRS": "21462",
+          "total_VEB": "2262",
+          "total_SVEB": "516"
+        },
+        "portal-eval": {
+          "records": "5000",
+          "Q_Se": "99.65",
+          "Q_+P": "99.42",
+          "V_Se": "93.87",
+          "V_+P": "95.73",
+          "S_Se": "89.66",
+          "S_+P": "82.51",
+          "total_QRS": "74239",
+          "total_VEB": "4179",
+          "total_SVEB": "6071"
+        },
+        "portal-train": {
+          "records": "5000",
+          "Q_Se": "99.59",
+          "Q_+P": "99.49",
+          "V_Se": "95.18",
+          "V_+P": "94.34",
+          "S_Se": "87.33",
+          "S_+P": "85.66",
+          "total_QRS": "74564",
+          "total_VEB": "3904",
+          "total_SVEB": "6450"
+        }
+      }
+    },
+    "resumamba_100k": {
+      "keras_name": "resumamba_seq2seq_100k",
+      "params": 93517,
+      "val_weighted_f1": 0.9145,
+      "epoch": 10,
+      "epochs_run": 18,
+      "ssl_val_nmse": {
+        "per_epoch": [
+          0.7374,
+          0.6903,
+          0.6637,
+          0.6526,
+          0.6259,
+          0.6436,
+          0.6149,
+          0.6157
+        ],
+        "best": 0.6149,
+        "saved": "last"
+      },
+      "cpc_val_top1": {
+        "per_epoch": [
+          0.027,
+          0.0326,
+          0.032,
+          0.0333,
+          0.0315
+        ],
+        "best": 0.0333,
+        "chance": 0.00087
+      },
+      "files": {
+        "model": "resumamba_100k.keras",
+        "ssl_backbone": "resumamba_100k_ssl_backbone.weights.h5",
+        "cpc_context": "resumamba_100k_cpc_context.weights.h5"
+      },
+      "source_checkpoint": "/mnt/md0/Dong_data/portal_data/train/260917_3lead/checkpoints/resumamba_seq2seq_100k/BEST_F1/best_model_f1_0.9145_epoch_10.keras",
+      "ec57": {
+        "afdb": {
+          "records": "23",
+          "Q_Se": "97.45",
+          "Q_+P": "94.68",
+          "V_Se": "-",
+          "V_+P": "0.00",
+          "S_Se": "-",
+          "S_+P": "0.00",
+          "total_QRS": "1119211",
+          "total_VEB": "0",
+          "total_SVEB": "0"
+        },
+        "ahadb": {
+          "records": "79",
+          "Q_Se": "99.87",
+          "Q_+P": "99.64",
+          "V_Se": "86.45",
+          "V_+P": "97.56",
+          "S_Se": "-",
+          "S_+P": "0.00",
+          "total_QRS": "179010",
+          "total_VEB": "16496",
+          "total_SVEB": "0"
+        },
+        "dataset-v4-beat": {
+          "records": "5227",
+          "Q_Se": "99.72",
+          "Q_+P": "99.26",
+          "V_Se": "96.24",
+          "V_+P": "94.42",
+          "S_Se": "80.35",
+          "S_+P": "89.20",
+          "total_QRS": "72764",
+          "total_VEB": "8282",
+          "total_SVEB": "7888"
+        },
+        "escdb": {
+          "records": "90",
+          "Q_Se": "99.89",
+          "Q_+P": "99.66",
+          "V_Se": "95.95",
+          "V_+P": "83.69",
+          "S_Se": "43.53",
+          "S_+P": "19.94",
+          "total_QRS": "759878",
+          "total_VEB": "4375",
+          "total_SVEB": "1075"
+        },
+        "mitdb": {
+          "records": "44",
+          "Q_Se": "99.90",
+          "Q_+P": "99.84",
+          "V_Se": "94.31",
+          "V_+P": "94.98",
+          "S_Se": "32.02",
+          "S_+P": "69.10",
+          "total_QRS": "83978",
+          "total_VEB": "5900",
+          "total_SVEB": "2745"
+        },
+        "nstdb": {
+          "records": "12",
+          "Q_Se": "96.10",
+          "Q_+P": "83.37",
+          "V_Se": "84.17",
+          "V_+P": "68.74",
+          "S_Se": "65.89",
+          "S_+P": "22.12",
+          "total_QRS": "21462",
+          "total_VEB": "2262",
+          "total_SVEB": "516"
+        },
+        "portal-eval": {
+          "records": "5000",
+          "Q_Se": "99.70",
+          "Q_+P": "99.14",
+          "V_Se": "92.15",
+          "V_+P": "94.27",
+          "S_Se": "85.21",
+          "S_+P": "83.35",
+          "total_QRS": "74238",
+          "total_VEB": "4179",
+          "total_SVEB": "6071"
+        },
+        "portal-train": {
+          "records": "5000",
+          "Q_Se": "99.65",
+          "Q_+P": "99.34",
+          "V_Se": "94.01",
+          "V_+P": "92.96",
+          "S_Se": "83.63",
+          "S_+P": "85.71",
+          "total_QRS": "74565",
+          "total_VEB": "3904",
+          "total_SVEB": "6450"
+        }
+      }
+    },
+    "resumamba_30k": {
+      "keras_name": "resumamba_seq2seq_30k",
+      "params": 29741,
+      "val_weighted_f1": 0.9102,
+      "epoch": 22,
+      "epochs_run": 30,
+      "ssl_val_nmse": {
+        "per_epoch": [
+          0.804,
+          0.7624,
+          0.7427,
+          0.7253,
+          0.71,
+          0.7003,
+          0.6895,
+          0.7067
+        ],
+        "best": 0.6895,
+        "saved": "last"
+      },
+      "cpc_val_top1": {
+        "per_epoch": [
+          0.0189,
+          0.0254,
+          0.0268,
+          0.0274,
+          0.0276
+        ],
+        "best": 0.0276,
+        "chance": 0.00087
+      },
+      "files": {
+        "model": "resumamba_30k.keras",
+        "ssl_backbone": "resumamba_30k_ssl_backbone.weights.h5",
+        "cpc_context": "resumamba_30k_cpc_context.weights.h5"
+      },
+      "source_checkpoint": "/mnt/md0/Dong_data/portal_data/train/260917_3lead/checkpoints/resumamba_seq2seq_30k/BEST_F1/best_model_f1_0.9102_epoch_22.keras",
+      "ec57": {
+        "afdb": {
+          "records": "23",
+          "Q_Se": "97.46",
+          "Q_+P": "94.63",
+          "V_Se": "-",
+          "V_+P": "0.00",
+          "S_Se": "-",
+          "S_+P": "0.00",
+          "total_QRS": "1119211",
+          "total_VEB": "0",
+          "total_SVEB": "0"
+        },
+        "ahadb": {
+          "records": "79",
+          "Q_Se": "99.85",
+          "Q_+P": "99.52",
+          "V_Se": "88.55",
+          "V_+P": "97.99",
+          "S_Se": "-",
+          "S_+P": "0.00",
+          "total_QRS": "179010",
+          "total_VEB": "16496",
+          "total_SVEB": "0"
+        },
+        "dataset-v4-beat": {
+          "records": "5227",
+          "Q_Se": "99.69",
+          "Q_+P": "99.23",
+          "V_Se": "96.33",
+          "V_+P": "93.91",
+          "S_Se": "84.23",
+          "S_+P": "85.86",
+          "total_QRS": "72762",
+          "total_VEB": "8281",
+          "total_SVEB": "7888"
+        },
+        "escdb": {
+          "records": "90",
+          "Q_Se": "99.88",
+          "Q_+P": "99.60",
+          "V_Se": "94.86",
+          "V_+P": "90.75",
+          "S_Se": "50.98",
+          "S_+P": "13.55",
+          "total_QRS": "759878",
+          "total_VEB": "4375",
+          "total_SVEB": "1075"
+        },
+        "mitdb": {
+          "records": "44",
+          "Q_Se": "99.88",
+          "Q_+P": "99.81",
+          "V_Se": "93.07",
+          "V_+P": "95.68",
+          "S_Se": "50.75",
+          "S_+P": "62.49",
+          "total_QRS": "83978",
+          "total_VEB": "5900",
+          "total_SVEB": "2745"
+        },
+        "nstdb": {
+          "records": "12",
+          "Q_Se": "95.54",
+          "Q_+P": "82.35",
+          "V_Se": "81.92",
+          "V_+P": "79.26",
+          "S_Se": "72.48",
+          "S_+P": "16.21",
+          "total_QRS": "21462",
+          "total_VEB": "2262",
+          "total_SVEB": "516"
+        },
+        "portal-eval": {
+          "records": "5000",
+          "Q_Se": "99.64",
+          "Q_+P": "99.15",
+          "V_Se": "93.35",
+          "V_+P": "92.88",
+          "S_Se": "88.40",
+          "S_+P": "78.40",
+          "total_QRS": "74237",
+          "total_VEB": "4179",
+          "total_SVEB": "6071"
+        },
+        "portal-train": {
+          "records": "5000",
+          "Q_Se": "99.62",
+          "Q_+P": "99.32",
+          "V_Se": "94.54",
+          "V_+P": "92.07",
+          "S_Se": "87.13",
+          "S_+P": "81.86",
+          "total_QRS": "74565",
+          "total_VEB": "3904",
+          "total_SVEB": "6450"
+        }
+      }
+    }
+  }
+}
