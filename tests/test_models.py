@@ -110,3 +110,60 @@ def test_diag_ssm_kernel_is_exportable():
     assert np.isfinite(kernels).all()
     # normalize=True keeps the L1 norm at 1, so the layer cannot inflate the activations
     assert np.allclose(np.abs(kernels).sum(axis=-1), 1.0, atol=1e-3)
+
+
+# --- the temporal refinement head -------------------------------------------------------
+
+def test_refinement_head_starts_as_the_identity_and_keeps_p_none():
+    """models/refine.py promises two things the no-regression selection rule stands on:
+    epoch 0 IS the base, and the head can never move probability into or out of None."""
+    from ecgr.models.refine import attach_refinement, head_parameters
+    base = models.build('resumamba_30k')
+    refined = attach_refinement(base)
+    x = np.random.default_rng(0).standard_normal(
+        (3, config.SEGMENT_SAMPLES, config.IN_CHANNELS)).astype('float32')
+    p_base, p_ref = base.predict(x, verbose=0), refined.predict(x, verbose=0)
+    assert np.abs(p_base - p_ref).max() < 1e-5, "zero-initialised head must be the identity"
+    assert all('refine' in w.path for w in refined.trainable_weights), "base must be frozen"
+    assert 0 < head_parameters(refined) < 0.1 * base.count_params() + 30_000
+
+    # kick the head hard: the beat classes move, the background does not, rows still sum to 1
+    for w in refined.get_layer('refine_delta').weights:
+        w.assign(np.random.default_rng(1).normal(0, 1, w.shape).astype('float32'))
+    p2 = refined.predict(x, verbose=0)
+    assert np.array_equal(p2[..., 0], p_base[..., 0]), "p_None must be preserved exactly"
+    assert np.abs(p2[..., 1:] - p_base[..., 1:]).max() > 1e-3
+    assert np.allclose(p2.sum(-1), 1.0, atol=1e-5)
+
+
+def test_refined_model_round_trips_through_keras(tmp_path):
+    from ecgr.models.refine import attach_refinement
+    refined = attach_refinement(models.build('resumamba_30k'))
+    for w in refined.get_layer('refine_delta').weights:
+        w.assign(np.full(w.shape, 0.3, dtype='float32'))
+    path = str(tmp_path / 'r.keras')
+    refined.save(path)
+    again = keras.models.load_model(path, compile=False)
+    x = np.random.default_rng(2).standard_normal(
+        (2, config.SEGMENT_SAMPLES, config.IN_CHANNELS)).astype('float32')
+    assert np.array_equal(refined.predict(x, verbose=0), again.predict(x, verbose=0))
+
+
+def test_s_only_refinement_keeps_p_none_and_p_v_exactly():
+    """'s_only' may move mass between N and S and nothing else: p_None and p_V verbatim,
+    rows still sum to one, identity at init."""
+    from ecgr.models.refine import attach_refinement
+    base = models.build('resumamba_30k')
+    refined = attach_refinement(base, mode='s_only')
+    x = np.random.default_rng(3).standard_normal(
+        (3, config.SEGMENT_SAMPLES, config.IN_CHANNELS)).astype('float32')
+    p_base = base.predict(x, verbose=0)
+    assert np.abs(refined.predict(x, verbose=0) - p_base).max() < 1e-5
+    for w in refined.get_layer('refine_delta').weights:
+        w.assign(np.random.default_rng(4).normal(0, 2, w.shape).astype('float32'))
+    p2 = refined.predict(x, verbose=0)
+    assert np.array_equal(p2[..., 0], p_base[..., 0]), "p_None must not move"
+    assert np.array_equal(p2[..., 2], p_base[..., 2]), "p_V must not move in s_only mode"
+    assert np.allclose(p2[..., 1] + p2[..., 3], p_base[..., 1] + p_base[..., 3], atol=1e-6)
+    assert np.abs(p2[..., 3] - p_base[..., 3]).max() > 1e-3, "S must be able to move"
+    assert np.allclose(p2.sum(-1), 1.0, atol=1e-5)

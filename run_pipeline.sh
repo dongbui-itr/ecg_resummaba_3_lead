@@ -5,6 +5,8 @@
 #   ./run_pipeline.sh sweep                                 # all four sizes, end to end
 #   ./run_pipeline.sh sweep resumamba_30k                   # ... or just this one
 #   ./run_pipeline.sh summary                               # the comparison table again
+#   ./run_pipeline.sh refine resumamba_2m                   # temporal head on the trained base,
+#                                                           #   then EC57 under <model>_refined
 #
 # Each size runs ssl -> cpc -> train -> stepeval -> ec57. Both self-supervised stages are
 # label-free and depend only on the architecture, so they are skipped when weights already
@@ -100,6 +102,33 @@ stage_train() {
         "${PY}" -m ecgr train --model "$1" "${@:2}"
 }
 
+stage_refine() {
+    wait_gpu "${GPU_FREE_MIB}"
+    echo "[$(date +%H:%M:%S)] refine $1 (temporal head on the frozen base, then no-regression selection on portal-eval)"
+    run_stage "${LOGS}/$1_refine.log" \
+        "^(Epoch [0-9]|base +:|head +:|refined +:|epoch_|base  |WINNER|refined_best|Weighted F1|Traceback|.*Error)|WINNER|regresses|improves" \
+        "${PY}" -m ecgr refine --model "$1" "${@:2}"
+}
+
+stage_ec57_refined() {
+    local ckpt winner
+    ckpt="$("${PY}" -c "from ecgr import config, models; import os; print(os.path.join(config.CHECKPOINT_DIR, models.keras_name('$1'), 'refined', 'refined_best.keras'))")"
+    [[ -f "${ckpt}" ]] || { echo "no refined checkpoint for $1: ${ckpt}" >&2; return 1; }
+    # The selection can (and, under a strict no-regression rule, often does) pick epoch_00,
+    # which IS the base model. Its EC57 numbers already exist under <model>/; re-scoring the
+    # same weights under <model>_refined costs ~50 GPU minutes and adds nothing.
+    winner="$("${PY}" -c "import json, os; print(json.load(open(os.path.join(os.path.dirname('${ckpt}'), 'selection.json')))['winner']['epoch'])" 2>/dev/null || echo unknown)"
+    if [[ "${winner}" == "epoch_00" ]]; then
+        echo "[$(date +%H:%M:%S)] $1: selection kept the base (epoch_00) - no separate EC57 to run"
+        return 0
+    fi
+    wait_gpu "${GPU_FREE_INFER_MIB}"
+    echo "[$(date +%H:%M:%S)] ec57 $1_refined"
+    run_stage "${LOGS}/$1_refined_ec57.log" \
+        "(^=====|^EC57 report|^  (Average|Gross|Total)|^EC57 summary|^  db=|Traceback|.*Error)" \
+        "${PY}" -m ecgr ec57 --model "$1" --checkpoint "${ckpt}" --tag "$1_refined"
+}
+
 stage_stepeval() {
     wait_gpu "${GPU_FREE_INFER_MIB}"
     echo "[$(date +%H:%M:%S)] stepeval $1"
@@ -116,7 +145,7 @@ stage_ec57() {
         "${PY}" -m ecgr ec57 --model "$1"
 }
 
-STAGE="${1:?stage: data|sweep|summary|test}"
+STAGE="${1:?stage: data|sweep|refine|summary|test}"
 shift || true
 
 echo "=== ${STAGE} ==="
@@ -167,6 +196,21 @@ case "${STAGE}" in
         echo "=== ${STAGE} FINISHED WITH FAILURES: ${failures[*]} ==="
         echo "    rerun the same command - finished stages are skipped, only failed ones redo"
         exit 1
+    fi
+    echo "=== ${STAGE} complete ($(date +%H:%M:%S)) ==="
+    ;;
+
+  refine)
+    if [[ $# -gt 0 ]]; then list=("$@"); else list=("${SIZES[@]}"); fi
+    failures=()
+    for m in "${list[@]}"; do
+        stage_refine "$m"       || { failures+=("${m}:refine"); continue; }
+        stage_ec57_refined "$m" || failures+=("${m}:ec57_refined")
+    done
+    pairs=(); for m in "${list[@]}"; do pairs+=("$m" "${m}_refined"); done
+    "${PY}" -m ecgr compare "${pairs[@]}" || true
+    if [[ ${#failures[@]} -gt 0 ]]; then
+        echo "=== ${STAGE} FINISHED WITH FAILURES: ${failures[*]} ==="; exit 1
     fi
     echo "=== ${STAGE} complete ($(date +%H:%M:%S)) ==="
     ;;

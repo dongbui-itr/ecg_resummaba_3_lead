@@ -78,6 +78,38 @@ def read_leads(record_path, channel=0, lead_mode='auto', in_channels=None):
     return leads, length, rec.fs
 
 
+class Ensemble:
+    """Several trained models read as one: their softmax outputs are averaged per step.
+
+    Averaging probabilities is the one test-time change that tends to raise sensitivity AND
+    positive predictivity together - the members' independent false calls cancel while their
+    shared true calls add - at the price of one forward pass per member. Every eval stage
+    treats it like a model: it has a name, an input shape, a parameter count and, through
+    predict_segments, a prediction.
+    """
+
+    def __init__(self, members):
+        if not members:
+            raise ValueError("an ensemble needs at least one member")
+        self.members = list(members)
+        self.name = 'ensemble(' + '+'.join(m.name for m in self.members) + ')'
+        self.input_shape = self.members[0].input_shape
+
+    def count_params(self):
+        return sum(m.count_params() for m in self.members)
+
+    def predict_probs(self, segments, batch_size=None):
+        return np.mean([predict_segments(m, segments, batch_size) for m in self.members],
+                       axis=0)
+
+
+def load_checkpoints(paths):
+    """One .keras path -> that model; several -> an Ensemble of them."""
+    paths = [paths] if isinstance(paths, str) else list(paths)
+    loaded = [tf.keras.models.load_model(p, compile=False) for p in paths]
+    return loaded[0] if len(loaded) == 1 else Ensemble(loaded)
+
+
 def predict_segments(model, segments, batch_size=None):
     """Forward pass over (n, T, C) segments through a compiled function cached on the model.
 
@@ -87,6 +119,8 @@ def predict_segments(model, segments, batch_size=None):
     beat-eval records plus two 5,000-record split samples that is ~30 minutes per model of
     pure overhead. Long Physionet records are compute-bound either way.
     """
+    if hasattr(model, 'predict_probs'):               # an Ensemble
+        return model.predict_probs(segments, batch_size)
     fn = getattr(model, '_ecgr_predict', None)
     if fn is None:
         @tf.function(reduce_retracing=True)
@@ -110,7 +144,8 @@ def predict_record(model, record_path, record_name, out_dir, channel=0, s_boost=
     # signal_length keeps the decoder inside the real signal: a record shorter than one
     # window is edge-padded, and a detection in that padding is an artefact of the padding.
     positions, symbols = decode_beats(preds, segments, starts, s_boost=s_boost,
-                                      signal_length=len(leads))
+                                      signal_length=len(leads),
+                                      min_run_steps=config.DECODE_MIN_RUN_STEPS)
     if len(positions) == 0:
         return 0
 
@@ -524,7 +559,7 @@ def run(checkpoint, tag, dbs=None, max_records=None, s_boost=1.0, bxb_only=False
     model = None
     if not bxb_only:
         print(f"loading {checkpoint}")
-        model = tf.keras.models.load_model(checkpoint, compile=False)
+        model = load_checkpoints(checkpoint)
         expected = (config.SEGMENT_SAMPLES, config.IN_CHANNELS)
         if tuple(model.input_shape[1:]) != expected:
             raise ValueError(
@@ -534,6 +569,7 @@ def run(checkpoint, tag, dbs=None, max_records=None, s_boost=1.0, bxb_only=False
 
     with open(os.path.join(ec57_out, 'checkpoint.txt'), 'w') as f:
         f.write(f"{checkpoint}\n"
+                f"min_run_steps: {config.DECODE_MIN_RUN_STEPS}\n"
                 f"model: {model.name if model else '(not loaded, --bxb-only)'}\n"
                 f"params: {model.count_params() if model else '-'}\n"
                 f"s_boost: {s_boost}\n"

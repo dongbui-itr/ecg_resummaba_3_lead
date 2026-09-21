@@ -83,6 +83,8 @@ LABEL_STEPS_BEFORE = 8
 LABEL_STEPS_AFTER = 2
 
 MIN_RR_INTERVAL = int(0.18 * SAMPLING_RATE)   # shortest allowed gap between two detections
+# Shortest run of non-background steps decoded as a beat (labels.decode_beats). 1 = every run.
+DECODE_MIN_RUN_STEPS = int(os.environ.get("ECGR_MIN_RUN_STEPS", 1))
 
 # ---------------------------------------------------------------------------
 # Datasets
@@ -132,11 +134,20 @@ EC57_SEGMENT_OVERLAP = 1 * SAMPLING_RATE   # overlap when sweeping a whole recor
 # across the channel axis (see LEAD_FILL_MODE). Per-database overrides go here.
 EC57_LEAD = {}
 EC57_LEAD_DEFAULT = 0
-# 'auto'      : duplicate the chosen lead on the Physionet databases (2 leads, annotated on
-#               the first), use the native montage on the portal set (3 leads, like training)
-# 'duplicate' : one lead repeated everywhere, the strictest single-lead reading
-# 'native'    : as many real leads as the record has, filled up if it has fewer
-EC57_LEAD_MODE = os.environ.get("ECGR_EC57_LEAD_MODE", "auto")
+# 'native'    : as many real leads as the record has, filled up if it has fewer. THE DEFAULT.
+#               Every EC57 database has two real leads, and reading both is what the 3-lead
+#               model was built for: measured on resumamba_2m, switching mitdb from one lead
+#               repeated to MLII+V5 moves S from 45.79/61.17 to 56.87/65.64 and lifts 30 of
+#               32 Physionet cells, because record 232's non-premature APCs are only visible
+#               as a P wave on V5. It also removes a fragility rather than hiding one: the
+#               N/S boundary on sinus tachycardia (record 213) is knife-edge with MLII alone
+#               - any noise fine-tune flips it - and stable once V5 is there.
+# 'duplicate' : one lead repeated across the channel axis, the strictest single-lead reading.
+#               Kept as the control, and what `--lead-mode duplicate` still gives.
+# 'auto'      : 'native' where the record has enough leads, 'duplicate' otherwise. Identical
+#               to 'native' on every database this project scores, since read_leads fills a
+#               short montage either way.
+EC57_LEAD_MODE = os.environ.get("ECGR_EC57_LEAD_MODE", "native")
 
 # ---------------------------------------------------------------------------
 # Training
@@ -172,6 +183,27 @@ SSL_LEAD_MASK_PROB = 0.5        # chance a sample additionally loses one whole l
 SSL_RUN = os.environ.get("ECGR_SSL_RUN")
 FREEZE_BACKBONE_EPOCHS = 0      # >0 = warm up the head with the SSL backbone frozen
 
+# --- stage 4: the temporal refinement head (models/refine.py, training/refine.py) --------
+# A small bidirectional SSM re-reads the base model's predicted beat train and corrects the
+# N/V/S split per step; p_None is preserved exactly and the head starts as the identity.
+# Trained on the frozen best base checkpoint; the epoch is then chosen on portal-eval under a
+# no-regression rule (every Q/V/S Se and +P >= base - REFINE_TOLERANCE_PP).
+REFINE_EPOCHS = 6
+REFINE_LEARNING_RATE = 5e-4
+REFINE_WIDTH = 48
+REFINE_BLOCKS = 2
+REFINE_STATE_DIM = 8
+REFINE_KERNEL_LEN = 256          # steps each way = 5.1 s, 6-10 R-R intervals
+REFINE_TOLERANCE_PP = 0.1        # percentage points of bxb noise tolerated on 5,000 records
+# Loss weights for the HEAD. Not CLASS_WEIGHTS: those fight the None/beat imbalance, which
+# the head never sees (p_None is fixed), and their 2.5x on S made the head a threshold shift
+# (measured: every epoch raised S_Se and lowered S_+P on portal-eval). Neutral among the
+# beat classes lets it find the F1-optimal N/S boundary instead of the S-heavy one.
+REFINE_CLASS_WEIGHTS = [0.3, 1.0, 1.0, 1.0]
+# 'beats' redistributes among N/V/S; 's_only' moves mass between N and S only and leaves p_V
+# as well as p_None untouched - see models/refine.BeatClassRefine for why that mode exists.
+REFINE_MODE = 's_only'
+
 # --- self-supervised stage 2: the context encoder (training/cpc.py) --------------------
 # CPC/InfoNCE, architecture-only, so a later run can reuse an earlier run's encoders instead
 # of paying for them again: set ECGR_CPC_RUN to that run's tag.
@@ -204,6 +236,18 @@ AUGMENT = True                # see data/pipeline.augment
 # stage hands it the same lead three times - a distribution it would never have met.
 AUGMENT_LEAD_DUPLICATE_PROB = 0.25
 AUGMENT_LEAD_DROP_PROB = 0.15     # zero out one non-primary lead (electrode fell off)
+
+# Synthetic recording noise (data/pipeline._noise). Off in run 260917_3lead; on from
+# 260918_3lead_noise. Amplitudes are in per-lead z-score units (QRS peaks at ~3-8).
+AUGMENT_NOISE = os.environ.get("ECGR_AUGMENT_NOISE", "1") not in ("0", "", "false", "False")
+AUGMENT_WANDER_PROB, AUGMENT_WANDER_AMP = 0.5, 0.6
+AUGMENT_NOISE_PROB, AUGMENT_NOISE_AMP = 0.5, 0.25
+AUGMENT_MOTION_PROB = float(os.environ.get("ECGR_AUGMENT_MOTION_PROB", 0.2))
+
+# Save every epoch from CKPT_START_EPOCH on (<ckpt>/epochs/epoch_NN.keras), not only the
+# step-F1 improvements: the checkpoint that scores best at beat level is chosen afterwards by
+# bxb on portal-eval, and the README's own warning is that step F1 does not pick it.
+SAVE_EVERY_EPOCH = True
 
 WORKERS = int(os.environ.get("ECGR_WORKERS", max(1, (os.cpu_count() or 8) // 2)))
 

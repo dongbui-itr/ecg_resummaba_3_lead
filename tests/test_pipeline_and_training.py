@@ -2,6 +2,7 @@
 
 Everything runs on a tfrecord written into tmp_path, so no dataset has to exist.
 """
+import keras
 import numpy as np
 import pytest
 import tensorflow as tf
@@ -245,3 +246,88 @@ def test_self_supervised_stages_save_the_best_epoch_not_the_last(tmp_path, monke
             f"{module.__name__}.pretrain would save the last epoch, not the best")
         # and the restore has to happen BEFORE the save, or it changes nothing
         assert source.index('restore_best_weights') < source.index('save_weights(out)')
+
+
+# --- noise augmentation, checkpoint averaging, ensembles, decoder run filter -------------
+
+def test_noise_augmentation_touches_the_signal_but_never_the_labels(monkeypatch):
+    rng = np.random.default_rng(6)
+    x = tf.constant(rng.standard_normal((32, config.SEGMENT_SAMPLES, config.IN_CHANNELS))
+                    .astype('float32'))
+    y = tf.one_hot(rng.integers(0, config.NUM_CLASSES, (32, config.OUTPUT_STEPS)),
+                   config.NUM_CLASSES)
+    monkeypatch.setattr(config, 'AUGMENT_NOISE', True)
+    noisy = pipeline._noise(x)
+    assert noisy.shape == x.shape
+    changed = tf.reduce_max(tf.abs(noisy - x), axis=[1, 2]) > 1e-6
+    assert 0.3 < float(tf.reduce_mean(tf.cast(changed, tf.float32))) < 1.0, \
+        "about half the batch should carry noise, not none and not all"
+    assert float(tf.math.reduce_std(noisy - x)) < 1.5, "noise must stay below QRS scale"
+    sig, lab = pipeline.augment(x, y)
+    assert np.allclose(tf.reduce_sum(lab, -1).numpy(), 1.0), "labels must be untouched"
+
+    monkeypatch.setattr(config, 'AUGMENT_NOISE', False)
+    assert np.array_equal(pipeline._noise(x).numpy(), x.numpy()), "the switch must switch it off"
+
+
+def test_checkpoint_averaging_is_the_elementwise_mean(tmp_path):
+    from ecgr.training import swa
+    a = models.build('resumamba_30k')
+    b = models.build('resumamba_30k')
+    for wa, wb in zip(a.weights, b.weights):
+        if np.issubdtype(wa.numpy().dtype, np.floating):
+            wa.assign(np.full(wa.shape, 1.0, dtype='float32'))
+            wb.assign(np.full(wb.shape, 3.0, dtype='float32'))
+    pa, pb = str(tmp_path / 'a.keras'), str(tmp_path / 'b.keras')
+    a.save(pa); b.save(pb)
+    out = swa.average_checkpoints([pa, pb], str(tmp_path / 'avg.keras'))
+    avg = keras.models.load_model(out, compile=False)
+    floats = [w.numpy() for w in avg.weights if np.issubdtype(w.numpy().dtype, np.floating)]
+    assert floats and all(np.allclose(v, 2.0) for v in floats)
+    with pytest.raises(ValueError):
+        swa.average_checkpoints([pa], str(tmp_path / 'one.keras'))
+
+
+def test_ensemble_predicts_the_mean_of_its_members():
+    from ecgr.evaluation.ec57 import Ensemble, predict_segments
+    m1, m2 = models.build('resumamba_30k'), models.build('resumamba_30k')
+    x = np.random.default_rng(7).standard_normal(
+        (3, config.SEGMENT_SAMPLES, config.IN_CHANNELS)).astype('float32')
+    ens = Ensemble([m1, m2])
+    expected = (predict_segments(m1, x) + predict_segments(m2, x)) / 2
+    assert np.allclose(predict_segments(ens, x), expected, atol=1e-6)
+    assert ens.count_params() == m1.count_params() + m2.count_params()
+    assert tuple(ens.input_shape[1:]) == (config.SEGMENT_SAMPLES, config.IN_CHANNELS)
+
+
+def test_min_run_steps_drops_only_short_runs():
+    from ecgr.labels import decode_beats
+    segments = np.zeros((1, config.SEGMENT_SAMPLES, config.IN_CHANNELS), np.float32)
+    segments[0, 100 * 5 + 2, 0] = 1.0      # a peak inside the long run
+    segments[0, 300 * 5 + 2, 0] = 1.0      # a peak inside the 1-step run
+    preds = np.zeros((1, config.OUTPUT_STEPS, config.NUM_CLASSES), np.float32)
+    preds[..., 0] = 1.0
+    preds[0, 95:106] = [0, 1, 0, 0]        # 11-step run: a beat
+    preds[0, 300] = [0, 1, 0, 0]           # 1-step flicker
+    starts = np.array([0])
+    both, _ = decode_beats(preds, segments, starts, min_run_steps=1)
+    one, _ = decode_beats(preds, segments, starts, min_run_steps=2)
+    assert len(both) == 2 and len(one) == 1
+    assert one[0] == 100 * 5 + 2, "the long run must survive at the right position"
+
+
+def test_select_choose_prefers_feasible_then_s_f1():
+    from ecgr.training import select
+    ref = {'Q_Se': 99.0, 'Q_+P': 99.0, 'V_Se': 90.0, 'V_+P': 90.0, 'S_Se': 80.0, 'S_+P': 80.0}
+    rows = [
+        {'name': 'a', **ref, 'S_Se': 84.0, 'S_+P': 79.0},        # best F1 but S_+P regresses
+        {'name': 'b', **ref, 'S_Se': 81.0, 'S_+P': 81.0},        # feasible, smaller gain
+        {'name': 'c', **ref},                                    # the reference itself
+    ]
+    for r in rows:
+        r['S_F1'] = select.s_f1(r)
+    winner, n_feasible = select.choose(rows, ref, tolerance=0.1)
+    assert winner['name'] == 'b' and n_feasible == 2
+    # with a tolerance that forgives the regression the higher-F1 candidate wins
+    winner, _ = select.choose(rows, ref, tolerance=1.5)
+    assert winner['name'] == 'a'

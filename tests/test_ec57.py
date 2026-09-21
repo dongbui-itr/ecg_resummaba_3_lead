@@ -190,3 +190,21 @@ def test_an_event_listed_by_two_datasets_is_scored_once(tmp_path, monkeypatch):
     assert names.count('7_abc') == 1, "the re-listed event must appear once"
     assert next(r for r in rows if r[2] == 'abc')[0] == 'orig', "first dataset's review wins"
     assert len(rows) == 3
+
+
+def test_default_lead_mode_is_native():
+    """The EC57 databases have two real leads and the model takes three. Reading both real
+    leads (native) rather than repeating one (duplicate) is the default because it is what
+    the 3-lead architecture exists for - measured: resumamba_2m mitdb S 45.79/61.17 ->
+    56.87/65.64, 30 of 32 Physionet cells up. `duplicate` stays available as the control."""
+    assert config.EC57_LEAD_MODE == 'native'
+
+
+@needs_mitdb
+def test_native_default_actually_reads_both_mitdb_leads():
+    """A regression guard on the default, not on the flag: with the config default in force,
+    lead 1 of the model input must be the record's second signal, not a copy of the first."""
+    leads, _, _ = ec57.read_leads(os.path.join(MITDB, '100'), channel=0,
+                                  lead_mode=config.EC57_LEAD_MODE)
+    assert leads.shape[1] == config.IN_CHANNELS
+    assert not np.array_equal(leads[:, 0], leads[:, 1]), "the second real lead was discarded"
