@@ -180,8 +180,56 @@ def _lead_jitter(signal):
     return signal * mask[:, None, :]
 
 
+def _noise(signal):
+    """Synthetic recording noise, per sample and per lead, in z-score units.
+
+    Motivated by where the EC57 detection errors actually are: on mitdb, 74 of 82 missed
+    beats and 99 of 121 false beats of the 2m model sit in records 203, 105, 108 and 116 -
+    the noisy ones - and nstdb is the noise-stress database by construction. The training
+    windows are clean by comparison (reviewed portal strips), so the model had never learned
+    to hold a beat through artefact. Three components, each switched on per sample with its
+    own probability so about half the batch carries some noise:
+
+      * baseline wander - two sinusoids per lead, 0.05-0.6 Hz, up to AUGMENT_WANDER_AMP std
+        (respiration, slow electrode drift; the 0.5 Hz high-pass leaves the upper part)
+      * broadband noise - white Gaussian up to AUGMENT_NOISE_AMP std (EMG, amplifier)
+      * a motion transient - one Hann bump of 0.2-1.0 s and 1-3 std on ONE lead, either sign
+        (electrode motion; the shape that most resembles a QRS and so costs the most +P)
+
+    Labels are untouched: the beats are where they were. The signal is already z-scored per
+    lead, so the amplitudes are relative to a lead whose QRS peaks at ~3-8 std.
+    """
+    if not config.AUGMENT_NOISE:
+        return signal
+    batch = tf.shape(signal)[0]
+    n, c, fs = config.SEGMENT_SAMPLES, config.IN_CHANNELS, float(config.SAMPLING_RATE)
+    t = tf.range(n, dtype=tf.float32) / fs                                      # (n,)
+
+    freq = tf.random.uniform([batch, 1, c, 2], 0.05, 0.6)
+    phase = tf.random.uniform([batch, 1, c, 2], 0.0, 2.0 * 3.14159265)
+    amp = tf.random.uniform([batch, 1, c, 2], 0.0, config.AUGMENT_WANDER_AMP)
+    wander = tf.reduce_sum(amp * tf.sin(2.0 * 3.14159265 * freq * t[None, :, None, None]
+                                        + phase), axis=-1)                      # (b, n, c)
+    on = tf.cast(tf.random.uniform([batch, 1, 1]) < config.AUGMENT_WANDER_PROB, tf.float32)
+    signal = signal + on * wander
+
+    amp = tf.random.uniform([batch, 1, c], 0.0, config.AUGMENT_NOISE_AMP)
+    on = tf.cast(tf.random.uniform([batch, 1, 1]) < config.AUGMENT_NOISE_PROB, tf.float32)
+    signal = signal + on * amp * tf.random.normal(tf.shape(signal))
+
+    centre = tf.random.uniform([batch, 1, 1], 0.0, float(n))
+    half = tf.random.uniform([batch, 1, 1], 0.2, 1.0) * fs / 2.0
+    x = (tf.range(n, dtype=tf.float32)[None, :, None] - centre) / half           # (b, n, 1)
+    bump = tf.where(tf.abs(x) <= 1.0, 0.5 * (1.0 + tf.cos(3.14159265 * x)), 0.0)
+    lead = tf.one_hot(tf.random.uniform([batch], 0, c, dtype=tf.int32), c)[:, None, :]
+    sign = tf.sign(tf.random.uniform([batch, 1, 1], -1.0, 1.0))
+    amp = tf.random.uniform([batch, 1, 1], 1.0, 3.0)
+    on = tf.cast(tf.random.uniform([batch, 1, 1]) < config.AUGMENT_MOTION_PROB, tf.float32)
+    return signal + on * sign * amp * bump * lead
+
+
 def augment(signal, labels):
-    """Time-scale, per-lead amplitude jitter and lead manipulations, on the GPU-side batch.
+    """Time-scale, noise, per-lead amplitude jitter and lead manipulations, on the GPU batch.
 
     Order matters at the end: the gain is applied BEFORE the lead jitter, not after. Applied
     after, it multiplies each lead of an already-duplicated sample by a different factor, so
@@ -190,6 +238,7 @@ def augment(signal, labels):
     equal leads, so that is what training has to show it.
     """
     signal, labels = _time_scale(signal, labels)
+    signal = _noise(signal)
     # Per LEAD, not per sample: the leads of one record already differ in gain by a factor of
     # several, and a single shared factor cannot teach that.
     gain = tf.random.uniform([tf.shape(signal)[0], 1, signal.shape[-1] or

@@ -6,6 +6,7 @@
     python -m ecgr ssl       --model resumamba_30k   # self-supervised backbone
     python -m ecgr cpc       --model resumamba_30k   # self-supervised context encoder
     python -m ecgr train     --model resumamba_30k [--epochs N] [--lr 7e-4] ...
+    python -m ecgr refine    --model resumamba_30k   # temporal head on the frozen base
     python -m ecgr stepeval  --model resumamba_30k [--checkpoint FILE]
     python -m ecgr ec57      --model resumamba_30k [--dbs mitdb] [--bxb-only]
     python -m ecgr all       --model resumamba_30k   # ssl -> cpc -> train -> stepeval -> ec57
@@ -89,9 +90,33 @@ def build_parser():
                         'ECGR_CPC_RUN\'s, else train from scratch)')
     t.add_argument('--ctx-trainable', action='store_true',
                    help='fine-tune the context encoder instead of freezing it (ablation)')
+    t.add_argument('--init-from', default=None,
+                   help='fine-tune: load ALL weights from this .keras checkpoint of the same '
+                        'architecture instead of the self-supervised sub-weights')
     t.add_argument('--freeze-backbone-epochs', type=int, default=None,
                    help='hold the SSL backbone frozen for this many epochs so the random '
                         'head cannot wash out the pretraining (default: config value)')
+
+    r = sub.add_parser('refine', help='train the temporal refinement head on the frozen best '
+                                      'base and pick the no-regression epoch on portal-eval')
+    _add_model_arg(r)
+    r.add_argument('--base-checkpoint', default=None, help='default: best BEST_F1 of this run')
+    r.add_argument('--epochs', type=int, default=None)
+    r.add_argument('--lr', type=float, default=None)
+    r.add_argument('--batch-size', type=int, default=None)
+    r.add_argument('--select-records', type=int, default=None,
+                   help='portal-eval records per candidate (default: config, 5000)')
+    r.add_argument('--tolerance', type=float, default=None,
+                   help='pp a metric may fall below the base and still count as no regression')
+    r.add_argument('--class-weights', type=float, nargs=4, default=None, metavar='W',
+                   help='loss weights None N V S for the head (default: config.REFINE_CLASS_WEIGHTS)')
+    r.add_argument('--mode', choices=['beats', 's_only'], default=None,
+                   help="what the head may move: 'beats' = N/V/S, 's_only' = N<->S with p_V "
+                        "fixed too (default: config.REFINE_MODE)")
+    r.add_argument('--tag', default=None,
+                   help='suffix for the output folder, refined_<tag>/, to keep head variants apart')
+    r.add_argument('--no-train', action='store_true', help='only re-run the selection')
+    r.add_argument('--no-select', action='store_true', help='only train, keep every epoch')
 
     e = sub.add_parser('stepeval', help='step-level metrics of a checkpoint on the eval split')
     _add_model_arg(e)
@@ -100,8 +125,12 @@ def build_parser():
 
     b = sub.add_parser('ec57', help='beat-level EC57 (bxb) over physionet + portal beat-eval')
     _add_model_arg(b)
-    b.add_argument('--checkpoint', default=None, help='default: best BEST_F1 of this run')
+    b.add_argument('--checkpoint', nargs='+', default=None,
+                   help='default: best BEST_F1 of this run; several = average their softmax '
+                        'outputs (an ensemble)')
     b.add_argument('--tag', default=None, help='report folder name (default: --model)')
+    b.add_argument('--min-run', type=int, default=None,
+                   help='drop decoded runs shorter than this many steps (default: config, 1)')
     b.add_argument('--dbs', nargs='*', default=None)
     b.add_argument('--max-records', type=int, default=None)
     b.add_argument('--s-boost', type=float, default=1.0,
@@ -132,6 +161,22 @@ def build_parser():
                    help='reuse an existing backbone instead of pretraining one')
     a.add_argument('--skip-cpc', action='store_true',
                    help='reuse an existing context encoder instead of pretraining one')
+
+    sel = sub.add_parser('select', help='score every saved epoch with bxb on portal-eval and '
+                                        'pick the no-regression winner by S F1')
+    _add_model_arg(sel)
+    sel.add_argument('--epochs-dir', default=None, help='default: <ckpt>/<model>/epochs/')
+    sel.add_argument('--reference', default=None,
+                     help='a bxb report to measure regressions against (default: the run\'s '
+                          'own step-F1 checkpoint, scored on the same sample)')
+    sel.add_argument('--records', type=int, default=None)
+    sel.add_argument('--tolerance', type=float, default=None)
+    sel.add_argument('--min-run', type=int, default=None)
+
+    w = sub.add_parser('swa', help='average the weights of several checkpoints into one')
+    _add_model_arg(w)
+    w.add_argument('--checkpoints', nargs='+', required=True)
+    w.add_argument('--out', required=True, help='path of the averaged .keras')
 
     cmp_ = sub.add_parser('compare', help='side-by-side EC57 table of several tags')
     cmp_.add_argument('tags', nargs='+')
@@ -211,12 +256,39 @@ def main(argv=None):
                       ckpt_start_epoch=args.ckpt_start_epoch,
                       ssl_weights=args.ssl_weights, ctx_weights=args.ctx_weights,
                       freeze_ctx=not args.ctx_trainable,
-                      freeze_backbone_epochs=args.freeze_backbone_epochs)
+                      freeze_backbone_epochs=args.freeze_backbone_epochs,
+                      init_from=args.init_from)
+        return 0
+
+    if args.stage == 'refine':
+        from .training import refine
+        if not args.no_train:
+            refine.train_refinement(args.model, base_checkpoint=args.base_checkpoint,
+                                    epochs=args.epochs, lr=args.lr, batch_size=args.batch_size,
+                                    class_weights=args.class_weights, tag=args.tag,
+                                    mode=args.mode)
+        if not args.no_select:
+            refine.select_refinement(args.model, records=args.select_records,
+                                     tolerance=args.tolerance, tag=args.tag)
+        return 0
+
+    if args.stage == 'select':
+        from .training import select
+        select.select_epochs(args.model, epochs_dir=args.epochs_dir,
+                             reference_report=args.reference, records=args.records,
+                             tolerance=args.tolerance, min_run=args.min_run)
+        return 0
+
+    if args.stage == 'swa':
+        from .training import swa
+        print(f"averaged -> {swa.average_checkpoints(args.checkpoints, args.out)}")
         return 0
 
     if args.stage in ('stepeval', 'ec57'):
         from . import checkpoints, models
         ckpt = args.checkpoint or checkpoints.best_checkpoint(models.keras_name(args.model))
+        if isinstance(ckpt, list) and len(ckpt) == 1:
+            ckpt = ckpt[0]
         print(f"checkpoint: {ckpt}")
 
         if args.stage == 'stepeval':
@@ -224,6 +296,8 @@ def main(argv=None):
             trainer.evaluate_checkpoint(ckpt, batch_size=args.batch_size)
         else:
             from .evaluation import ec57
+            if args.min_run is not None:
+                config.DECODE_MIN_RUN_STEPS = args.min_run
             ec57.run(ckpt, tag=args.tag or args.model, dbs=args.dbs,
                      max_records=args.max_records, s_boost=args.s_boost,
                      bxb_only=args.bxb_only, skip_physionet=args.skip_physionet,

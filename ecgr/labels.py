@@ -80,7 +80,7 @@ def core_bounds(starts, segment_length=config.SEGMENT_SAMPLES, signal_length=Non
 
 
 def decode_beats(preds, segments, starts, s_boost=1.0,
-                 min_rr=config.MIN_RR_INTERVAL, signal_length=None):
+                 min_rr=config.MIN_RR_INTERVAL, signal_length=None, min_run_steps=1):
     """Per-step predictions of a whole record -> (positions, symbols), sorted by position.
 
     A beat is a run of consecutive steps predicted non-background. Its position is the
@@ -88,6 +88,10 @@ def decode_beats(preds, segments, starts, s_boost=1.0,
     reference annotations sit - and its symbol is run_class of the run. A run is credited to
     the segment that owns its position (see core_bounds), and detections closer than min_rr
     to the previous accepted one are then dropped as the physiological floor they are.
+
+    min_run_steps drops runs shorter than that many steps: a one-step (20 ms) detection is
+    far more often an artefact flicker than a beat, whose label block is 11 steps wide, so
+    the filter costs almost no sensitivity for the positive predictivity it buys. 1 = off.
 
     s_boost multiplies the S probability before the argmax, i.e. slides the model along its
     own sensitivity / positive-predictivity curve without retraining. Calibrate it on portal
@@ -115,6 +119,8 @@ def decode_beats(preds, segments, starts, s_boost=1.0,
         groups = np.split(hits, np.flatnonzero(np.diff(hits) > 1) + 1)
 
         for group in groups:
+            if len(group) < min_run_steps:
+                continue
             lo = int(group[0] * STEP_SAMPLES)
             hi = min(int((group[-1] + 1) * STEP_SAMPLES), len(trace))
             window = trace[lo:hi]

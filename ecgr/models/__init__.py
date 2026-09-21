@@ -1,7 +1,7 @@
 """The model family: the ResUMamba paper adapted to the seq2seq beat contract, in four sizes."""
 from .resumamba import (BUDGETS, BUILDERS, SIZES, build_backbone, build_context_encoder,
                         build_resumamba_seq2seq)
-from . import layers  # noqa: F401  - registers the custom layers for load_model()
+from . import layers, refine  # noqa: F401  - both register custom layers for load_model()
 
 
 def build(name, **kw):

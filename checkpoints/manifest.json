@@ -1,6 +1,6 @@
 {
   "run_tag": "260917_3lead",
-  "produced": "2026-09-18",
+  "produced": "2026-09-20 (lead mode default: native)",
   "contract": {
     "input": [
       2500,
@@ -606,5 +606,486 @@
         }
       }
     }
-  }
+  },
+  "refined": {
+    "resumamba_100k_refined": {
+      "file": "resumamba_100k_refined.keras",
+      "base": "resumamba_100k",
+      "head": "beats mode, class weights [0.3,1,2,2.5], epoch 4 of 6, selected on portal-eval (no-regression, 2/7 feasible)",
+      "ec57_duplicate": {
+        "afdb": {
+          "records": "23",
+          "Q_Se": "97.45",
+          "Q_+P": "94.67",
+          "V_Se": "-",
+          "V_+P": "0.00",
+          "S_Se": "-",
+          "S_+P": "0.00"
+        },
+        "ahadb": {
+          "records": "79",
+          "Q_Se": "99.87",
+          "Q_+P": "99.65",
+          "V_Se": "86.61",
+          "V_+P": "98.24",
+          "S_Se": "-",
+          "S_+P": "0.00"
+        },
+        "dataset-v4-beat": {
+          "records": "5227",
+          "Q_Se": "99.71",
+          "Q_+P": "99.25",
+          "V_Se": "96.58",
+          "V_+P": "94.62",
+          "S_Se": "82.10",
+          "S_+P": "89.75"
+        },
+        "escdb": {
+          "records": "90",
+          "Q_Se": "99.89",
+          "Q_+P": "99.66",
+          "V_Se": "96.39",
+          "V_+P": "87.58",
+          "S_Se": "45.77",
+          "S_+P": "21.94"
+        },
+        "mitdb": {
+          "records": "44",
+          "Q_Se": "99.90",
+          "Q_+P": "99.84",
+          "V_Se": "94.29",
+          "V_+P": "95.31",
+          "S_Se": "41.49",
+          "S_+P": "69.41"
+        },
+        "nstdb": {
+          "records": "12",
+          "Q_Se": "96.12",
+          "Q_+P": "83.32",
+          "V_Se": "83.16",
+          "V_+P": "74.44",
+          "S_Se": "69.96",
+          "S_+P": "31.15"
+        },
+        "portal-eval": {
+          "records": "5000",
+          "Q_Se": "99.69",
+          "Q_+P": "99.14",
+          "V_Se": "93.06",
+          "V_+P": "94.23",
+          "S_Se": "87.56",
+          "S_+P": "83.56"
+        },
+        "portal-train": {
+          "records": "5000",
+          "Q_Se": "99.64",
+          "Q_+P": "99.34",
+          "V_Se": "94.57",
+          "V_+P": "93.35",
+          "S_Se": "85.98",
+          "S_+P": "85.53"
+        }
+      }
+    },
+    "resumamba_2m_sonly_head": {
+      "file": "resumamba_2m_sonly_head.keras",
+      "base": "resumamba_2m",
+      "head": "s_only mode (N<->S only; p_None and p_V preserved exactly), class weights [0.3,1,1,1], epoch 4 of 6",
+      "selection": "REJECTED by the no-regression rule on portal-eval (trades S Se for S +P); shipped as the max-S-+P single-model option, not as the default",
+      "mitdb_native": {
+        "Q_Se": "99.91",
+        "Q_+P": "99.86",
+        "V_Se": "95.08",
+        "V_+P": "96.28",
+        "S_Se": "49.80",
+        "S_+P": "70.36"
+      },
+      "nstdb_native": {
+        "Q_Se": "96.97",
+        "Q_+P": "84.14",
+        "V_Se": "84.92",
+        "V_+P": "73.40",
+        "S_Se": "76.55",
+        "S_+P": "47.82"
+      },
+      "mitdb_duplicate": {
+        "Q_Se": "99.90",
+        "Q_+P": "99.86",
+        "V_Se": "95.63",
+        "V_+P": "94.19",
+        "S_Se": "41.35",
+        "S_+P": "66.57"
+      },
+      "ec57_native_full": {
+        "afdb": {
+          "records": "23",
+          "Q_Se": "97.49",
+          "Q_+P": "94.85",
+          "V_Se": "-",
+          "V_+P": "0.00",
+          "S_Se": "-",
+          "S_+P": "0.00"
+        },
+        "ahadb": {
+          "records": "79",
+          "Q_Se": "99.93",
+          "Q_+P": "99.70",
+          "V_Se": "89.42",
+          "V_+P": "98.37",
+          "S_Se": "-",
+          "S_+P": "0.00"
+        },
+        "dataset-v4-beat": {
+          "records": "5227",
+          "Q_Se": "99.69",
+          "Q_+P": "99.57",
+          "V_Se": "97.15",
+          "V_+P": "95.06",
+          "S_Se": "83.62",
+          "S_+P": "92.85"
+        },
+        "escdb": {
+          "records": "90",
+          "Q_Se": "99.96",
+          "Q_+P": "99.91",
+          "V_Se": "97.99",
+          "V_+P": "94.10",
+          "S_Se": "49.77",
+          "S_+P": "36.67"
+        },
+        "mitdb": {
+          "records": "44",
+          "Q_Se": "99.91",
+          "Q_+P": "99.86",
+          "V_Se": "95.08",
+          "V_+P": "96.28",
+          "S_Se": "49.80",
+          "S_+P": "70.25"
+        },
+        "nstdb": {
+          "records": "12",
+          "Q_Se": "96.98",
+          "Q_+P": "84.14",
+          "V_Se": "84.92",
+          "V_+P": "73.40",
+          "S_Se": "76.55",
+          "S_+P": "47.82"
+        },
+        "portal-eval": {
+          "records": "5000",
+          "Q_Se": "99.68",
+          "Q_+P": "99.45",
+          "V_Se": "94.64",
+          "V_+P": "94.35",
+          "S_Se": "87.35",
+          "S_+P": "88.96"
+        },
+        "portal-train": {
+          "records": "5000",
+          "Q_Se": "99.60",
+          "Q_+P": "99.53",
+          "V_Se": "96.00",
+          "V_+P": "94.31",
+          "S_Se": "86.64",
+          "S_+P": "91.25"
+        }
+      }
+    }
+  },
+  "lead_mode_note": "EC57 databases have two real leads. As of 2026-09-20 the default is EC57_LEAD_MODE='native' (both real leads + one copy); 'duplicate' (one lead repeated three times, the original spec) remains available via --lead-mode duplicate and is the control. native lifts 30/32 physionet cells for resumamba_2m (mitdb S 45.79/61.17 -> 56.87/65.64); the gain is evidence, not a threshold shift: +297 of +304 extra S true positives are record 232, whose non-premature APCs are only visible as a P wave on V5. Both tables are recorded here: ec57_native/* and the per-model ec57_duplicate entries.",
+  "ec57_native": {
+    "resumamba_2m": {
+      "afdb": {
+        "records": "23",
+        "Q_Se": "97.49",
+        "Q_+P": "94.87",
+        "V_Se": "-",
+        "V_+P": "0.00",
+        "S_Se": "-",
+        "S_+P": "0.00"
+      },
+      "ahadb": {
+        "records": "79",
+        "Q_Se": "99.93",
+        "Q_+P": "99.72",
+        "V_Se": "89.31",
+        "V_+P": "98.24",
+        "S_Se": "-",
+        "S_+P": "0.00"
+      },
+      "dataset-v4-beat": {
+        "records": "5227",
+        "Q_Se": "99.68",
+        "Q_+P": "99.56",
+        "V_Se": "97.19",
+        "V_+P": "95.11",
+        "S_Se": "85.86",
+        "S_+P": "90.91"
+      },
+      "escdb": {
+        "records": "90",
+        "Q_Se": "99.96",
+        "Q_+P": "99.91",
+        "V_Se": "98.01",
+        "V_+P": "93.81",
+        "S_Se": "55.07",
+        "S_+P": "28.67"
+      },
+      "mitdb": {
+        "records": "44",
+        "Q_Se": "99.91",
+        "Q_+P": "99.86",
+        "V_Se": "95.12",
+        "V_+P": "96.21",
+        "S_Se": "56.87",
+        "S_+P": "65.64"
+      },
+      "nstdb": {
+        "records": "12",
+        "Q_Se": "96.79",
+        "Q_+P": "84.29",
+        "V_Se": "85.28",
+        "V_+P": "71.23",
+        "S_Se": "80.43",
+        "S_+P": "31.13"
+      },
+      "portal-eval": {
+        "records": "5000",
+        "Q_Se": "99.68",
+        "Q_+P": "99.45",
+        "V_Se": "94.62",
+        "V_+P": "94.28",
+        "S_Se": "89.72",
+        "S_+P": "85.27"
+      },
+      "portal-train": {
+        "records": "5000",
+        "Q_Se": "99.60",
+        "Q_+P": "99.53",
+        "V_Se": "95.98",
+        "V_+P": "94.24",
+        "S_Se": "88.99",
+        "S_+P": "87.79"
+      }
+    },
+    "ensemble_2m_1m_100k_refined_minrun2": {
+      "afdb": {
+        "records": "23",
+        "Q_Se": "97.49",
+        "Q_+P": "95.05",
+        "V_Se": "-",
+        "V_+P": "0.00",
+        "S_Se": "-",
+        "S_+P": "0.00"
+      },
+      "ahadb": {
+        "records": "79",
+        "Q_Se": "99.91",
+        "Q_+P": "99.84",
+        "V_Se": "89.79",
+        "V_+P": "99.47",
+        "S_Se": "-",
+        "S_+P": "0.00"
+      },
+      "dataset-v4-beat": {
+        "records": "5227",
+        "Q_Se": "99.69",
+        "Q_+P": "99.60",
+        "V_Se": "97.02",
+        "V_+P": "95.65",
+        "S_Se": "84.22",
+        "S_+P": "91.36"
+      },
+      "escdb": {
+        "records": "90",
+        "Q_Se": "99.96",
+        "Q_+P": "99.91",
+        "V_Se": "96.87",
+        "V_+P": "97.65",
+        "S_Se": "55.53",
+        "S_+P": "37.36"
+      },
+      "mitdb": {
+        "records": "44",
+        "Q_Se": "99.92",
+        "Q_+P": "99.89",
+        "V_Se": "94.66",
+        "V_+P": "97.13",
+        "S_Se": "55.99",
+        "S_+P": "68.34"
+      },
+      "nstdb": {
+        "records": "12",
+        "Q_Se": "96.79",
+        "Q_+P": "86.36",
+        "V_Se": "84.35",
+        "V_+P": "85.41",
+        "S_Se": "75.97",
+        "S_+P": "39.12"
+      },
+      "portal-eval": {
+        "records": "5000",
+        "Q_Se": "99.67",
+        "Q_+P": "99.52",
+        "V_Se": "94.57",
+        "V_+P": "96.25",
+        "S_Se": "89.74",
+        "S_+P": "86.66"
+      },
+      "portal-train": {
+        "records": "5000",
+        "Q_Se": "99.60",
+        "Q_+P": "99.57",
+        "V_Se": "95.90",
+        "V_+P": "95.39",
+        "S_Se": "87.94",
+        "S_+P": "89.18"
+      }
+    }
+  },
+  "ensembles": {
+    "ensemble_2m_1m_100k_refined_minrun2": {
+      "members": [
+        "resumamba_2m.keras",
+        "resumamba_1m.keras",
+        "resumamba_100k_refined.keras"
+      ],
+      "decode_min_run_steps": 2,
+      "command": "python -m ecgr ec57 --model resumamba_2m --checkpoint checkpoints/resumamba_2m.keras checkpoints/resumamba_1m.keras checkpoints/resumamba_100k_refined.keras --min-run 2 [--lead-mode native]",
+      "ec57_duplicate": {
+        "afdb": {
+          "records": "23",
+          "Q_Se": "97.41",
+          "Q_+P": "95.08",
+          "V_Se": "-",
+          "V_+P": "0.00",
+          "S_Se": "-",
+          "S_+P": "0.00"
+        },
+        "ahadb": {
+          "records": "79",
+          "Q_Se": "99.85",
+          "Q_+P": "99.81",
+          "V_Se": "87.39",
+          "V_+P": "98.76",
+          "S_Se": "-",
+          "S_+P": "0.00"
+        },
+        "dataset-v4-beat": {
+          "records": "5227",
+          "Q_Se": "99.69",
+          "Q_+P": "99.60",
+          "V_Se": "97.02",
+          "V_+P": "95.65",
+          "S_Se": "84.22",
+          "S_+P": "91.36"
+        },
+        "escdb": {
+          "records": "90",
+          "Q_Se": "99.88",
+          "Q_+P": "99.86",
+          "V_Se": "97.05",
+          "V_+P": "95.67",
+          "S_Se": "53.86",
+          "S_+P": "33.35"
+        },
+        "mitdb": {
+          "records": "44",
+          "Q_Se": "99.90",
+          "Q_+P": "99.90",
+          "V_Se": "95.27",
+          "V_+P": "95.48",
+          "S_Se": "45.10",
+          "S_+P": "65.57"
+        },
+        "nstdb": {
+          "records": "12",
+          "Q_Se": "95.64",
+          "Q_+P": "85.94",
+          "V_Se": "82.67",
+          "V_+P": "85.54",
+          "S_Se": "75.97",
+          "S_+P": "39.56"
+        },
+        "portal-eval": {
+          "records": "5000",
+          "Q_Se": "99.67",
+          "Q_+P": "99.52",
+          "V_Se": "94.57",
+          "V_+P": "96.25",
+          "S_Se": "89.74",
+          "S_+P": "86.66"
+        },
+        "portal-train": {
+          "records": "5000",
+          "Q_Se": "99.60",
+          "Q_+P": "99.57",
+          "V_Se": "95.90",
+          "V_+P": "95.39",
+          "S_Se": "87.94",
+          "S_+P": "89.18"
+        }
+      }
+    }
+  },
+  "post_hoc_levers_measured": {
+    "note": "Every post-hoc lever tried against the 2026-09-18 targets, with where it tops out.",
+    "s_boost_sweep": {
+      "variant": "ensemble 2m+1m+100k_refined, native, min-run 2",
+      "portal_calibrated_value": 0.75,
+      "points": {
+        "1.00": {
+          "portal_eval_S": "89.74/86.66",
+          "mitdb_S": "55.99/68.34"
+        },
+        "0.75": {
+          "portal_eval_S": "88.52/88.21",
+          "mitdb_S": "52.31/69.37"
+        },
+        "0.60": {
+          "portal_eval_S": "87.18/89.30",
+          "mitdb_S": "49.33/70.59"
+        },
+        "0.45": {
+          "portal_eval_S": "85.60/90.95",
+          "mitdb_S": "44.95/71.66"
+        }
+      },
+      "finding": "mitdb S +P saturates at ~71.7; 59% of the remaining false positives are records 222+219 (AF/AFL), which are confident S calls, not marginal ones. +P 80 at Se 43 needs FP<=295, best point gives 488."
+    },
+    "ensemble_with_head": {
+      "tag": "ens_head_1m_100kr_native",
+      "mitdb_mr2": {
+        "Q_Se": "99.92",
+        "Q_+P": "99.89",
+        "V_Se": "94.66",
+        "V_+P": "97.13",
+        "S_Se": "53.30",
+        "S_+P": "69.17"
+      },
+      "mitdb_mr3": {
+        "Q_Se": "99.92",
+        "Q_+P": "99.90",
+        "V_Se": "94.66",
+        "V_+P": "97.15",
+        "S_Se": "53.30",
+        "S_+P": "69.17"
+      },
+      "finding": "interpolates between its parents on mitdb; best portal-eval S F1 of all variants (88.40); min-run 3 gives mitdb Q +P 99.90"
+    },
+    "exhausted": [
+      "SWA",
+      "5 ensembles",
+      "refinement head (3 configs x 2 lead modes)",
+      "--min-run 1/2/3",
+      "--lead-mode duplicate/native",
+      "s_boost 1.0/0.75/0.6/0.45",
+      "noise retrain on all four sizes"
+    ],
+    "unreached": {
+      "mitdb_Q_99.95": "best 99.92/99.90 = 65 missed / 85 extra vs <=42 each; records 203 and 105 hold most of it",
+      "mitdb_S_+P_80": "best 71.66; records 222/219 (AF) hold 59% of the false positives"
+    }
+  },
+  "default_lead_mode": "native"
 }

@@ -4,8 +4,8 @@ Một họ model (ResUMamba thích ứng cho contract seq2seq) ở **bốn** kí
 duy nhất qua dữ liệu:
 
 ```
-record portal ──► npy ──► tfrecord ──► ssl ──► cpc ──► train ──► step eval ──► beat eval (EC57/bxb)
-                                    └── tự giám sát, không dùng nhãn ──┘
+record portal ──► npy ──► tfrecord ──► ssl ──► cpc ──► train ──► refine ──► step eval ──► beat eval (EC57/bxb)
+                                    └── tự giám sát, không dùng nhãn ──┘      └ head thời gian trên base đóng băng
 ```
 
 **Contract:** vào `(2500, 3)` = 10 s @ 250 Hz trên **3 chuyển đạo**, ra `(500, 4)` softmax —
@@ -26,7 +26,7 @@ cd ecg_resumamba
 pip install -r requirements.txt          # hoặc dùng env conda `beat` có sẵn trên máy này
 python -c "import tensorflow as tf; print(tf.config.list_physical_devices('GPU'))"
 which bxb sumstats                       # trống = chưa cài WFDB apps, bước ec57 sẽ báo lỗi
-./run_pipeline.sh test                   # 71 test, ~2 phút
+./run_pipeline.sh test                   # 89 test, ~2 phút
 ```
 
 > **`libdevice not found at ./libdevice.10.bc`.** Bánh xe `tensorflow[and-cuda]` có cuDNN và
@@ -66,7 +66,7 @@ trường trong launcher, **đừng sửa file khi job đang chạy**:
 | `ECGR_WORK_DIR` | nơi ghi npy/tfrecord/checkpoint/report | `<DATA_DIR>/train` |
 | `ECGR_RUN_TAG` | tên thư mục run | hôm nay `yymmdd_ecgr` |
 | `ECGR_IN_CHANNELS` | **số chuyển đạo** đưa vào model | `3` |
-| `ECGR_EC57_LEAD_MODE` | `auto` / `duplicate` / `native` (mục 6b) | `auto` |
+| `ECGR_EC57_LEAD_MODE` | `native` / `duplicate` / `auto` (mục 7b, 8f) | `native` |
 | `ECGR_SSL_RUN` | dùng lại backbone tự giám sát của run khác | — |
 | `ECGR_CPC_RUN` | dùng lại bộ mã hóa CPC của run khác | — |
 | `ECGR_WORKERS` | số process khi build npy | `cpu/2` |
@@ -401,6 +401,83 @@ Output:
 <RUN_DIR>/logs/<model>/                                   tensorboard --logdir đây
 ```
 
+### 6f. Chặng 4: đầu tinh chỉnh theo thời gian — [`refine`](ecgr/training/refine.py)
+
+```bash
+python -m ecgr refine --model resumamba_2m          # train head trên base đóng băng + chọn epoch
+python -m ecgr ec57   --model resumamba_2m --checkpoint <run>/checkpoints/resumamba_seq2seq_2m/refined/refined_best.keras --tag resumamba_2m_refined
+./run_pipeline.sh refine resumamba_2m               # cả hai bước
+```
+
+Model gốc gán nhãn từng bước 20 ms từ hình thái cộng với ngữ cảnh mà nhánh state-space mang
+*ngầm*. Nhưng S/N phần lớn là câu hỏi về **thời điểm** — nhịp ngoại vị trên thất đến *sớm* so
+với nhịp quanh nó — và bằng chứng đó nằm trong **chuỗi nhịp model vừa dự đoán**, không nằm trong
+đặc trưng của một bước riêng lẻ. [`models/refine.py`](ecgr/models/refine.py) gắn một mạng
+state-space hai chiều nhỏ (~22k tham số) đọc đúng thứ đó: đặc trưng trước softmax của base nối
+với chính phân phối lớp `p₁(t)` của nó (và `log p₁`). Kernel 256 bước mỗi chiều = 5,1 s = 6–10
+khoảng R–R — đúng khung mà bác sĩ đọc tính đến sớm.
+
+Hai tính chất được **xây vào** chứ không hy vọng:
+
+* **`p_None` được bảo toàn chính xác.** Head chỉ phát ra hiệu chỉnh cho ba lớp *nhịp*, và đầu ra
+  được ghép `[p_None, (1 − p_None)·softmax(logit_nhịp + Δ)]`: nó phân phối lại khối lượng giữa
+  N/V/S, không thể tự biến một phát hiện thành nền hay ngược lại. Phát hiện QRS vẫn là của base.
+* **Khởi đầu là phép đồng nhất.** Lớp cuối khởi tạo bằng 0, nên `epoch_00` **chính là** base.
+  Nhờ đó quy tắc chọn dưới đây luôn có ít nhất một ứng viên hợp lệ.
+
+Base **đóng băng** khi train head: chỉ số của nó là sàn, và một base đóng băng không thể tụt khỏi
+sàn. Sau khi train, **mọi epoch được chấm bxb trên mẫu 5,000 record `portal-eval`** (cùng mẫu mà
+base đã được chấm) và epoch thắng là epoch có **S F1 cao nhất trong số các epoch mà Q, V, S Se và
++P đều ≥ base** (dung sai `REFINE_TOLERANCE_PP` = 0,1 điểm cho nhiễu chấm). Không epoch nào đủ →
+base được chọn và `selection.json` nói rõ. Chọn trên `portal-eval`, **không** trên beat-eval hay
+mitdb: đó là các holdout được báo cáo, chọn trên chúng là tự chấm.
+
+### 6g. Hai đòn bẩy sau khi đã train: SWA, ensemble, và bộ lọc decoder
+
+Ba công cụ *không cần train lại*, mỗi cái là một cách khác nhau để nâng **cả** Se và +P thay
+vì đổi cái này lấy cái kia:
+
+```bash
+python -m ecgr swa  --model resumamba_2m --checkpoints <BEST_F1>/*.keras --out swa.keras
+python -m ecgr ec57 --model resumamba_2m --checkpoint a.keras b.keras c.keras --tag ens   # ensemble
+python -m ecgr ec57 --model resumamba_2m --min-run 2                                       # bộ lọc decoder
+```
+
+* **SWA** ([`training/swa.py`](ecgr/training/swa.py)) — trung bình trọng số của vài epoch tốt cuối
+  cùng một run. Kéo nghiệm về vùng phẳng của mặt loss, thứ mà một checkpoint đơn lẻ — chọn tại
+  một đỉnh nhiễu của chỉ số mức bước — không có. Thống kê BatchNorm được trung bình cùng; đó là
+  xấp xỉ thường dùng thay cho việc ước lượng lại, và các epoch liên tiếp của một run đủ gần để
+  nó đúng.
+* **Ensemble** (`Ensemble` trong [`evaluation/ec57.py`](ecgr/evaluation/ec57.py)) — trung bình
+  softmax của nhiều model theo từng bước. Báo nhầm *độc lập* của các thành viên triệt tiêu,
+  phát hiện *chung* cộng dồn — đây là thay đổi lúc suy luận đáng tin nhất để nâng đồng thời
+  Se và +P, trả bằng một lượt forward mỗi thành viên. Mọi stage eval coi nó như một model.
+* **`--min-run`** — bỏ các run ngắn hơn N bước khi giải mã. Một phát hiện 1 bước (20 ms) gần như
+  luôn là nhấp nháy artefact chứ không phải nhịp (block nhãn rộng 11 bước), nên bộ lọc mua +P
+  với giá Se gần bằng không. Chỉnh trên `portal-eval`.
+
+### 6h. Train lại có nhiễu tổng hợp — run `260918_3lead_noise`
+
+Phân tích theo từng record của mitdb (từ bảng `-L` của bxb) cho `2m`: **74/82 nhịp bỏ sót và
+99/121 báo nhầm nằm trong 4 record nhiễu** 203, 105, 108, 116; còn nstdb theo định nghĩa là
+database stress nhiễu. Trong khi đó cửa sổ train là strip portal đã review — sạch — và pipeline
+augment **không có** một dạng nhiễu nào. Model chưa từng học giữ nhịp qua artefact.
+
+[`pipeline._noise`](ecgr/data/pipeline.py) thêm ba thành phần, mỗi cái bật theo xác suất riêng
+cho từng mẫu (≈ 80% batch mang ít nhất một loại), biên độ theo đơn vị z-score (QRS ở 3–8):
+
+| thành phần | dạng | xác suất / biên độ | mô phỏng |
+|---|---|---|---|
+| trôi đường nền | 2 sin/chuyển đạo, 0.05–0.6 Hz | 0.5 / ≤ 0.6 | hô hấp, trôi điện cực |
+| nhiễu băng rộng | Gauss trắng | 0.5 / ≤ 0.25 | EMG, bộ khuếch đại |
+| chuyển động điện cực | 1 bump Hann 0.2–1 s, **một** chuyển đạo, ±1–3 | 0.2 | dạng giống QRS nhất, tốn +P nhất |
+
+Nhãn giữ nguyên. Cùng run này bật `SAVE_EVERY_EPOCH`: mọi epoch từ `CKPT_START_EPOCH` được lưu
+(`<ckpt>/epochs/epoch_NN.keras`) để **chọn checkpoint bằng bxb trên `portal-eval`** thay vì bằng
+F1 mức bước — đúng cảnh báo của chính README này rằng F1 mức bước không chọn được model tốt ở mức
+nhịp. SSL/CPC được tái dùng từ `260917_3lead` (`ECGR_SSL_RUN` / `ECGR_CPC_RUN`), kiến trúc không
+đổi.
+
 ## 7. Eval
 
 **7a. Mức bước** — chỉ số **rẻ** để chọn checkpoint, **không phải** chỉ số đánh giá cuối:
@@ -421,9 +498,12 @@ python -m ecgr ec57 --model resumamba_30k --lead-mode duplicate # một chuyển
 
 | chế độ | physionet (2 chuyển đạo) | portal beat-eval (3 chuyển đạo) |
 |---|---|---|
-| `auto` (mặc định) | `duplicate` — chuyển đạo 0 lặp ba lần | `native` — montage thật, giống lúc train |
+| **`native` (mặc định)** | **2 chuyển đạo thật + 1 bản lặp** | montage thật |
 | `duplicate` | chuyển đạo 0 lặp ba lần | chuyển đạo được review, lặp ba lần |
-| `native` | 2 chuyển đạo thật + 1 bản lặp | montage thật |
+| `auto` | như `native` (read_leads tự lấp khi thiếu) | montage thật |
+
+Mặc định là `native` từ 20/09/2026 — lý do và số đo ở mục 8f. `duplicate` giữ lại làm đối chứng
+"một chuyển đạo" khắt khe: `--lead-mode duplicate`.
 
 Chấm **bốn nhóm nguồn**, cùng một cách:
 
@@ -472,6 +552,51 @@ kết thúc đúng tại hết record.
 
 Cả hai tính chất — lát kín chính xác, và round-trip `nhãn → dự đoán oracle → giải mã` trả lại
 đúng số nhịp ban đầu với sai số vị trí ≤ 2 mẫu — đều có test.
+
+## 7d. Đánh giá tại local — [`evaluate.py`](evaluate.py)
+
+Chấm một checkpoint trên EC57 + bộ v4 beat-eval bằng **một lệnh**, không cần biết gì về run tag:
+
+```bash
+PY=~/miniconda3/envs/beat/bin/python           # env có tensorflow
+
+# một model, đọc native (khuyến nghị), đủ 5 database EC57 + 5,227 record v4
+$PY evaluate.py --checkpoint checkpoints/resumamba_2m.keras --lead-mode native
+
+# ensemble: nhiều checkpoint = trung bình softmax, đúng cách các bảng mục 8 được tạo
+$PY evaluate.py --lead-mode native --min-run 2 \
+    --checkpoint checkpoints/resumamba_2m.keras \
+                 checkpoints/resumamba_1m.keras \
+                 checkpoints/resumamba_100k_refined.keras
+
+# chạy thử nhanh: 3 record mỗi database, chỉ mitdb
+$PY evaluate.py --checkpoint checkpoints/resumamba_30k.keras --dbs mitdb --max-records 3
+
+# chấm lại bằng bxb, không suy luận lại (4 giây thay vì vài phút)
+$PY evaluate.py --checkpoint checkpoints/resumamba_2m.keras --bxb-only
+
+# so với lần chạy trước: mọi chỉ số kèm delta
+$PY evaluate.py --checkpoint <mới>.keras --baseline eval_results/<cũ>/ec57_summary.csv
+```
+
+Nó là cửa vào mỏng của cùng bộ máy `python -m ecgr ec57` dùng, khác ở bốn điểm — và mỗi điểm là
+một thứ đã từng làm mất thời gian:
+
+* **Nhận checkpoint tường minh**, ghi vào `./eval_results/<tên>/` ở thư mục làm việc. `ecgr ec57`
+  ghi vào thư mục của `ECGR_RUN_TAG` và mặc định lấy checkpoint mà một run huấn luyện tình cờ để
+  lại — không dùng được cho "chấm đúng file này, ở đây, ngay bây giờ".
+* **Kiểm tra điều kiện TRƯỚC khi tốn GPU**: `bxb`/`sumstats` trên PATH, database có trên đĩa,
+  checkpoint tồn tại, và tensorflow import được bằng đúng interpreter đang chạy. Thiếu bất kỳ cái
+  nào thì bình thường sẽ hiện ra dưới dạng một báo cáo rỗng sau một giờ.
+* **Đánh dấu theo ngưỡng nghiệm thu**: `*` đạt, `!` chưa, kèm danh sách cái nào thiếu bao nhiêu.
+  Ngưỡng nằm trong `TARGETS` ở đầu file (mitdb Q ≥ 99.95 hai chiều, S Se > 43 / +P > 80; v4-beat
+  S Se > 88 / +P > 92); database không có ngưỡng thì không bị đánh dấu.
+* **Không chấm hai split portal** (`portal-train`/`portal-eval`, mục 7b) — chúng là công cụ của
+  một run huấn luyện, không phải của việc nghiệm thu một file.
+
+Dự đoán `.ain` và báo cáo WFDB thô được giữ dưới thư mục kết quả, nên mọi con số truy ngược được
+về từng record. `--lead-mode`, `--min-run`, `--s-boost` giống hệt `ecgr ec57` (mục 7b, 8f, 8i).
+
 
 ## 8. So sánh nhiều model
 
@@ -547,13 +672,347 @@ Bốn điều rút ra:
 `30k` nhạy nhất trên mọi database và `100k` chính xác nhất; hai model nhỏ nằm ở hai điểm khác
 nhau của cùng đường cong Se/+P chứ không cái nào trội hẳn.
 
+### 8c. Track A đo được trên EC57 — và vì sao nó chưa đủ
+
+Ba biến thể không-train-lại được chọn trên `portal-eval` (mục 6g) rồi chấm đủ 8 nguồn. Se / +P;
+**đậm** = tốt hơn base `2m`, *nghiêng* = kém hơn:
+
+| nguồn · lớp | base `2m` | SWA-`2m` (ep 10+11+13) | ensemble SWA-`2m`+`1m`+`100k_ref` + min-run 2 | ensemble `2m`+`1m`+`100k_ref` + min-run 2 (không SWA) |
+|---|---|---|---|---|
+| mitdb · Q | 99.90 / 99.86 (82 sót / 121 nhầm) | 99.90 / *99.85* | 99.90 / **99.89** (86 / **89**) | 99.90 / **99.90** (85 / **87**) |
+| mitdb · S | 45.79 / 61.17 | *43.02* / *49.13* | *43.86* / *58.82* | *45.10* / **65.57** |
+| nstdb · Q | 96.42 / 83.72 | *96.26* / **84.18** | *95.59* / **85.89** | *95.64* / **85.94** |
+| nstdb · S | 78.88 / 23.94 | *78.68* / **26.45** | *75.19* / **38.61** | *75.97* / **39.56** |
+| escdb · S | 51.26 / 21.49 | **59.44** / **25.93** | **57.40** / **34.39** | **53.86** / **33.35** |
+| v4-beat · Q | 99.68 / 99.56 | *99.66* / *99.53* | **99.69** / **99.59** | **99.69** / **99.60** |
+| v4-beat · S | 85.86 / 90.92 | **86.99** / *90.68* | *84.77* / **91.09** | *84.22* / **91.36** |
+| v4-beat · V | 97.19 / 95.11 | **97.32** / *94.95* | *97.03* / **95.58** | *97.02* / **95.65** |
+
+Ba điều rút ra, và cả ba đều là lý do không có biến thể nào được "ship" theo tiêu chí *không chỉ số
+nào giảm*:
+
+1. **SWA-`2m` sụp S trên mitdb** dù tăng cả Se và +P của S trên `portal-eval`: báo nhầm S 798 →
+   1,221, trong đó **record 213** (xoang nhanh ~110 bpm, đều, có fusion) 34 → 350 và 202 18 →
+   85. Tách `portal-eval` theo loại nhịp: lớp TACHY/SVT chỉ 228 → 229 báo nhầm — portal **không
+   gây stress** chế độ này, nên không thể gác nó; gác bằng mitdb thì là tự chấm. Bài học: trung
+   bình trọng số trên một base mạnh có thể dịch ranh giới N/S trong một chế độ mà dữ liệu chọn
+   không phủ. Một biến thể chỉ được ship sau khi đối chiếu **mọi** holdout, không sau `portal-eval`.
+2. **Ensemble cắt báo nhầm Q trong nhiễu** (mitdb 121 → 89: record 108 29 → 5, 105 33 → 25) và
+   nâng +P của mọi lớp trên mọi database — nhưng **giảm Q Se ở nstdb** (96.42 → 95.59) và afdb:
+   trong nhiễu các thành viên bất đồng, `p_None` trung bình thắng nhiều hơn. Control cùng
+   ensemble ở min-run 1: Q Se 95.82 — tức −0.6 là của ensemble, −0.23 là của `--min-run 2`.
+3. **Ensemble không SWA** là biến thể cân nhất: không còn lỗi record 213 (báo nhầm S mitdb 798 →
+   650, +P 61.2 → 65.6), Q +P lên ở mọi database, v4-beat S +P 91.36 — nhưng vẫn trả bằng Se
+   (mitdb S −0.7, v4-beat S −1.6, nstdb Q −0.8).
+4. Vì thế **Track A không thể** thỏa "Q Se tăng ở mọi tập" hay "S +P mitdb > 80": nó chỉ đổi chỗ
+   trên biên Pareto sẵn có của họ model. Hai mục tiêu đó cần một base tốt hơn ở đúng chỗ đang
+   lỗi — 80% lỗi Q của mitdb nằm trong 4 record nhiễu, ~47% báo nhầm S nằm trong record AF/AFL —
+   tức Track B (mục 6h) rồi đầu ngữ cảnh nhịp (mục 6f) trên base đó.
+
+### 8d. Track B — kết quả đầu tiên: `1m` train lại với nhiễu (run `260918_3lead_noise`)
+
+Cùng SSL/CPC, cùng kiến trúc, chỉ thêm `_noise` và lưu mọi epoch từ 10. Hai cách chọn checkpoint
+trên cùng run — theo F1 mức bước (như trước) và **theo bxb trên `portal-eval`** (`ecgr select`,
+mục 6h) — so với `1m` cũ:
+
+| mitdb | sót / nhầm Q | Q Se / +P | S Se / +P | 203 · 105 · 108 · 116 (sót/nhầm) | 213 nhầm S |
+|---|---|---|---|---|---|
+| `1m` cũ (260917) | 95 / 109 | 99.89 / 99.87 | 49.44 / 36.63 | 35/43 · 12/31 · 7/9 · 19/4 | 1,295 |
+| `1m`+nhiễu, chọn theo F1 bước (ep 11) | 85 / 135 | 99.90 / 99.84 | 53.70 / 40.30 | 31/48 · 15/36 · 4/12 · 15/2 | 1,139 |
+| `1m`+nhiễu, **chọn theo bxb** (ep 14) | **79 / 101** | **99.91 / 99.88** | 44.70 / **41.65** | 30/39 · 12/26 · 6/11 · 15/4 | **806** |
+| … cùng checkpoint, đọc `native` (mục 8f) | **74** / 108 | **99.91** / 99.87 | 45.03 / **50.82** | 30/36 · 15/32 · – · – | **316** |
+
+Ba điều rút ra:
+
+1. **Giả thuyết nhiễu đúng hướng nhưng chưa đủ liều**: trên các record nhiễu, checkpoint chọn
+   theo bxb giảm ~15% cả sót lẫn nhầm (95 → 79, 109 → 101) và là lần đầu **cả** Q Se và Q +P cùng
+   lên trên mitdb. Nhưng đích 99.95 cần ≤ 42 mỗi loại, tức cắt 50–65%. Nhiễu tổng hợp một mình
+   không tới đó.
+2. **Chọn theo bxb khác hẳn chọn theo F1 bước**, đúng như README này đã cảnh báo: cùng một run,
+   epoch 11 (F1 bước cao nhất) cho 135 báo nhầm Q và +P S 40.3; epoch 14 cho 101 và 41.7.
+3. Nhiễu làm model **nhạy hơn và kém chính xác hơn** một cách hệ thống: trên `portal-eval` mọi epoch
+   đều giảm V +P và S +P so với base cũ (0/10 hợp lệ theo quy tắc không-giảm). Record 213 (xoang
+   nhanh) là điểm yếu **của cả họ trừ `2m`**: `1m` cũ đã có 1,295 báo nhầm S ở đó.
+
+Đọc `native` cộng thêm lên trên `1m`+nhiễu như trên `2m`: mitdb S +P 41.7 → **50.8**, nstdb Q +P
+84.8 → **86.9**, escdb Q **99.96 / 99.91**, escdb S +P 14.8 → **29.9**; hai đòn bẩy (nhiễu khi
+train, hai chuyển đạo thật khi chấm) **cộng được** vì chúng chữa hai lỗi khác nhau.
+
+**`2m`+nhiễu, chọn theo F1 bước (ep 10), đọc `duplicate`** — một cảnh báo hơn là một kết quả: mitdb
+Q 85 sót / 125 nhầm (cũ 82 / 121; record 108 nhầm 29 → 8 nhưng 203 37 → 50), và S **44.70 / 51.23**
+(cũ 45.79 / 61.17) vì báo nhầm S ở **record 213 nổ từ 34 lên 507**. Khả năng "miễn nhiễm 213" của
+`2m` cũ là tính chất của *một checkpoint*, không của kiến trúc hay công thức train — đúng loại mong
+manh mà quy tắc chọn trên `portal-eval` không nhìn thấy. Đọc `native` đưa 213 của `2m` cũ về 1 báo
+nhầm, nhưng **không** cứu được `2m`+nhiễu: 507 → 592 (Q sót lại giảm 85 → **64**, thấp nhất từ đầu).
+Tức run nhiễu đã làm `2m` mất khả năng phân biệt xoang nhanh-đều với S ở cả hai chế độ đọc. Nghi phạm
+đầu tiên là thành phần *chuyển động điện cực* (bump Hann 1–3 std trên một chuyển đạo) — **đã kiểm và
+bác bỏ** (run `260918_2m_ft_nobump`): fine-tune `2m` ep13 với nhiễu **không** bump, LR 3e-4, chỉ **một
+epoch**, chọn-bxb hợp lệ trên `portal-eval` (S 89.72/85.27 → 90.20/85.63) — mà trên mitdb `duplicate`
+record 213 vẫn nổ 34 → **632** (S 43.68 / 48.23). Vậy bất kỳ nhiễu nào cũng đủ dịch ranh giới N/S ở
+chế độ xoang nhanh-đều khi model chỉ có MLII: "miễn nhiễm 213" của ep13 là một lưỡi dao, không phải một
+tính chất. Đọc `native`, cùng checkpoint ấy: 213 = **6**, S 50.35 / 65.84, Q 71 sót / 121 nhầm, nstdb
+S +P 31 → **50.8**. Tức với V5 trong tay, 213 luôn phân biệt được và sự mong manh này **không còn quan
+trọng** — một lý lẽ mạnh nữa cho chính sách `native`.
+
+**`2m`+nhiễu, chọn theo bxb (ep 13), đọc `duplicate`** — một điểm vận hành khác hẳn: mitdb S **38.29 /
+68.78** (+P +7.6, Se −7.5 so với `2m` cũ), escdb S +P 21.5 → **37.5**, nstdb S +P 23.9 → **67.7**
+(gấp gần ba) nhưng V +P giảm (mitdb 94.1 → 91.8, nstdb 67.1 → 61.9) và Q sót/nhầm không đổi
+(85 / 125). Trên `portal-eval` không epoch nào của run nhiễu là hợp lệ so với `2m` cũ (0/9). Nhiễu
+theo công thức này đẩy `2m` về phía **S chính xác hơn / V kém chính xác hơn / S kém nhạy hơn** — không
+phải một cải thiện đồng đều, và không đụng được vào lỗi Q của 203/105 (82 sót / 128 nhầm).
+
+Nhưng giải phẫu S trên mitdb của checkpoint này đáng chú ý: báo nhầm S 798 → **477**; record 213 về
+**13** (miễn nhiễm trở lại — khác với checkpoint chọn theo F1 bước, 507); và **record 222 (AFL)
+243 → 125** — lần đầu một record rung/cuồng nhĩ bị cắt một nửa, đúng chỗ mà đầu ngữ cảnh nhịp chỉ
+cắt được 15%. Giá: record 232 (APC không đến sớm) 366 → 265 TP. Mà đọc `native` chính là thứ cộng
++297 TP cho 232 trên `2m` cũ. Hai ứng viên đang chấm: checkpoint này ở `native`, và **ensemble chéo
+run** `2m` cũ (giỏi 232) + `2m`-nhiễu (giỏi 222) + `1m` + `100k_refined` ở `native`.
+
+**`100k`+nhiễu, chọn theo bxb (ep 16), đọc `duplicate`** — model nhỏ hưởng lợi rõ nhất từ nhiễu: so với
+`100k` cũ, mitdb Q +P 99.84 → **99.86**, S Se 32.0 → **42.9** (+P 69.1 → 60.7), v4-beat S **84.23 /
+90.20** (cũ 80.35 / 89.20 — **cả hai lên**), escdb S 43.5 / 19.9 → **56.2 / 21.3**, nstdb V +P 68.7 →
+**87.2**, S Se 65.9 → **79.1**. Trả bằng nstdb Q Se (96.1 → 95.3) và S +P mitdb/nstdb. Trên
+`portal-eval` không epoch nào hợp lệ so với `100k` cũ (0/11) — cùng mẫu "nhạy hơn, kém chính xác hơn"
+như `1m`/`2m`. Đầu ngữ cảnh nhịp — thứ đã nâng cả hai chiều S trên `100k` cũ — đang được gắn lên
+checkpoint này.
+
+Hai head gắn lên checkpoint này: `s_only` trung tính → mọi epoch đổi S Se lấy +P, **không** epoch nào
+hợp lệ (giữ base); `beats` với trọng số cũ → epoch 6 hợp lệ (2/7), S F1 `portal-eval` +0.18, và trên
+mitdb **cả hai chiều S lên nhẹ**: 42.91 / 60.69 → 44.70 / 61.72 (`dup`), 43.72 / 58.91 → 44.55 / 59.20
+(`native`). Thật, nhưng nhỏ — head trên `100k` đã cho hết những gì nó có.
+
+Còn chờ: `30k`; các bảng `native` còn lại; và thí nghiệm không-bump (dưới).
+
+### 8e. Đầu ngữ cảnh nhịp trên mitdb — cơ chế, và giới hạn của nó
+
+Ba head của `2m` bị quy tắc chọn loại trên `portal-eval` (mục 6f) được chấm **chỉ trên mitdb** để
+hiểu cơ chế — không phải để chọn (chọn trên mitdb là tự chấm). S Se / +P, và báo nhầm S theo record:
+
+| `2m` | S Se / +P | TP / FP | 222 (AFL) | 219 (AF) | 215 | 213 (xoang nhanh) | 200 |
+|---|---|---|---|---|---|---|---|
+| base | 45.79 / 61.17 | 1,257 / 798 | 243 | 87 | 117 | 34 | 94 |
+| head `s_only` ep4 | 41.35 / **66.57** | 1,135 / **570** | 211 | 72 | **72** | **12** | 68 |
+| head `neutral` ep6 | 41.86 / 65.85 | 1,149 / 596 | 213 | 78 | 82 | 21 | 67 |
+| head trọng số cũ ep6 | **48.82** / 60.12 | **1,340** / 889 | 250 | 90 | 127 | 80 | 103 |
+
+Head làm đúng việc của nó ở **nhịp nhanh-đều** (213: −65%, 215: −38%) — giống `100k_refined`
+gần sạch record 213 (1 báo nhầm) — nhưng chỉ cắt ~15% ở **AF/AFL** (222, 219), nguồn báo nhầm S
+lớn nhất. Và trên mitdb nó vẫn là thanh trượt Pareto: mỗi điểm +P đổi bằng gần một điểm Se.
+
+Cùng hai head đó đọc **`native`** (V5 cộng 232, head cắt 213/215/200):
+
+| `2m`, `native` | mitdb S Se / +P | 232 TP | 222 · 215 · 200 | nstdb Q Se / S +P / V +P |
+|---|---|---|---|---|
+| không head | 56.87 / 65.64 | 663 | 250 · 140 · 103 | 96.79 / 31.13 / 71.23 |
+| + head `s_only` ep4 | 49.80 / **70.36** | 525 | 222 · 74 · 64 | 96.97 / 47.82 / 73.40 |
+| + head `neutral` ep6 | 51.91 / 69.78 | 568 | 220 · 94 · 73 | **97.07** / **50.71** / **80.76** |
+
+`native` + head là **profile +P tốt nhất của một model đơn với Se > 43**: mitdb S +P 70.4, nstdb S +P
+50.7 và Q Se cùng lên. Nhưng trên mitdb S F1 vẫn giảm (60.9 → 58–59) vì head vẫn đổi 5 điểm Se lấy 4
+điểm +P, và 222/219 (AF) gần như không nhúc nhích.
+
+Số học của mục tiêu *S Se > 43 và +P > 80 trên mitdb*: cần ≤ ~295 báo nhầm ở ≥ 1,180 TP. Head tốt
+nhất ở `duplicate` đứng ở 570 / 1,135, ở `native` 576 / 1,367 — **cách đích gấp đôi về báo nhầm**. Không head hay ensemble nào trên họ
+base hiện tại đóng được khoảng cách đó; nó đòi một base xử lý AF khác hẳn (nhịp N trong rung nhĩ
+không được coi là "đến sớm"), và đó là hướng cho vòng sau — không phải một nút chỉnh.
+
+### 8f. Chính sách chuyển đạo trên EC57 — phát hiện lớn nhất của vòng này
+
+Từ đầu, EC57 được chấm với **một** chuyển đạo nhân ba (`duplicate`), theo đúng đặc tả. Mọi database
+EC57 lại có **hai** chuyển đạo thật. `--lead-mode native` đưa cả hai vào (2 thật + 1 lặp), model
+không đổi. Se / +P, chỉ đổi cách đọc dữ liệu:
+
+| | mitdb Q | mitdb V | mitdb S | nstdb Q | nstdb V | nstdb S |
+|---|---|---|---|---|---|---|
+| `2m` duplicate | 99.90 / 99.86 | 95.64 / 94.10 | 45.79 / 61.17 | 96.42 / 83.72 | 83.42 / 67.11 | 78.88 / 23.94 |
+| `2m` **native** | **99.91** / 99.86 | 95.12 / **96.21** | **56.87 / 65.67** | **96.79 / 84.30** | **85.28 / 71.23** | **80.43 / 31.11** |
+| `100k_refined` duplicate | 99.90 / 99.84 | 94.29 / 95.31 | 41.49 / 69.41 | 96.12 / 83.32 | 83.16 / 74.44 | 69.96 / 31.15 |
+| `100k_refined` **native** | **99.92** / 99.83 | 94.14 / **96.02** | **52.90** / 65.29 | **96.93 / 83.66** | **85.15 / 77.10** | **74.81** / 20.92 |
+
+Trên nstdb `2m` lên **mọi** chỉ số; trên mitdb chỉ V Se −0.5. Giải phẫu theo record của `2m` cho
+biết vì sao: +297 trong +304 nhịp S bắt thêm nằm ở **record 232** (366 → 663) — APC không đến sớm,
+chỉ nhận ra bằng sóng P, thứ **V5 có mà MLII không có**; record 213 báo nhầm S 34 → **1**; record 108
+báo nhầm Q 29 → 9. Chuyển đạo thứ hai chính là bằng chứng mà kiến trúc 3 chuyển đạo được xây để
+dùng (mục 3), và chính sách nhân ba đã giấu nó đi.
+
+Bảng đủ 5 database Physionet ở `native` (portal không đổi vì vốn đã 3 chuyển đạo thật). Se / +P;
+**đậm** = tốt hơn `2m` duplicate:
+
+| database · lớp | `2m` duplicate | `2m` native | ensemble `2m`+`1m`+`100k_ref` + min-run 2, native |
+|---|---|---|---|
+| mitdb · Q | 99.90 / 99.86 | **99.91** / 99.86 | **99.92 / 99.89** |
+| mitdb · V | 95.64 / 94.10 | 95.12 / **96.21** | 94.66 / **97.13** |
+| mitdb · S | 45.79 / 61.17 | **56.87 / 65.64** | **55.99 / 68.34** |
+| nstdb · Q | 96.42 / 83.72 | **96.79 / 84.29** | **96.79 / 86.36** |
+| nstdb · S | 78.88 / 23.94 | **80.43 / 31.13** | 75.97 / **39.12** |
+| escdb · Q | 99.90 / 99.81 | **99.96 / 99.91** | **99.96 / 99.91** |
+| escdb · V | 98.08 / 86.37 | 98.01 / **93.81** | 96.87 / **97.65** |
+| escdb · S | 51.26 / 21.49 | **55.07 / 28.67** | **55.53 / 37.36** |
+| ahadb · Q | 99.87 / 99.57 | **99.93 / 99.72** | **99.91 / 99.84** |
+| ahadb · V | 89.21 / 97.25 | **89.31 / 98.24** | **89.79 / 99.47** |
+| afdb · Q | 97.44 / 94.77 | **97.49 / 94.87** | **97.49 / 95.05** |
+
+Số học của mốc Q 99.95 trên mitdb (83,978 QRS → tối đa **42 sót và 42 nhầm**): `2m` duplicate
+82 / 121 → `2m` native 74 / 114 → ensemble native **65 / 93**. Phần còn lại nằm gần hết ở hai record
+nhiễu: 203 (31 sót / 41 nhầm) và 105 (12 / 29) — riêng chúng đã là 43 sót và 70 nhầm, tức chính là
+khoảng cách tới đích. Record 116 được `native` chữa (18 → 4 sót), record 108 được ensemble chữa
+(29 → 3 nhầm); 203 và 105 thì chưa gì chữa được.
+
+`2m native` là biến thể **gần nhất với "không chỉ số nào giảm"** trong toàn bộ vòng này: 30/32 ô lên,
+hai ô xuống là V Se mitdb (−0.52) và escdb (−0.07). Q trên escdb chạm **99.96 / 99.91** — mốc
+99.95 đã đạt ở một database. Ensemble native là biến thể +P mạnh nhất (mitdb Q 99.92 / 99.89, S +P
+68.3 với Se 56) nhưng vẫn trả bằng Se của V và của S trên nstdb / v4-beat.
+
+**Quyết định (20/09/2026): `EC57_LEAD_MODE` mặc định là `native`.** Ba lý do, tất cả đều có số:
+
+1. Nó là cách dùng model đúng với dữ liệu sẵn có — kiến trúc 3 chuyển đạo được xây để đọc cả
+   montage (mục 3), và mọi database EC57 đều có hai chuyển đạo thật nằm đó không dùng.
+2. Nó **thêm bằng chứng**, không đổi ngưỡng: +297 trong +304 nhịp S bắt thêm nằm ở record 232, nơi
+   APC không đến sớm chỉ nhận ra được bằng sóng P trên V5. Đây là thông tin, không phải đánh đổi.
+3. Nó **bỏ đi một chỗ mong manh** thay vì che nó: ranh giới N/S ở xoang nhanh (record 213) là lưỡi
+   dao khi chỉ có MLII — fine-tune nhiễu một epoch cũng lật nó từ 34 lên 632 báo nhầm (mục 8d) —
+   và ổn định khi có V5 (34 → 1, và 632 → 6 cho chính checkpoint đã lật).
+
+`duplicate` vẫn chạy được bằng `--lead-mode duplicate` và mọi bảng `duplicate` vẫn nằm trong
+[`checkpoints/manifest.json`](checkpoints/manifest.json), vì nó là bài kiểm "một chuyển đạo"
+khắt khe nhất và là đối chứng của phát hiện này.
+
+### 8g. Kết luận vòng tuning (đến 20:45 ngày 18/09) — cái gì giao được, cái gì chưa
+
+Hai deliverable, cả hai đều là model **đã có** trong [`checkpoints/`](checkpoints/), khác nhau ở
+cách dùng:
+
+| | `2m`, đọc `native` | ensemble `2m`+`1m`+`100k_refined`, min-run 2, `native` | `2m` + head `s_only`, `native` |
+|---|---|---|---|
+| lệnh | `ecgr ec57 --checkpoint checkpoints/resumamba_2m.keras --lead-mode native` | `ecgr ec57 --checkpoint checkpoints/resumamba_2m.keras checkpoints/resumamba_1m.keras checkpoints/resumamba_100k_refined.keras --min-run 2 --lead-mode native` | `ecgr ec57 --checkpoint checkpoints/resumamba_2m_sonly_head.keras --lead-mode native` |
+| tính chất | **gần nhất với "không chỉ số nào giảm"**: 30/32 ô Physionet lên so với base, chỉ V Se mitdb −0.5, escdb −0.07 | **+P và Q mạnh nhất**: Q +P lên mọi database, V +P lên mọi database; trả bằng V Se (mitdb −1.0) và S Se (v4-beat −1.6, nstdb −2.9) | **+P của S cao nhất**: trả bằng S Se ở mọi nơi (mitdb −7, v4-beat −2.2, escdb −5) |
+| mitdb Q Se / +P | 99.91 / 99.86 (74 sót / 114 nhầm) | **99.92 / 99.89** (65 / 93) | 99.91 / 99.86 |
+| mitdb S Se / +P | **56.87** / 65.64 | 55.99 / **68.34** | 49.80 / **70.25** |
+| escdb Q | **99.96 / 99.91** | **99.96 / 99.91** | **99.96 / 99.91** |
+| v4-beat S | 85.86 / 90.91 | 84.22 / 91.36 | 83.62 / **92.85** |
+| nstdb S +P · Q Se | 31.13 · 96.79 | 39.12 · 96.79 | **47.82 · 96.98** |
+
+**Đối chiếu mục tiêu đặt ra:**
+
+| mục tiêu | tốt nhất đạt được | đạt? |
+|---|---|---|
+| Q Se, +P tăng ở mọi tập | `2m native`: Q lên ở 5/5 database Physionet, cả Se và +P | ✓ (portal không đổi vì vốn 3 chuyển đạo) |
+| mitdb Q Se > 99.95 | 99.92 (65 sót; đích ≤ 42) | ✗ — phần còn lại nằm ở record 203 (31) và 105 (12) |
+| mitdb Q +P > 99.95 | 99.89 (93 nhầm; đích ≤ 42) | ✗ — 203 (41) và 105 (29) |
+| mitdb S Se > 43 | 56.87 | ✓ |
+| mitdb S +P > 80 | 70.25 (head `s_only`, native) · 68.34 (ensemble) | ✗ — hai record AF 222 / 219 gánh ~nửa số báo nhầm |
+| v4-beat S Se > 88 · +P > 92 | Se 85.86 (`2m native`) · +P **92.85** (head `s_only`) | +P ✓ với head; Se ✗ ở mọi biến thể (tốt nhất 85.9) — hai đích này kéo ngược nhau trên họ base hiện tại |
+| chỉ số khác không giảm | `2m native`: 2/32 ô giảm (V Se, ≤ 0.5) | gần — không tuyệt đối |
+
+**Cái đã thử và không đủ**, mỗi cái có số đo trong các mục trên: SWA (8c — sụp S ở record 213),
+ensemble ở `duplicate` (8c — Q Se nstdb giảm), đầu ngữ cảnh nhịp (8e — trượt dọc biên Pareto, AF
+chỉ −15%), train lại có nhiễu theo công thức hiện tại (8d — Q sót giảm nhưng S đổi điểm vận hành,
+record 213 mong manh).
+
+**Ensemble chéo run** (`2m` cũ + `2m`-nhiễu chọn-bxb + `1m` + `100k_refined`, `native`, min-run 1) —
+đã chấm, **không trội hơn** ensemble Track A: mitdb Q y hệt (99.92 / 99.89, 65 / 93) nhưng S
+51.48 / 67.74 (Se −4.5: điểm mạnh 222 của thành viên nhiễu không sống qua phép trung bình, 222 về
+258); đổi lại escdb S +P 37.4 → **43.4**, nstdb S +P 39.1 → **45.8**, ahadb V Se 89.8 → **91.9**,
+v4-beat S +P **91.80**, `portal-eval` S 89.94 / 87.92 (lên cả hai). Một điểm khác trên biên, không
+phải một bước lên. Ensemble Track A vẫn là ứng viên mitdb tốt nhất.
+
+**Fine-tune không-bump** (8d) đã về: bác bỏ giả thuyết bump; xác nhận 213 chỉ mong manh ở `duplicate`.
+Không thay đổi hai deliverable. **Còn chạy**: `30k` + nhiễu với bảng `native`, và bảng đủ 8 nguồn của
+`2m` + head `s_only` ở `native` (lựa chọn "ưu tiên +P": mitdb S 49.8 / 70.4, nstdb S +P 47.8).
+
+**Cái cần một vòng khác, không phải một nút chỉnh**: (1) Q ≤ 42 sót/nhầm trên mitdb — hai record
+nhiễu 203/105 cần một model học được artefact thật hơn nhiễu tổng hợp hiện tại (nstdb có noise
+records `em`/`ma`/`bw` nhưng dùng chúng để train là làm bẩn benchmark nstdb; cần nguồn nhiễu khác);
+(2) S +P > 80 trên mitdb — cần một base không coi nhịp N trong rung nhĩ là "đến sớm", tức dữ liệu AF
+với nhãn N được nhấn mạnh trong loss hoặc một đặc trưng độ đều nhịp tường minh đưa vào head.
+
+### 8h. Bảng tổng hợp — mọi biến thể đã chấm, đối chiếu mục tiêu
+
+Mười biến thể trên cùng dữ liệu, cùng cách chấm. `native` = 2 chuyển đạo thật + 1 lặp (mục 8f);
+`mr2` = `--min-run 2`; `+head` = đầu tinh chỉnh `s_only` (mục 6f); `+noise bxb` = train lại có nhiễu,
+checkpoint chọn bằng bxb (mục 6h/8d).
+
+**mitdb** — mục tiêu: Q Se và +P > 99.95, S Se > 43, S +P > 80
+
+| biến thể | Q Se | Q +P | V Se | V +P | S Se | S +P |
+|---|---|---|---|---|---|---|
+| `2m` (duplicate, gốc) | 99.90 | 99.86 | 95.64 | 94.10 | 45.79 | 61.17 |
+| `2m` native | 99.91 | 99.86 | 95.12 | 96.21 | **56.87** | 65.64 |
+| `2m`+head native | 99.91 | 99.86 | 95.08 | 96.28 | 49.80 | **70.25** |
+| ens `2m`+`1m`+`100k_ref` mr2 (dup) | 99.90 | **99.90** | 95.27 | 95.48 | 45.10 | 65.57 |
+| ens … native | **99.92** | 99.89 | 94.66 | **97.13** | 55.99 | 68.34 |
+| ens chéo run native | **99.92** | 99.89 | 94.97 | 96.99 | 51.48 | 67.74 |
+| `2m`+noise bxb native | **99.92** | 99.85 | 95.17 | 93.88 | 39.67 | 65.17 |
+| `1m`+noise bxb native | 99.91 | 99.87 | **95.80** | 95.22 | 45.03 | 50.82 |
+| `100k`+noise bxb native | **99.92** | 99.85 | 94.08 | 95.43 | 43.72 | 58.91 |
+| `30k`+noise bxb native | 99.90 | 99.78 | 92.76 | 95.38 | 42.26 | 57.91 |
+
+**dataset-v4-beat** — mục tiêu: S Se > 88, S +P > 92
+
+| biến thể | Q Se | Q +P | V Se | V +P | S Se | S +P |
+|---|---|---|---|---|---|---|
+| `2m` native | 99.68 | 99.56 | 97.19 | 95.11 | **85.86** | 90.91 |
+| `2m`+head native | **99.69** | 99.57 | 97.15 | 95.06 | 83.62 | **92.85** ✓ |
+| ens … native | **99.69** | **99.60** | 97.02 | **95.65** | 84.22 | 91.36 |
+| ens chéo run native | **99.69** | **99.60** | 97.14 | 95.42 | 84.14 | 91.80 |
+| `2m`+noise bxb native | 99.67 | 99.53 | **97.67** | 94.52 | 83.96 | 91.72 |
+| `1m`+noise bxb native | 99.66 | 99.51 | 96.98 | 94.94 | 85.32 | 89.57 |
+
+**Train lại có nhiễu — kết luận trên cả bốn kích thước**: nó giúp `100k` (v4-beat S **cả hai chiều**
+lên: 80.35/89.20 → 84.23/90.20) và giúp Q sót trên mitdb, nhưng **không** giúp `2m` (S Se 56.9 → 39.7)
+và **hại** `30k` (v4-beat S 84.23/85.86 → 81.41/88.45, mitdb S Se 50.75 → 42.26). Không epoch nào của
+bất kỳ kích thước nào hợp lệ theo quy tắc không-giảm trên `portal-eval` (0/10, 0/9, 0/11, 0/18). Công
+thức nhiễu này là một **dịch điểm vận hành**, không phải một cải thiện — và các checkpoint cũ vẫn là
+cơ sở cho ba deliverable ở mục 8g.
+
+### 8i. `--s-boost` bão hoà — và vì sao mitdb S +P 80 không phải chuyện chỉnh ngưỡng
+
+`s_boost` nhân xác suất S trước argmax, tức trượt model dọc đường cong Se/+P của chính nó mà
+không train lại — đòn bẩy cuối cùng chưa thử. Quét trên hai biến thể +P tốt nhất (`native`), hiệu
+chuẩn trên `portal-eval`, báo cáo mitdb:
+
+| `s_boost` | portal-eval S Se/+P (F1) | mitdb S Se/+P | mitdb Q |
+|---|---|---|---|
+| 1.00 | 89.74 / 86.66 (88.17) | 55.99 / 68.34 | 99.92 / 99.89 |
+| **0.75** | 88.52 / 88.21 (**88.36**) | 52.31 / 69.37 | 99.92 / 99.89 |
+| 0.60 | 87.18 / 89.30 (88.23) | 49.33 / 70.59 | 99.92 / 99.89 |
+| 0.45 | 85.60 / 90.95 (88.19) | 44.95 / **71.66** | 99.92 / 99.89 |
+
+(ensemble `2m`+`1m`+`100k_ref`, `native`, min-run 2. Hiệu chuẩn đúng luật — chọn trên `portal-eval`
+— cho **0.75**; Q không đổi ở mọi điểm vì `s_boost` chỉ đụng lớp S.)
+
+**+P bão hoà quanh 71–72 ngay cả khi ép Se xuống sát 43.** Giải phẫu cho biết vì sao:
+
+| `s_boost` | S TP | S FP | 222 | 219 | 215 | 200 | 202 |
+|---|---|---|---|---|---|---|---|
+| 1.00 | 1,537 | 712 | 260 | 94 | 62 | 67 | 74 |
+| 0.45 | 1,234 | 488 | **220** | **69** | 37 | 23 | 44 |
+
+Hạ ngưỡng 55% vẫn chỉ cắt 15% báo nhầm ở 222 và 27% ở 219; **59% số báo nhầm còn lại nằm ở hai
+record rung/cuồng nhĩ đó**. Nghĩa là chúng không phải những lời gọi S lưỡng lự mà một ngưỡng gạt
+được — model **tự tin** rằng nhịp ấy đến sớm, vì trong rung nhĩ khoảng R–R *thật sự* bất thường.
+Số học: để đạt +P 80 ở Se 43 cần FP ≤ 295; điểm tốt nhất cho 488.
+
+Thí nghiệm cuối cùng — **đưa head vào chính ensemble** (`2m`+head, `1m`, `100k_ref`, `native`) — chỉ
+cho một điểm **nội suy** giữa hai model cha: mitdb S 53.30 / 69.17 (cha: 55.99/68.34 và 49.80/70.25),
+Q 99.92 / 99.89. Không cộng hưởng. `--min-run 3` thay vì 2 nhích Q +P lên **99.90** (nhầm 87 → 85) mà
+không đổi gì khác. Trên `portal-eval` tổ hợp này lại là điểm S cân nhất: 89.15 / 87.66, **F1 88.40** —
+cao nhất mọi biến thể.
+
+Kết luận: **mitdb S +P > 80 không đạt được bằng bất kỳ đòn bẩy sau-huấn-luyện nào** — SWA,
+ensemble (5 tổ hợp), đầu tinh chỉnh (3 cấu hình × 2 chế độ chuyển đạo), `--min-run` (1/2/3),
+`--lead-mode`, `s_boost` (4 điểm), và train lại có nhiễu trên cả 4 kích thước đều đã đo. Nó cần model học rằng *nhịp N trong
+rung nhĩ không phải nhịp đến sớm*: một đặc trưng độ đều nhịp/AF tường minh đưa vào head, hoặc dữ
+liệu AF có nhãn N được nhấn mạnh trong hàm mất mát. Đó là thay đổi ở mức bài toán, không phải ở
+mức siêu tham số.
+
 ## 9. Test — [`tests/`](tests/)
 
 ```bash
 ./run_pipeline.sh test          # hoặc: python -m pytest tests/ -q
 ```
 
-71 test, không cái nào cần dataset thật trừ [`test_ec57.py`](tests/test_ec57.py) (tự skip khi
+89 test, không cái nào cần dataset thật trừ [`test_ec57.py`](tests/test_ec57.py) (tự skip khi
 thiếu database). Chúng ghim đúng những thứ đã từng sai âm thầm:
 
 | file | ghim cái gì |
@@ -574,11 +1033,12 @@ ecg_resumamba/
 │   ├── labels.py           annotation → nhãn 500 bước, và ngược lại (giải mã nhịp)
 │   ├── checkpoints.py      tìm checkpoint tốt nhất theo F1 trong tên file
 │   ├── data/               splits.py · build_npy.py · build_tfrecord.py · pipeline.py
-│   ├── models/             layers.py (DiagSSM1D, AdaIN, RhythmDescriptor) · resumamba.py
-│   ├── training/           losses.py · callbacks.py · ssl.py · cpc.py · train.py
+│   ├── models/             layers.py (DiagSSM1D, AdaIN, RhythmDescriptor) · resumamba.py · refine.py
+│   ├── training/           losses.py · callbacks.py · ssl.py · cpc.py · train.py · refine.py
 │   ├── evaluation/         step_metrics.py · bxb.py · ec57.py · report.py
 │   └── cli.py              `python -m ecgr <stage>`
-├── tests/                  71 test, chạy ở đâu cũng được
+├── evaluate.py             chấm EC57 + v4 beat-eval tại local, một lệnh (mục 7d)
+├── tests/                  89 test, chạy ở đâu cũng được
 ├── docs/references/        danh mục tài liệu tham khảo
 ├── checkpoints/            4 checkpoint 3 chuyển đạo + weights ssl/cpc + manifest.json; legacy_1lead/ = 3 bản cũ
 ├── logs/tensorboard_legacy_1lead/  log train của 3 run 1 chuyển đạo cũ
@@ -608,7 +1068,7 @@ ecg_resumamba/
 | cửa sổ cuối khi sweep | có thể >90% là đệm, rồi bị z-score | kết thúc đúng tại hết record |
 | build npy | một tiến trình | **đa tiến trình** (~5000 record/s với 32 worker) |
 | `bxb` | `shell=True` không quote, bỏ qua exit status | quote đầy đủ + kiểm exit status |
-| test | không có | **71** |
+| test | không có | **89** |
 
 ### Bất định của GPU — đã biết, đã đo
 

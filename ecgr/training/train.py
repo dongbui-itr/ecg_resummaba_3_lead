@@ -88,7 +88,7 @@ def load_pretrained(model, name, weights_path, freeze, required=False):
 def train(model_name, epochs=None, batch_size=None, lr=None, loss=None,
           monitor=None, patience=None, cm_interval=1, db_names=None,
           ckpt_start_epoch=None, ctx_weights=None, ssl_weights=None,
-          freeze_ctx=True, freeze_backbone_epochs=None):
+          freeze_ctx=True, freeze_backbone_epochs=None, init_from=None):
     """Train one model of models.BUILDERS end to end.
 
     monitor defaults to config.MONITOR (val_weighted_f1, produced by the StepConfusion
@@ -121,16 +121,25 @@ def train(model_name, epochs=None, batch_size=None, lr=None, loss=None,
 
     model = models.build(model_name)
     keras_name = model.name
-    ssl_asked, ctx_asked = ssl_weights is not None, ctx_weights is not None
-    if not ssl_asked:
-        ssl_weights = config.ssl_weights_dir(keras_name)
-    if not ctx_asked:
-        ctx_weights = config.cpc_weights_dir(keras_name)
-
-    backbone = load_pretrained(model, 'backbone', ssl_weights, freeze=warmup > 0,
-                               required=ssl_asked)
-    load_pretrained(model, 'context_encoder', ctx_weights, freeze=freeze_ctx,
-                    required=ctx_asked)
+    backbone = None
+    if init_from:
+        # Fine-tuning: start from a fully trained checkpoint of the same architecture. The
+        # self-supervised sub-weights are already inside it, so neither is loaded; the
+        # context encoder is still frozen (or not) exactly as for a fresh run.
+        model.load_weights(init_from)
+        models.sub_model(model, 'context_encoder').trainable = not freeze_ctx
+        print(f"init           : all weights from {init_from} "
+              f"(context encoder {'frozen' if freeze_ctx else 'trainable'})")
+    else:
+        ssl_asked, ctx_asked = ssl_weights is not None, ctx_weights is not None
+        if not ssl_asked:
+            ssl_weights = config.ssl_weights_dir(keras_name)
+        if not ctx_asked:
+            ctx_weights = config.cpc_weights_dir(keras_name)
+        backbone = load_pretrained(model, 'backbone', ssl_weights, freeze=warmup > 0,
+                                   required=ssl_asked)
+        load_pretrained(model, 'context_encoder', ctx_weights, freeze=freeze_ctx,
+                        required=ctx_asked)
 
     f1_metric = step_metrics.StepConfusion(name='weighted_f1')
 
@@ -157,6 +166,11 @@ def train(model_name, epochs=None, batch_size=None, lr=None, loss=None,
     eval_ds = pipeline.load_split('eval', batch_size, db_names)
 
     ckpt_dir, report_dir, logs_dir = model_dirs(model.name)
+    if config.SAVE_EVERY_EPOCH:
+        os.makedirs(os.path.join(ckpt_dir, 'epochs'), exist_ok=True)
+        print(f"epochs       : every epoch from {ckpt_start} saved under {ckpt_dir}/epochs/")
+    print(f"noise aug    : {'on' if config.AUGMENT_NOISE else 'off'} (wander p={config.AUGMENT_WANDER_PROB}, "
+          f"broadband p={config.AUGMENT_NOISE_PROB}, motion p={config.AUGMENT_MOTION_PROB})")
     print(f"checkpoints  : {ckpt_dir}\nreports      : {report_dir}\nlogs         : {logs_dir}")
 
     mode = 'max' if ('acc' in monitor or 'f1' in monitor) else 'min'
@@ -187,6 +201,10 @@ def train(model_name, epochs=None, batch_size=None, lr=None, loss=None,
             start_from_epoch=max(0, ckpt_start - 1),
             restore_best_weights=True, verbose=1),
     ]
+    if config.SAVE_EVERY_EPOCH:
+        callbacks.append(DelayedModelCheckpoint(
+            os.path.join(ckpt_dir, 'epochs', 'epoch_{epoch:02d}.keras'),
+            start_epoch=ckpt_start, save_best_only=False, verbose=0))
     if warmup > 0 and backbone is not None:
         callbacks.insert(0, UnfreezeBackbone(backbone, warmup + 1, compile_model))
 
