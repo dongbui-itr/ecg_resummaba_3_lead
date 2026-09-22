@@ -135,10 +135,14 @@ def build_parser():
     b.add_argument('--max-records', type=int, default=None)
     b.add_argument('--s-boost', type=float, default=1.0,
                    help='multiply the S probability before argmax; calibrate on portal only')
-    b.add_argument('--lead-mode', choices=['auto', 'duplicate', 'native'], default=None,
-                   help="how to fill the lead axis: 'duplicate' repeats the annotated lead "
-                        "(the only option on the 2-lead EC57 databases), 'native' uses the "
-                        "record's own montage, 'auto' picks per record (default: config)")
+    b.add_argument('--lead-mode', choices=['auto', 'native', 'single', 'duplicate'],
+                   default=None,
+                   help="how many of the record's REAL leads to use: 'native' all of them "
+                        "(default), 'single' only the annotated one, 'auto' per record "
+                        "('duplicate' is a deprecated alias of 'single')")
+    b.add_argument('--lead-fill', choices=['zero', 'duplicate'], default=None,
+                   help="what occupies the channels a record has no lead for: 'zero' "
+                        "(default) or 'duplicate' the annotated lead")
     b.add_argument('--bxb-only', action='store_true', help='re-score stored predictions')
     b.add_argument('--skip-physionet', action='store_true')
     b.add_argument('--skip-portal', action='store_true', help='skip the beat-eval holdout')
@@ -302,8 +306,8 @@ def main(argv=None):
                      max_records=args.max_records, s_boost=args.s_boost,
                      bxb_only=args.bxb_only, skip_physionet=args.skip_physionet,
                      skip_portal=args.skip_portal, mark_window=not args.whole_record,
-                     lead_mode=args.lead_mode, splits=args.splits,
-                     split_records=args.split_records)
+                     lead_mode=args.lead_mode, fill_mode=args.lead_fill,
+                     splits=args.splits, split_records=args.split_records)
         return 0
 
     if args.stage == 'all':

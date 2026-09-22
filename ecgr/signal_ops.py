@@ -55,10 +55,12 @@ def build_leads(raw, fs=config.SAMPLING_RATE, in_channels=None, primary=0, fill_
        after it, so the mapping is deterministic and reversible. Labels, the R-peak search in
        decode_beats, the flatness test and the rhythm descriptor all read channel 0, and they
        would all read a lead nobody annotated without this.
-    2. **A record with too few leads is filled by repeating channel 0.** Every EC57 database
-       has two leads and is annotated on the first, so scoring one means handing the model the
-       same lead three times. Training mirrors that case explicitly
-       (config.AUGMENT_LEAD_DUPLICATE_PROB), which is what keeps it in distribution.
+    2. **A record with too few leads is filled per `fill_mode`** (default
+       config.LEAD_FILL_MODE = 'zero'): the leftover channels are silence, which is what the
+       model sees whenever an electrode comes off and what training produces on purpose
+       (config.AUGMENT_LEAD_DROP_PROB). 'duplicate' repeats the annotated lead instead - also
+       in distribution (config.AUGMENT_LEAD_DUPLICATE_PROB), but it hands the model a second
+       vote for whatever the first lead already said.
     """
     n_ch = int(config.IN_CHANNELS if in_channels is None else in_channels)
     fill = config.LEAD_FILL_MODE if fill_mode is None else fill_mode
@@ -79,6 +81,8 @@ def build_leads(raw, fs=config.SAMPLING_RATE, in_channels=None, primary=0, fill_
     x = x[:, order][:, :n_ch]
 
     if x.shape[1] < n_ch:
+        if fill not in ('zero', 'duplicate'):
+            raise ValueError(f"fill_mode must be 'zero' or 'duplicate', got {fill!r}")
         missing = n_ch - x.shape[1]
         pad = (np.repeat(x[:, :1], missing, axis=1) if fill == 'duplicate'
                else np.zeros((len(x), missing)))

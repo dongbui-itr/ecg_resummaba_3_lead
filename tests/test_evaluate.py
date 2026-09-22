@@ -1,9 +1,9 @@
-"""The standalone evaluation entry point: argument handling, preflight, target marking.
+"""The local evaluation script: its CONFIG block, its preflight, its table.
 
-The scoring itself is covered by tests/test_ec57.py; what is worth pinning here is that the
-script refuses to start on a missing prerequisite (the whole reason it exists is that those
-failures otherwise appear as an empty report an hour later) and that the acceptance targets
-are applied to the right metrics.
+The scoring itself is covered by tests/test_ec57.py. What is worth pinning here is that the
+script refuses to start on a missing prerequisite - the whole reason it exists is that those
+failures otherwise surface as an empty report an hour later - and that the acceptance targets
+are applied to the right metrics and only to the databases that have them.
 """
 import os
 import sys
@@ -17,36 +17,53 @@ if ROOT not in sys.path:
 import evaluate  # noqa: E402
 
 
+def test_config_block_is_a_valid_run():
+    """The committed CONFIG must be runnable as it stands: real paths, legal enum values."""
+    assert evaluate.CHECKPOINTS, "CHECKPOINTS must name at least one file"
+    for path in evaluate.CHECKPOINTS:
+        assert os.path.exists(evaluate.resolve(path)), f"{path} is not in the repo"
+    assert evaluate.LEAD_MODE in ('native', 'single', 'auto', 'duplicate')
+    assert evaluate.LEAD_FILL in ('zero', 'duplicate')
+    assert evaluate.MIN_RUN >= 1 and evaluate.S_BOOST > 0
+    assert isinstance(evaluate.DATABASES, list)
+    from ecgr import config
+    assert set(evaluate.DATABASES) <= set(config.EC57_DBS)
+    # the script's defaults must be the project's defaults, or a bare run measures something
+    # other than what `python -m ecgr ec57` would
+    assert evaluate.LEAD_MODE == config.EC57_LEAD_MODE
+    assert evaluate.LEAD_FILL == config.LEAD_FILL_MODE
+
+
+def test_resolve_makes_config_paths_independent_of_the_cwd():
+    assert evaluate.resolve('checkpoints/x.keras').startswith(ROOT)
+    assert evaluate.resolve('/tmp/x.keras') == '/tmp/x.keras'
+
+
 def test_targets_cover_the_acceptance_criteria():
-    """mitdb Q >= 99.95 both ways, mitdb S Se > 43 / +P > 80, v4 S Se > 88 / +P > 92."""
     assert evaluate.TARGETS['mitdb'] == {'Q_Se': 99.95, 'Q_+P': 99.95,
                                          'S_Se': 43.0, 'S_+P': 80.0}
     assert evaluate.TARGETS['dataset-v4-beat'] == {'S_Se': 88.0, 'S_+P': 92.0}
-    # a database with no target must not be marked, and every target names a real metric
-    assert 'nstdb' not in evaluate.TARGETS
+    assert 'nstdb' not in evaluate.TARGETS      # no target => never marked
     for db, targets in evaluate.TARGETS.items():
         assert set(targets) <= set(evaluate.METRICS)
-
-
-def test_parse_args_defaults_and_ensemble():
-    args = evaluate.parse_args(['--checkpoint', 'a.keras'])
-    assert args.checkpoint == ['a.keras']
-    assert args.lead_mode == 'native' and args.min_run == 1 and args.s_boost == 1.0
-    assert not args.bxb_only and not args.skip_v4
-    many = evaluate.parse_args(['--checkpoint', 'a.keras', 'b.keras', '--lead-mode', 'native',
-                                '--min-run', '2'])
-    assert many.checkpoint == ['a.keras', 'b.keras'] and many.min_run == 2
 
 
 def test_preflight_rejects_a_missing_checkpoint(tmp_path, monkeypatch, capsys):
     from ecgr import config
     monkeypatch.setattr(config, 'PHYSIONET_DIR', str(tmp_path))
-    args = evaluate.parse_args(['--checkpoint', str(tmp_path / 'nope.keras'),
-                                '--dbs', '--skip-v4', '--bxb-only'])
     with pytest.raises(SystemExit) as exc:
-        evaluate.preflight(args)
+        evaluate.preflight(checkpoints=[str(tmp_path / 'nope.keras')], databases=[],
+                           score_v4=False, bxb_only=True)
     assert exc.value.code == 2
     assert 'checkpoint not found' in capsys.readouterr().err
+
+
+def test_preflight_rejects_an_empty_checkpoint_list(tmp_path, monkeypatch, capsys):
+    from ecgr import config
+    monkeypatch.setattr(config, 'PHYSIONET_DIR', str(tmp_path))
+    with pytest.raises(SystemExit):
+        evaluate.preflight(checkpoints=[], databases=[], score_v4=False, bxb_only=True)
+    assert 'CHECKPOINTS is empty' in capsys.readouterr().err
 
 
 def test_preflight_names_the_missing_database(tmp_path, monkeypatch, capsys):
@@ -54,10 +71,9 @@ def test_preflight_names_the_missing_database(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(config, 'PHYSIONET_DIR', str(tmp_path))
     ckpt = tmp_path / 'm.keras'
     ckpt.write_bytes(b'x')
-    args = evaluate.parse_args(['--checkpoint', str(ckpt), '--dbs', 'mitdb', '--skip-v4',
-                                '--bxb-only'])
     with pytest.raises(SystemExit):
-        evaluate.preflight(args)
+        evaluate.preflight(checkpoints=[str(ckpt)], databases=['mitdb'], score_v4=False,
+                           bxb_only=True)
     err = capsys.readouterr().err
     assert 'mitdb' in err and 'ECGR_PHYSIONET_DIR' in err
 
@@ -68,9 +84,8 @@ def test_preflight_passes_when_everything_is_there(tmp_path, monkeypatch):
     monkeypatch.setattr(config, 'PHYSIONET_DIR', str(tmp_path))
     ckpt = tmp_path / 'm.keras'
     ckpt.write_bytes(b'x')
-    args = evaluate.parse_args(['--checkpoint', str(ckpt), '--dbs', 'mitdb', '--skip-v4',
-                                '--bxb-only'])
-    assert evaluate.preflight(args) == ['mitdb']
+    assert evaluate.preflight(checkpoints=[str(ckpt)], databases=['mitdb'],
+                              score_v4=False, bxb_only=True) == ['mitdb']
 
 
 def test_table_marks_targets_and_lists_what_is_below(capsys):
@@ -86,9 +101,8 @@ def test_table_marks_targets_and_lists_what_is_below(capsys):
     assert '99.90!' in out, "a metric below its target must be flagged"
     assert '56.90' in out and '65.60!' in out
     assert 'mitdb            Q_+P' in out and 'mitdb            S_+P' in out
-    # nstdb has no targets: none of its cells may carry a mark
     nstdb_line = next(l for l in out.splitlines() if l.startswith('nstdb'))
-    assert '*' not in nstdb_line and '!' not in nstdb_line
+    assert '*' not in nstdb_line and '!' not in nstdb_line, "nstdb has no targets"
 
 
 def test_table_shows_deltas_against_a_baseline(capsys):

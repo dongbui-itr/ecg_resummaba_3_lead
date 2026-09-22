@@ -21,7 +21,19 @@ Bốn thành phần, và trạng thái của từng cái trong bản port này:
 | Poly-2 loss (ε₁ = 0.3, ε₂ = −0.5) | **giữ nguyên** |
 
 Kết quả họ công bố (MIT-BIH, liên bệnh nhân DS1/DS2, 30 lần chạy): macro F1 86.58 ± 0.05%,
-weighted F1 98.54 ± 0.08%, SVEB F1 93.74%, VEB F1 95.63%; 1.247M tham số, 0.700 GFLOPs.
+weighted F1 98.54 ± 0.08%. Bảng 8 của bài báo chia tham số như sau — đây là cột `ref` trong bảng
+so sánh 5 model ở README chính, mục 5c:
+
+| module | tham số (M) | FLOPs (G) | pha |
+|---|---|---|---|
+| ResU-Mamba · ResU | 0.696 | 0.354 | runtime |
+| ResU-Mamba · Mamba | 0.235 | 0.129 | runtime |
+| Patient-Conditioning (AdaIN) | 0.115 | 0.055 | runtime |
+| Clinical Feature Fusion | 0.201 | 0.162 | runtime |
+| Patient-specific Feature Extraction (CPC) | 0.345 | 0.183 | **chỉ lúc hiệu chuẩn** |
+| **Tổng suy luận trực tuyến** | **1.247** | **0.700** | — |
+
+Tổng kể cả bộ mã hóa bệnh nhân là **1.592M**. FLOPs tính cho **một nhịp** (cửa sổ L = 720 mẫu).
 **Không so trực tiếp được với bảng EC57 trong README chính** — họ phân loại từng nhịp với đỉnh
 R cho trước, ở đây model phải tự phát hiện nhịp trên đoạn 10 s chạy tự do.
 

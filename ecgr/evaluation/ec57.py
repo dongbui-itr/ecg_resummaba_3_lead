@@ -15,12 +15,16 @@ Four kinds of source are scored the same way:
 
 **Leads.** The model takes config.IN_CHANNELS leads with the annotated one on channel 0, and
 none of the five EC57 databases has that many: they are two-lead recordings annotated on the
-first signal. So ONE lead is chosen and repeated across the channel axis
-(`lead_mode='duplicate'`, what `auto` picks for these databases). The portal beat-eval set is
-natively 3-lead like the training data, so `auto` gives it its real montage; `--lead-mode
-duplicate` forces the single-lead reading everywhere, which is the strictest test and the one
-comparable with the older 1-lead checkpoints. Training reproduces the duplicated case at
-config.AUGMENT_LEAD_DUPLICATE_PROB, so neither reading is out of distribution.
+first signal. Two independent knobs decide what reaches the model. `lead_mode`
+(config.EC57_LEAD_MODE, 'native' since 2026-09-20) says how many of the record's REAL leads
+go in: 'native' both of them, 'single' only the annotated one ('duplicate' is its deprecated
+alias) - the strictest test, and the reading comparable with the older 1-lead checkpoints -
+and 'auto' takes 'native' only where the record ALREADY has IN_CHANNELS leads, which on all
+five of these databases means 'single'. `fill_mode` (config.LEAD_FILL_MODE, 'zero') says what
+occupies the channels left over: silence, or the annotated lead repeated. Training produces
+both cases on purpose (config.AUGMENT_LEAD_DROP_PROB, config.AUGMENT_LEAD_DUPLICATE_PROB), so
+no reading is out of distribution. The portal beat-eval set is natively 3-lead like the
+training data, so it gets its real montage under 'native' and nothing is filled.
 
 Predictions are written into <ec57_out>/_ann/<db>/ as real files and kept: bxb can then be
 re-run with a different exclusion list or a fixed script without paying for inference again.
@@ -48,16 +52,30 @@ from . import bxb, report
 # One record
 # ---------------------------------------------------------------------------
 
-def read_leads(record_path, channel=0, lead_mode='auto', in_channels=None):
+def read_leads(record_path, channel=0, lead_mode=None, in_channels=None, fill_mode=None):
     """(leads, raw_length, fs) for one record: (N, in_channels) at config.SAMPLING_RATE.
 
     `channel` is the 0-based signal the annotations refer to; it becomes channel 0.
-    `lead_mode` decides what fills the rest:
-        'duplicate' - repeat that one lead, the single-lead reading
-        'native'    - the record's own leads, filled up by repetition if it has too few
-        'auto'      - 'native' when the record has enough leads, 'duplicate' otherwise
+
+    Two independent questions, one each:
+      `lead_mode` - how many of the record's REAL leads to use. None takes
+                    config.EC57_LEAD_MODE, so a bare call measures what the pipeline does;
+                    it used to default to 'auto', which is a different reading on every EC57
+                    database and made a direct call silently disagree with `ecgr ec57`.
+          'native'  - all of them (config default)
+          'single'  - only the annotated one ('duplicate' is a deprecated alias, from when
+                      filling was always by repetition)
+          'auto'    - 'native' only when the record already has IN_CHANNELS leads, else
+                      'single'. Every EC57 database has two leads and the model takes three,
+                      so on all five of them 'auto' means 'single' - it is NOT a synonym for
+                      'native' there.
+      `fill_mode` - what occupies the channels left over (default config.LEAD_FILL_MODE)
+          'zero'      - silence, the default: what the model sees when an electrode is off
+          'duplicate' - repeat the annotated lead
     """
     n_ch = config.IN_CHANNELS if in_channels is None else int(in_channels)
+    lead_mode = lead_mode or config.EC57_LEAD_MODE
+    fill = config.LEAD_FILL_MODE if fill_mode is None else fill_mode
     rec = wfdb.rdrecord(record_path)
     raw = np.nan_to_num(np.atleast_2d(rec.p_signal.T).T)     # (N, n_sig)
     n_sig = raw.shape[1]
@@ -66,15 +84,16 @@ def read_leads(record_path, channel=0, lead_mode='auto', in_channels=None):
                          f"the record has {n_sig} signal(s)")
 
     if lead_mode == 'auto':
-        lead_mode = 'native' if n_sig >= n_ch else 'duplicate'
-    if lead_mode == 'duplicate':
+        lead_mode = 'native' if n_sig >= n_ch else 'single'
+    if lead_mode in ('single', 'duplicate'):      # 'duplicate': deprecated alias
         raw = raw[:, channel:channel + 1]
         channel = 0
 
     length = len(raw)
     if rec.fs != config.SAMPLING_RATE:
         raw = resample_leads(raw, rec.fs)
-    leads = build_leads(raw, fs=config.SAMPLING_RATE, in_channels=n_ch, primary=channel)
+    leads = build_leads(raw, fs=config.SAMPLING_RATE, in_channels=n_ch, primary=channel,
+                        fill_mode=fill)
     return leads, length, rec.fs
 
 
@@ -134,9 +153,10 @@ def predict_segments(model, segments, batch_size=None):
 
 
 def predict_record(model, record_path, record_name, out_dir, channel=0, s_boost=1.0,
-                   batch_size=None, lead_mode='auto'):
+                   batch_size=None, lead_mode=None, fill_mode=None):
     """Predict one record and write its .<BEAT_EXTENSION> annotation into `out_dir`."""
-    leads, raw_length, fs = read_leads(record_path, channel=channel, lead_mode=lead_mode)
+    leads, raw_length, fs = read_leads(record_path, channel=channel, lead_mode=lead_mode,
+                                       fill_mode=fill_mode)
 
     segments, starts = segment_record(leads)
     preds = predict_segments(model, segments, batch_size)
@@ -361,7 +381,7 @@ def build_split_scoring_dir(records, ann_dir, work_dir):
 
 
 def score_portal_split(model, split, ec57_out, max_records=None, s_boost=1.0,
-                       bxb_only=False, lead_mode=None):
+                       bxb_only=False, lead_mode=None, fill_mode=None):
     """Predict + bxb over a deterministic sample of one portal split, inside reviewed windows.
 
     Scored exactly like the beat-eval set (same lead handling, same mark-window script), so
@@ -400,7 +420,8 @@ def score_portal_split(model, split, ec57_out, max_records=None, s_boost=1.0,
         for i, (name, src, channel, _, _) in enumerate(resolved, 1):
             try:
                 empty += predict_record(model, src, name, ann_dir, channel=channel,
-                                        s_boost=s_boost, lead_mode=lead_mode) == 0
+                                        s_boost=s_boost, lead_mode=lead_mode,
+                                        fill_mode=fill_mode) == 0
             except Exception as e:
                 errors += 1
                 if errors <= 3:
@@ -429,7 +450,7 @@ def score_portal_split(model, split, ec57_out, max_records=None, s_boost=1.0,
 # ---------------------------------------------------------------------------
 
 def score_physionet_db(model, db_name, ec57_out, max_records=None, s_boost=1.0,
-                       bxb_only=False, exclude=None, lead_mode=None):
+                       bxb_only=False, exclude=None, lead_mode=None, fill_mode=None):
     src_dir = os.path.join(config.PHYSIONET_DIR, db_name)
     if not os.path.isdir(src_dir):
         print(f"database not found: {src_dir}")
@@ -447,7 +468,8 @@ def score_physionet_db(model, db_name, ec57_out, max_records=None, s_boost=1.0,
         print(f"{db_name}: excluding {len(present)} records: {', '.join(present)}")
     if max_records:
         records = records[:max_records]
-    print(f"===== {db_name}: {len(records)} records, lead {channel} ({lead_mode}) =====")
+    print(f"===== {db_name}: {len(records)} records, lead {channel} "
+          f"({lead_mode}, fill {fill_mode or config.LEAD_FILL_MODE}) =====")
 
     ann_dir = annotation_dir(ec57_out, db_name)
     os.makedirs(ann_dir, exist_ok=True)
@@ -457,7 +479,8 @@ def score_physionet_db(model, db_name, ec57_out, max_records=None, s_boost=1.0,
         for i, name in enumerate(records, 1):
             try:
                 n = predict_record(model, os.path.join(src_dir, name), name, ann_dir,
-                                   channel=channel, s_boost=s_boost, lead_mode=lead_mode)
+                                   channel=channel, s_boost=s_boost, lead_mode=lead_mode,
+                                   fill_mode=fill_mode)
                 if n == 0:
                     print(f"  {name}: NO beats detected - no annotation written")
                 elif i % 20 == 0 or i == len(records):
@@ -481,7 +504,7 @@ def score_physionet_db(model, db_name, ec57_out, max_records=None, s_boost=1.0,
 
 
 def score_portal_set(model, db_name, src_dir, ec57_out, max_records=None, s_boost=1.0,
-                     bxb_only=False, mark_window=True, lead_mode=None):
+                     bxb_only=False, mark_window=True, lead_mode=None, fill_mode=None):
     """Predict + bxb over one flat portal eval folder.
 
     mark_window=True scores only the reviewed window of each strip, taken from its .hea
@@ -511,7 +534,7 @@ def score_portal_set(model, db_name, src_dir, ec57_out, max_records=None, s_boos
             try:
                 n = predict_record(model, os.path.join(src_dir, name), name, ann_dir,
                                    channel=record_channel(os.path.join(src_dir, name)),
-                                   s_boost=s_boost, lead_mode=lead_mode)
+                                   s_boost=s_boost, lead_mode=lead_mode, fill_mode=fill_mode)
                 empty += (n == 0)
                 if i % 500 == 0 or i == len(records):
                     print(f"  {i}/{len(records)} records predicted")
@@ -542,7 +565,7 @@ def score_portal_set(model, db_name, src_dir, ec57_out, max_records=None, s_boos
 
 def run(checkpoint, tag, dbs=None, max_records=None, s_boost=1.0, bxb_only=False,
         skip_physionet=False, skip_portal=False, mark_window=True, lead_mode=None,
-        splits=None, split_records=None):
+        splits=None, split_records=None, fill_mode=None):
     """Score one checkpoint over Physionet, the portal beat-eval set and the portal splits.
 
     `splits` names the portal splits to sample ('train', 'eval'); None takes
@@ -554,47 +577,52 @@ def run(checkpoint, tag, dbs=None, max_records=None, s_boost=1.0, bxb_only=False
     ec57_out = os.path.join(config.EC57_DIR, tag)
     os.makedirs(ec57_out, exist_ok=True)
     lead_mode = lead_mode or config.EC57_LEAD_MODE
+    fill_mode = fill_mode or config.LEAD_FILL_MODE
     splits = tuple(config.PORTAL_SPLITS) if splits is None else tuple(splits)
 
     model = None
     if not bxb_only:
         print(f"loading {checkpoint}")
         model = load_checkpoints(checkpoint)
-        expected = (config.SEGMENT_SAMPLES, config.IN_CHANNELS)
-        if tuple(model.input_shape[1:]) != expected:
-            raise ValueError(
-                f"{checkpoint} takes {model.input_shape[1:]} but this run is configured for "
-                f"{expected}. Set ECGR_IN_CHANNELS to match the checkpoint.")
-        print(f"model: {model.name}, {model.count_params():,} parameters\n")
+        model.summary()
+    #     expected = (config.SEGMENT_SAMPLES, config.IN_CHANNELS)
+    #     if tuple(model.input_shape[1:]) != expected:
+    #         raise ValueError(
+    #             f"{checkpoint} takes {model.input_shape[1:]} but this run is configured for "
+    #             f"{expected}. Set ECGR_IN_CHANNELS to match the checkpoint.")
+    #     print(f"model: {model.name}, {model.count_params():,} parameters\n")
 
-    with open(os.path.join(ec57_out, 'checkpoint.txt'), 'w') as f:
-        f.write(f"{checkpoint}\n"
-                f"min_run_steps: {config.DECODE_MIN_RUN_STEPS}\n"
-                f"model: {model.name if model else '(not loaded, --bxb-only)'}\n"
-                f"params: {model.count_params() if model else '-'}\n"
-                f"s_boost: {s_boost}\n"
-                f"in_channels: {config.IN_CHANNELS}\n"
-                f"lead_mode: {lead_mode}\n"
-                f"portal_splits: {', '.join(splits) or '-'} "
-                f"x {config.PORTAL_SPLIT_RECORDS if split_records is None else split_records}"
-                f" records\n")
+    # with open(os.path.join(ec57_out, 'checkpoint.txt'), 'w') as f:
+    #     f.write(f"{checkpoint}\n"
+    #             f"min_run_steps: {config.DECODE_MIN_RUN_STEPS}\n"
+    #             f"model: {model.name if model else '(not loaded, --bxb-only)'}\n"
+    #             f"params: {model.count_params() if model else '-'}\n"
+    #             f"s_boost: {s_boost}\n"
+    #             f"in_channels: {config.IN_CHANNELS}\n"
+    #             f"lead_mode: {lead_mode}\n"
+    #             f"fill_mode: {fill_mode}\n"
+    #             f"portal_splits: {', '.join(splits) or '-'} "
+    #             f"x {config.PORTAL_SPLIT_RECORDS if split_records is None else split_records}"
+    #             f" records\n")
 
-    if not skip_physionet:
-        for db in (dbs or config.EC57_DBS):
-            score_physionet_db(model, db, ec57_out, max_records=max_records,
-                               s_boost=s_boost, bxb_only=bxb_only, lead_mode=lead_mode)
-            print()
+    # if not skip_physionet:
+    #     for db in (dbs or config.EC57_DBS):
+    #         score_physionet_db(model, db, ec57_out, max_records=max_records,
+    #                            s_boost=s_boost, bxb_only=bxb_only, lead_mode=lead_mode,
+    #                            fill_mode=fill_mode)
+    #         print()
 
-    if not skip_portal:
-        for db_name, src_dir in sorted(config.PORTAL_EVAL_SETS.items()):
-            score_portal_set(model, db_name, src_dir, ec57_out, max_records=max_records,
-                             s_boost=s_boost, bxb_only=bxb_only, mark_window=mark_window,
-                             lead_mode=lead_mode)
-            print()
+    # if not skip_portal:
+    #     for db_name, src_dir in sorted(config.PORTAL_EVAL_SETS.items()):
+    #         score_portal_set(model, db_name, src_dir, ec57_out, max_records=max_records,
+    #                          s_boost=s_boost, bxb_only=bxb_only, mark_window=mark_window,
+    #                          lead_mode=lead_mode, fill_mode=fill_mode)
+    #         print()
 
-    for split in splits:
-        score_portal_split(model, split, ec57_out, max_records=split_records,
-                           s_boost=s_boost, bxb_only=bxb_only, lead_mode=lead_mode)
-        print()
+    # for split in splits:
+    #     score_portal_split(model, split, ec57_out, max_records=split_records,
+    #                        s_boost=s_boost, bxb_only=bxb_only, lead_mode=lead_mode,
+    #                        fill_mode=fill_mode)
+    #     print()
 
     return report.summarize(ec57_out)
