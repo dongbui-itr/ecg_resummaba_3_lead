@@ -55,10 +55,20 @@ IN_CHANNELS = int(os.environ.get("ECGR_IN_CHANNELS", 3))
 # test and the rhythm descriptor all read it.
 PRIMARY_LEAD_FIRST = True
 
-# A record with fewer than IN_CHANNELS leads (every EC57 database has two, annotated on the
-# first) is filled by repeating the primary lead. 'duplicate' is what the EC57 stage does by
-# default; 'zero' exists only as an ablation.
-LEAD_FILL_MODE = os.environ.get("ECGR_LEAD_FILL", "duplicate")   # 'duplicate' | 'zero'
+# How the channel axis is filled when a record has fewer leads than IN_CHANNELS. This is a
+# separate question from WHICH real leads to read (EC57_LEAD_MODE below): one says how many
+# genuine signals go in, the other what occupies the leftover channels.
+#
+#   'zero'      - leftover channels are silence. THE DEFAULT. A flat channel is what the
+#                 model already sees whenever an electrode comes off, and training produces
+#                 it on purpose (AUGMENT_LEAD_DROP_PROB), so "this lead does not exist" is
+#                 said in the vocabulary the model was taught. It also cannot be mistaken
+#                 for evidence: a duplicated lead is a second vote for whatever the first
+#                 lead says, which is exactly what a multi-lead model should not be handed.
+#   'duplicate' - leftover channels repeat the annotated lead. Kept because it is the other
+#                 case training covers (AUGMENT_LEAD_DUPLICATE_PROB) and because the EC57
+#                 tables in README section 8 up to 2026-09-20 were produced with it.
+LEAD_FILL_MODE = os.environ.get("ECGR_LEAD_FILL", "zero")        # 'zero' | 'duplicate'
 
 NORMALIZE_Z_SIGNAL = True     # per-window z-score, per lead
 MIN_AMPLITUDE = 0.1           # mV; flatter windows carry no beat and are dropped
@@ -129,11 +139,12 @@ EC57_EXCLUDE_RECORDS = {'mitdb': ['102', '104', '107', '217']}
 BEAT_EXTENSION = 'ain'        # extension of the AI annotations handed to bxb
 EC57_SEGMENT_OVERLAP = 1 * SAMPLING_RATE   # overlap when sweeping a whole record
 
-# Which lead of an EC57 record to read, 0-based. Every one of these databases is annotated
-# on its first signal, and none of them has three leads, so ONE lead is chosen and repeated
-# across the channel axis (see LEAD_FILL_MODE). Per-database overrides go here.
+# Which lead of an EC57 record is the annotated one, 0-based. Every one of these databases
+# is annotated on its first signal. Per-database overrides go here.
 EC57_LEAD = {}
 EC57_LEAD_DEFAULT = 0
+# EC57_LEAD_MODE says how many of the record's REAL leads to use; LEAD_FILL_MODE above says
+# what occupies the channels left over.
 # 'native'    : as many real leads as the record has, filled up if it has fewer. THE DEFAULT.
 #               Every EC57 database has two real leads, and reading both is what the 3-lead
 #               model was built for: measured on resumamba_2m, switching mitdb from one lead
@@ -142,11 +153,14 @@ EC57_LEAD_DEFAULT = 0
 #               as a P wave on V5. It also removes a fragility rather than hiding one: the
 #               N/S boundary on sinus tachycardia (record 213) is knife-edge with MLII alone
 #               - any noise fine-tune flips it - and stable once V5 is there.
-# 'duplicate' : one lead repeated across the channel axis, the strictest single-lead reading.
-#               Kept as the control, and what `--lead-mode duplicate` still gives.
-# 'auto'      : 'native' where the record has enough leads, 'duplicate' otherwise. Identical
-#               to 'native' on every database this project scores, since read_leads fills a
-#               short montage either way.
+# 'single'    : only the annotated lead is real; the rest are filled per LEAD_FILL_MODE.
+#               The strict single-lead reading, and the control for the finding above.
+#               'duplicate' is accepted as a deprecated alias - it named the mode back when
+#               filling was always by repetition.
+# 'auto'      : 'native' only where the record ALREADY has IN_CHANNELS leads, else 'single'.
+#               Every EC57 database has two leads and the model takes three, so on all five
+#               'auto' means 'single' - it is not a synonym for 'native' there. It only
+#               coincides with 'native' on the 3-lead portal records.
 EC57_LEAD_MODE = os.environ.get("ECGR_EC57_LEAD_MODE", "native")
 
 # ---------------------------------------------------------------------------

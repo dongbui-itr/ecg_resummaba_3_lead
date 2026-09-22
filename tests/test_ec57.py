@@ -21,23 +21,39 @@ needs_portal = pytest.mark.skipif(not os.path.isdir(PORTAL), reason='portal eval
 
 @needs_mitdb
 def test_a_two_lead_360hz_record_becomes_three_leads_at_250hz():
-    """mitdb: 2 leads at 360 Hz. 'auto' must fall back to duplication, and the duplicated
-    leads must be bit-identical - that is what the trained duplication augmentation covers."""
+    """mitdb: 2 leads at 360 Hz -> (N, 3) at 250 Hz. 'auto' keeps both real leads and the
+    third channel is filled per LEAD_FILL_MODE, which defaults to zero."""
     path = os.path.join(MITDB, '100')
     leads, raw_length, fs = ec57.read_leads(path, channel=0, lead_mode='auto')
 
     assert fs == 360 and raw_length == 650000
     assert leads.shape[1] == config.IN_CHANNELS
     assert len(leads) == round(raw_length * config.SAMPLING_RATE / 360)
+    assert not np.array_equal(leads[:, 0], leads[:, 1]), "both real leads must be used"
+    assert np.all(leads[:, 2] == 0.0), "the leftover channel is zero-padded by default"
+
+
+@needs_mitdb
+def test_single_mode_leaves_one_real_lead_and_pads_the_rest():
+    """'single' is the strict single-lead reading: one genuine signal, the rest silence.
+    'duplicate' is its deprecated alias and must behave identically."""
+    path = os.path.join(MITDB, '100')
+    for mode in ('single', 'duplicate'):
+        leads, _, _ = ec57.read_leads(path, channel=0, lead_mode=mode)
+        assert np.any(leads[:, 0] != 0)
+        for c in range(1, config.IN_CHANNELS):
+            assert np.all(leads[:, c] == 0.0), f"{mode}: channel {c} should be zero"
+    # and with the old fill the same mode repeats the lead instead
+    leads, _, _ = ec57.read_leads(path, channel=0, lead_mode='single', fill_mode='duplicate')
     for c in range(1, config.IN_CHANNELS):
         assert np.array_equal(leads[:, 0], leads[:, c])
 
 
 @needs_mitdb
-def test_duplicate_mode_uses_the_lead_it_is_told_to():
+def test_single_mode_uses_the_lead_it_is_told_to():
     path = os.path.join(MITDB, '100')
-    first, _, _ = ec57.read_leads(path, channel=0, lead_mode='duplicate')
-    second, _, _ = ec57.read_leads(path, channel=1, lead_mode='duplicate')
+    first, _, _ = ec57.read_leads(path, channel=0, lead_mode='single')
+    second, _, _ = ec57.read_leads(path, channel=1, lead_mode='single')
     assert not np.allclose(first[:, 0], second[:, 0]), "channel= was ignored"
 
 
@@ -46,8 +62,7 @@ def test_native_mode_on_a_two_lead_record_keeps_both_and_fills_the_rest():
     leads, _, _ = ec57.read_leads(os.path.join(MITDB, '100'), channel=0, lead_mode='native')
     assert leads.shape[1] == config.IN_CHANNELS
     assert not np.array_equal(leads[:, 0], leads[:, 1]), "lead 1 should be the real MLII/V5"
-    # the third is the fill, a copy of the annotated lead
-    assert np.array_equal(leads[:, 0], leads[:, 2])
+    assert np.all(leads[:, 2] == 0.0), "the third channel is the zero fill"
 
 
 def _first_portal_record():
@@ -97,7 +112,7 @@ def test_predictions_are_written_where_bxb_can_read_them(tmp_path):
     out_dir = tmp_path / 'ann'
     out_dir.mkdir()
     n = ec57.predict_record(model, str(local), '100', str(out_dir), channel=0,
-                            lead_mode='duplicate')
+                            lead_mode='single')
     assert n >= 0
     if n:
         ann = wfdb.rdann(str(out_dir / '100'), config.BEAT_EXTENSION)
@@ -208,3 +223,24 @@ def test_native_default_actually_reads_both_mitdb_leads():
                                   lead_mode=config.EC57_LEAD_MODE)
     assert leads.shape[1] == config.IN_CHANNELS
     assert not np.array_equal(leads[:, 0], leads[:, 1]), "the second real lead was discarded"
+
+
+@needs_mitdb
+def test_read_leads_without_a_mode_follows_the_config_not_auto():
+    """A bare read_leads() must measure what the pipeline measures.
+
+    It used to default to lead_mode='auto', and 'auto' on a 2-lead record with a 3-lead model
+    resolves to 'single' - so a direct call silently used ONE mitdb lead while `ecgr ec57`
+    (which resolves from config, now 'native') used both. Every production call site passes
+    the mode explicitly, so no published number came from the wrong path, but the trap was
+    real: this test is what keeps the two in step.
+    """
+    path = os.path.join(MITDB, '100')
+    default, _, _ = ec57.read_leads(path, channel=0)
+    explicit, _, _ = ec57.read_leads(path, channel=0, lead_mode=config.EC57_LEAD_MODE)
+    assert np.array_equal(default, explicit)
+    # and with the config default ('native') that means both real leads, not one
+    assert not np.array_equal(default[:, 0], default[:, 1])
+    # 'auto' really is the other reading on this database - documented, not a synonym
+    auto, _, _ = ec57.read_leads(path, channel=0, lead_mode='auto')
+    assert np.all(auto[:, 1] == 0.0), "'auto' on a 2-lead record is 'single'"

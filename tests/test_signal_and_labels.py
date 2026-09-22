@@ -22,12 +22,15 @@ def test_build_leads_puts_the_annotated_lead_first(synthetic_record):
         assert np.allclose(leads[:, 0], plain[:, primary], atol=1e-4)
 
 
-def test_a_single_lead_record_is_filled_by_duplication(synthetic_record):
+def test_a_single_lead_record_keeps_its_one_real_lead_on_channel_zero(synthetic_record):
+    """Whatever the fill, the one real signal must land on channel 0 - that is the lead the
+    labels, the R-peak search and the rhythm descriptor all read."""
     signal, _ = synthetic_record
-    leads = so.build_leads(signal[:, 0], primary=0)
-    assert leads.shape[1] == config.IN_CHANNELS
-    for c in range(1, config.IN_CHANNELS):
-        assert np.array_equal(leads[:, 0], leads[:, c]), "EC57 needs exact duplication"
+    plain = so.build_leads(signal, primary=0)
+    for fill in ('zero', 'duplicate'):
+        leads = so.build_leads(signal[:, 0], primary=0, fill_mode=fill)
+        assert leads.shape[1] == config.IN_CHANNELS
+        assert np.allclose(leads[:, 0], plain[:, 0], atol=1e-4)
 
 
 def test_build_leads_rejects_an_impossible_primary(synthetic_record):
@@ -205,3 +208,35 @@ def test_record_files_collapses_byte_identical_copies(tmp_path, monkeypatch):
 
     files, dropped = build_npy._record_files('db', '123', 'abc', dedupe=False)
     assert len(files) == 3 and dropped == 0
+
+
+# --- filling the channel axis when a record has too few leads ---------------------------
+
+def test_missing_leads_are_zero_padded_by_default(synthetic_record):
+    """config.LEAD_FILL_MODE = 'zero': a record with one lead gets silence in the rest, not a
+    copy. Silence is what an electrode coming off looks like and what training produces on
+    purpose (AUGMENT_LEAD_DROP_PROB); a copy would be a second vote for the first lead."""
+    signal, _ = synthetic_record
+    assert config.LEAD_FILL_MODE == 'zero'
+    leads = so.build_leads(signal[:, 0], primary=0)
+    assert leads.shape[1] == config.IN_CHANNELS
+    assert np.any(leads[:, 0] != 0), "the real lead must survive"
+    for c in range(1, config.IN_CHANNELS):
+        assert np.all(leads[:, c] == 0.0), f"channel {c} should be zero-padded"
+
+    # two real leads of a three-lead model: only the third is padded
+    two = so.build_leads(signal[:, :2], primary=0)
+    assert np.any(two[:, 1] != 0) and np.all(two[:, 2] == 0.0)
+
+
+def test_duplicate_fill_is_still_available(synthetic_record):
+    signal, _ = synthetic_record
+    leads = so.build_leads(signal[:, 0], primary=0, fill_mode='duplicate')
+    for c in range(1, config.IN_CHANNELS):
+        assert np.array_equal(leads[:, 0], leads[:, c])
+
+
+def test_an_unknown_fill_mode_is_refused(synthetic_record):
+    signal, _ = synthetic_record
+    with pytest.raises(ValueError, match="fill_mode"):
+        so.build_leads(signal[:, 0], primary=0, fill_mode='mirror')

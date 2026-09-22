@@ -14,3 +14,13 @@ logs/*.log
 # The reference paper is a paywalled Elsevier publication - not redistributed from a public
 # repo. docs/references/README.md carries the citation and DOI.
 docs/references/*.pdf
+
+# Evaluation output: predictions, WFDB reports and the summary CSVs that evaluate.py writes.
+# Hundreds of MB per checkpoint, and reproducible from a checkpoint in minutes - the numbers
+# that matter are in README section 8 and in checkpoints/manifest.json.
+eval_results/
+ec57_compare.csv
+
+# Editor / office scratch
+.vscode/
+.~lock.*#

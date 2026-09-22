@@ -26,7 +26,7 @@ cd ecg_resumamba
 pip install -r requirements.txt          # hoặc dùng env conda `beat` có sẵn trên máy này
 python -c "import tensorflow as tf; print(tf.config.list_physical_devices('GPU'))"
 which bxb sumstats                       # trống = chưa cài WFDB apps, bước ec57 sẽ báo lỗi
-./run_pipeline.sh test                   # 89 test, ~2 phút
+./run_pipeline.sh test                   # 101 test, ~2 phút
 ```
 
 > **`libdevice not found at ./libdevice.10.bc`.** Bánh xe `tensorflow[and-cuda]` có cuDNN và
@@ -66,7 +66,8 @@ trường trong launcher, **đừng sửa file khi job đang chạy**:
 | `ECGR_WORK_DIR` | nơi ghi npy/tfrecord/checkpoint/report | `<DATA_DIR>/train` |
 | `ECGR_RUN_TAG` | tên thư mục run | hôm nay `yymmdd_ecgr` |
 | `ECGR_IN_CHANNELS` | **số chuyển đạo** đưa vào model | `3` |
-| `ECGR_EC57_LEAD_MODE` | `native` / `duplicate` / `auto` (mục 7b, 8f) | `native` |
+| `ECGR_EC57_LEAD_MODE` | bao nhiêu chuyển đạo **thật**: `native` / `single` / `auto` (mục 7b) | `native` |
+| `ECGR_LEAD_FILL` | lấp kênh còn thiếu bằng gì: `zero` / `duplicate` (mục 3) | `zero` |
 | `ECGR_SSL_RUN` | dùng lại backbone tự giám sát của run khác | — |
 | `ECGR_CPC_RUN` | dùng lại bộ mã hóa CPC của run khác | — |
 | `ECGR_WORKERS` | số process khi build npy | `cpu/2` |
@@ -88,9 +89,16 @@ tắc:
 1. **Chuyển đạo được gán nhãn luôn là kênh 0.** Các chuyển đạo còn lại giữ thứ tự vòng sau nó.
    Nhãn, việc tìm đỉnh R trong `decode_beats`, phép thử phẳng và bộ mô tả nhịp — tất cả đọc
    kênh 0, và nếu không có quy tắc này thì tất cả sẽ đọc một chuyển đạo không ai gán nhãn.
-2. **Record thiếu chuyển đạo được bù bằng cách lặp lại kênh 0.** Cả 5 database EC57 đều có 2
-   chuyển đạo và được gán nhãn trên chuyển đạo đầu, nên chấm điểm chúng nghĩa là đưa cho model
-   **cùng một chuyển đạo ba lần**.
+2. **Record thiếu chuyển đạo được lấp bằng 0** (`LEAD_FILL_MODE='zero'`). Kênh im lặng là thứ
+   model vốn đã thấy mỗi khi một điện cực rơi ra, và huấn luyện tạo ra nó **có chủ ý**
+   (`AUGMENT_LEAD_DROP_PROB`) — nên "chuyển đạo này không tồn tại" được nói bằng đúng từ vựng
+   model đã học. Nó cũng không thể bị nhầm thành bằng chứng: một chuyển đạo nhân bản là **lá
+   phiếu thứ hai cho đúng điều chuyển đạo thứ nhất vừa nói**, thứ mà một model đa chuyển đạo
+   không nên được đưa. `'duplicate'` vẫn dùng được (`--lead-fill duplicate`) và là cách mọi
+   bảng EC57 trước 20/09/2026 được tạo.
+
+Hai câu hỏi tách rời nhau, mỗi câu một nút: **dùng bao nhiêu chuyển đạo thật** (`EC57_LEAD_MODE`)
+và **lấp phần còn lại bằng gì** (`LEAD_FILL_MODE`).
 
 Vì việc "một chuyển đạo lặp ba lần" là *đầu vào thật* ở chặng EC57, huấn luyện phải tái hiện
 nó: `config.AUGMENT_LEAD_DUPLICATE_PROB = 0.25` gộp 1/4 cửa sổ train về đúng dạng đó, và
@@ -265,6 +273,80 @@ bộ mô tả sẽ được tính từ hai đại lượng khác nhau lúc đán
 `backbone` (stem + hai nhánh + phép hợp nhất) và `context_encoder` được dựng thành `keras.Model`
 riêng chứ không inline, vì **cả hai đều được tiền huấn luyện không nhãn rồi nạp lại theo tên**.
 Kiến trúc không đổi — cùng những layer đó, cùng thứ tự đó, chỉ lồng thêm một mức.
+
+### 5c. So với bài báo gốc — giống gì, khác gì, và vì sao
+
+Đọc trực tiếp từ [`Heo2026_ResUMamba_ESWA331-133149.pdf`](docs/references/) (Fig. 1–5, Bảng 8,
+mục 3.1–3.6, 4.2).
+
+**Giữ nguyên, kể cả chi tiết:**
+
+| thành phần | bài báo | ở đây |
+|---|---|---|
+| Thân hai nhánh ResUNet + state-space, hợp nhất bằng concat theo kênh | Fig. 2a | như vậy |
+| Khối ResU, **2 khối nối tiếp độ sâu r = 3 rồi r = 2** (Hwang 2023) | Fig. 2b | `resu_depths=(3, 2)` — trùng khít |
+| Bộ mã hóa ngữ cảnh huấn luyện bằng CPC/InfoNCE rồi **đóng băng** | mục 3.3 | như vậy |
+| AdaIN: `Conv1D → AdaIN → LeakyReLU`, lặp **×2 với kernel k = {3, 7}** | Fig. 4 | `adain_kernels=(3, 7)` — trùng cả kích thước kernel |
+| Cross-attention hợp nhất đặc trưng nhịp với đặc trưng sâu, **4 đầu** | Fig. 5, L = 4 | `attn_heads=4` (2 ở bản 100k/30k) |
+| Poly-2 loss, **ε₁ = 0.3, ε₂ = −0.5** | eq. 12, Fig. 10 | `POLY2_EPS = (0.3, -0.5)` — đúng số bài báo |
+| Cắt gradient theo chuẩn ℓ₂ = 1.0 | mục 4.2 | như vậy trong `ssl.py` / `cpc.py` |
+| 4 lớp đầu ra | N/SVEB/VEB/F | None/N/V/S (xem khác biệt 1) |
+
+**Khác, và mỗi khác biệt đều do contract bài toán chứ không phải do tuỳ ý:**
+
+| # | bài báo | ở đây | vì sao |
+|---|---|---|---|
+| 1 | Phân loại **một nhịp** đã cho đỉnh R; 4 lớp N/SVEB/VEB/**F** | **Phát hiện + phân loại** 500 bước; lớp 0 là **nền (None)**, còn N/V/S | Không có đỉnh R cho trước. Lớp F (fusion) bị thay bằng lớp nền vì phải trả lời "ở đây có nhịp không" |
+| 2 | Vào `720 × 1` = 2 s @ 360 Hz, **căn giữa đỉnh R** | Vào `2500 × 3` = 10 s @ 250 Hz, **chạy tự do** | Dữ liệu portal là 3 chuyển đạo @ 250 Hz; Holter thực tế không có đỉnh R sẵn |
+| 3 | **S6** (SSM chọn lọc, phụ thuộc đầu vào), **nhân quả** | `DiagSSM1D`: SSM **chéo** nghiệm đóng, tính bằng **FFT**, **hai chiều** | Quét S6 là hồi quy tuần tự → `tf.scan` 500 bước, chậm và không export được. Và vùng T–P phân biệt S với N nằm **trước** nhịp cần gán nhãn nên cần hai chiều |
+| 4 | Bộ mã hóa **bệnh nhân**: 60 s ECG hiệu chuẩn không nhãn, M ≈ 59 cửa sổ 720 mẫu | Bộ mã hóa **ngữ cảnh đoạn**: chính đoạn 10 s, 9 cửa sổ 500 mẫu chồng 50% | tfrecord không có định danh bệnh nhân lẫn đoạn hiệu chuẩn |
+| 5 | Chân trời CPC **j = 2** cố định | `j ∈ {1, 2}` | Thêm j = 1 tốn đúng một ma trận `W_j` |
+| 6 | **32 đặc trưng lâm sàng thủ công**: 10 nhịp (R–R trước/sau, mean/var/skew/kurtosis, thống kê 20 nhịp trước) + 3 hình thái + 19 mẫu sóng tại mốc | `RhythmDescriptor`: tự tương quan envelope, 88 độ trễ dải 30–220 bpm, **trong graph** | **Toàn bộ** 32 đặc trưng đó cần vị trí nhịp — tức chính đầu ra của model này |
+| 7 | Cross-attention: đặc trưng lâm sàng là **query**, đặc trưng sâu là key/value | **Đảo lại**: đặc trưng per-step là query, token nhịp là key/value | Bài báo cần **một** đầu ra; ở đây cần **500** |
+| 8 | `AvgPool` trước classifier, rồi `Linear(256,32) → Linear(32,4)` | Không pool; `Conv1D(4, k=1)` per-step | Phải giữ 500 bước |
+| 9 | Tự giám sát **chỉ** cho bộ mã hóa bệnh nhân (0.345M / 1.592M ≈ 22%) | **Thêm** chặng `ssl`: tái tạo có che (span + chuyển đạo) cho **backbone** | Ở quy mô này bộ mã hóa ngữ cảnh chỉ là 5–9% tham số; phần còn lại trước đó khởi tạo ngẫu nhiên (mục 6a) |
+| 10 | Train/test MIT-BIH DS1/DS2 (liên bệnh nhân) | Train trên 542,721 đoạn portal; **MIT-BIH là benchmark giữ riêng, chưa từng train** | mục 7e |
+| 11 | Một model (1.247M suy luận) | **Bốn** kích thước, tích chập tách chiều sâu dưới mức 100k | Mục tiêu nhúng |
+| 12 | batch 2048, AdamW, lr 5e-4, wd 1e-2, cosine | batch 128, Adam, lr 1.4e-3, ReduceLROnPlateau | A100 vs 3090; và `val_weighted_f1` là chỉ số dừng (mục 6c) |
+| 13 | Đánh giá: macro/weighted F1 mức nhịp, có đỉnh R | EC57/bxb Se và +P — **đo cả phát hiện** | Contract khác nên chỉ số khác; hai bảng không so trực tiếp được |
+
+### Bảng so sánh 5 model — tham số theo đúng cách chia module của Bảng 8 bài báo
+
+| module | **ref** (bài báo) | **2m** | **1m** | **100k** | **30k** |
+|---|---|---|---|---|---|
+| stem (ConvBlock 1→C) | — (gộp) | 54,968 | 31,328 | 3,188 | 1,184 |
+| nhánh ResU | 696,000 | 779,712 | 386,048 | 21,576 | 6,324 |
+| nhánh state-space (Mamba/DiagSSM) | 235,000 | 549,120 | 188,544 | 21,024 | 6,288 |
+| hợp nhất hai nhánh | — (gộp) | 74,496 | 33,280 | 4,800 | 1,248 |
+| điều biến AdaIN | 115,000 | 254,464 | 138,624 | 23,520 | 7,776 |
+| đặc trưng nhịp + cross-attn | 201,000 | 84,832 | 54,432 | 12,760 | 4,216 |
+| classifier | — (gộp) | 516 | 388 | 164 | 100 |
+| bộ mã hóa ngữ cảnh (CPC) | 345,000 | 179,552 | 101,832 | 6,485 | 2,605 |
+| **TỔNG** | **1,592,000** | **1,977,660** | **934,476** | **93,517** | **29,741** |
+| **suy luận (trừ CPC)** | **1,247,000** | 1,798,108 | **832,644** | 87,032 | 27,136 |
+| vào → ra | `720×1` → `4` | `2500×3` → `500×4` | ⟵ | ⟵ | ⟵ |
+| FLOPs | 0.700 G / **nhịp** | — | — | — | — |
+| s/step (batch 128, 3090) | — | 0.324 | 0.208 | 0.117 | 0.102 |
+| VRAM đỉnh | A100 (batch 2048) | 6,595 MiB | 4,164 MiB | 1,708 MiB | 986 MiB |
+
+Bốn điều đọc ra từ bảng:
+
+1. **`resumamba_1m` là bản tương đương quy mô với bài báo**: 832,644 tham số suy luận so với
+   1,247,000 — cùng bậc, và nhánh ResU (386,048) lẫn nhánh state-space (188,544) đều cùng bậc
+   với 696,000 / 235,000. `2m` thì **lớn hơn** bài báo.
+2. **Nhánh state-space của chúng ta tốn nhiều hơn tương đối** (549k so với 235k ở `2m`): nó
+   **hai chiều** nên có hai bank nhân, và chạy ở 192 kênh thay vì 128.
+3. **AdaIN tốn hơn** (254k so với 115k): bài báo điều biến **một** vector đã pool, ở đây điều
+   biến **500 bước** ở chiều rộng lớn hơn.
+4. **Khối đặc trưng nhịp lại RẺ hơn** (84,832 so với 201,000) dù làm cùng việc: tự tương quan
+   envelope **không có tham số** — nó là phép tính, không phải lớp học được — còn bài báo phải
+   nuôi `Linear(H,64)` cho 32 đặc trưng thủ công cộng MLP `Linear(256,32) → Linear(32,4)`.
+
+FLOPs không điền cho cột của chúng ta vì **không so được**: 0.700 GFLOPs của bài báo là cho
+**một nhịp** (cửa sổ 720 mẫu), còn một lần chạy ở đây xử lý **10 s** và trả 500 nhãn — quy về
+"mỗi nhịp" cần giả định số nhịp mỗi đoạn, và con số đó sẽ nói nhiều về nhịp tim hơn về model.
+Cột s/step và VRAM là số **đo được**, dùng được để so sánh giữa bốn kích thước với nhau.
+
 
 ### Ngân sách tham số đi đâu
 
@@ -496,11 +578,15 @@ python -m ecgr ec57 --model resumamba_30k --lead-mode duplicate # một chuyển
 
 `--lead-mode` quyết định trục chuyển đạo được lấp thế nào:
 
-| chế độ | physionet (2 chuyển đạo) | portal beat-eval (3 chuyển đạo) |
+| `--lead-mode` | physionet (2 chuyển đạo) | portal beat-eval (3 chuyển đạo) |
 |---|---|---|
-| **`native` (mặc định)** | **2 chuyển đạo thật + 1 bản lặp** | montage thật |
-| `duplicate` | chuyển đạo 0 lặp ba lần | chuyển đạo được review, lặp ba lần |
-| `auto` | như `native` (read_leads tự lấp khi thiếu) | montage thật |
+| **`native` (mặc định)** | **2 chuyển đạo thật + 1 kênh lấp** | montage thật, không phải lấp |
+| `single` | chuyển đạo 0 + 2 kênh lấp | chuyển đạo được review + 2 kênh lấp |
+| `auto` | như `native` | montage thật |
+
+Kênh lấp là **0** theo mặc định (`--lead-fill zero`); `--lead-fill duplicate` lặp lại chuyển đạo
+được gán nhãn, cách các bảng trước 20/09/2026 được tạo. `duplicate` vẫn được nhận như bí danh cũ
+của `--lead-mode single`.
 
 Mặc định là `native` từ 20/09/2026 — lý do và số đo ở mục 8f. `duplicate` giữ lại làm đối chứng
 "một chuyển đạo" khắt khe: `--lead-mode duplicate`.
@@ -555,47 +641,134 @@ Cả hai tính chất — lát kín chính xác, và round-trip `nhãn → dự 
 
 ## 7d. Đánh giá tại local — [`evaluate.py`](evaluate.py)
 
-Chấm một checkpoint trên EC57 + bộ v4 beat-eval bằng **một lệnh**, không cần biết gì về run tag:
+Chấm một checkpoint trên EC57 + bộ v4 beat-eval. **Không có tham số dòng lệnh**: sửa khối
+`CONFIG` ở đầu file rồi chạy.
 
 ```bash
-PY=~/miniconda3/envs/beat/bin/python           # env có tensorflow
-
-# một model, đọc native (khuyến nghị), đủ 5 database EC57 + 5,227 record v4
-$PY evaluate.py --checkpoint checkpoints/resumamba_2m.keras --lead-mode native
-
-# ensemble: nhiều checkpoint = trung bình softmax, đúng cách các bảng mục 8 được tạo
-$PY evaluate.py --lead-mode native --min-run 2 \
-    --checkpoint checkpoints/resumamba_2m.keras \
-                 checkpoints/resumamba_1m.keras \
-                 checkpoints/resumamba_100k_refined.keras
-
-# chạy thử nhanh: 3 record mỗi database, chỉ mitdb
-$PY evaluate.py --checkpoint checkpoints/resumamba_30k.keras --dbs mitdb --max-records 3
-
-# chấm lại bằng bxb, không suy luận lại (4 giây thay vì vài phút)
-$PY evaluate.py --checkpoint checkpoints/resumamba_2m.keras --bxb-only
-
-# so với lần chạy trước: mọi chỉ số kèm delta
-$PY evaluate.py --checkpoint <mới>.keras --baseline eval_results/<cũ>/ec57_summary.csv
+~/miniconda3/envs/beat/bin/python evaluate.py      # env có tensorflow
 ```
 
-Nó là cửa vào mỏng của cùng bộ máy `python -m ecgr ec57` dùng, khác ở bốn điểm — và mỗi điểm là
-một thứ đã từng làm mất thời gian:
+Khối `CONFIG` là toàn bộ giao diện:
 
-* **Nhận checkpoint tường minh**, ghi vào `./eval_results/<tên>/` ở thư mục làm việc. `ecgr ec57`
-  ghi vào thư mục của `ECGR_RUN_TAG` và mặc định lấy checkpoint mà một run huấn luyện tình cờ để
-  lại — không dùng được cho "chấm đúng file này, ở đây, ngay bây giờ".
+```python
+CHECKPOINTS = ['checkpoints/resumamba_2m.keras']   # nhiều file = ensemble (trung bình softmax)
+DATABASES   = ['mitdb', 'nstdb', 'escdb', 'ahadb', 'afdb']
+SCORE_V4    = True        # bộ v4 beat-eval 5,227 record
+LEAD_MODE   = 'native'    # bao nhiêu chuyển đạo THẬT: native / single / auto
+LEAD_FILL   = 'zero'      # lấp kênh còn thiếu: zero / duplicate
+MIN_RUN     = 1           # bỏ run ngắn hơn N bước 20 ms
+S_BOOST     = 1.0         # hiệu chuẩn trên portal, KHÔNG trên mitdb
+MAX_RECORDS = None        # đặt số nhỏ = chạy thử
+GPU         = None        # ví dụ '0'
+BXB_ONLY    = False       # True = chấm lại, không suy luận (giây thay vì phút)
+BASELINE    = None        # một ec57_summary.csv để so, mọi chỉ số kèm delta
+```
+
+Không dùng argparse là **có chủ ý**: một lần đánh giá là một bản ghi về những gì đã đo, và một
+khối hằng số có tên trong file chính là bản ghi đó. Một dòng shell thì trôi khỏi history, và
+không để lại dấu vết nào cho biết bảng kết quả kia đến từ một hay ba chuyển đạo.
+
+Nó là cửa vào mỏng của cùng bộ máy `python -m ecgr ec57` dùng, khác ở bốn điểm — mỗi điểm là một
+thứ đã từng làm mất thời gian:
+
+* **Checkpoint tường minh**, ghi vào `./eval_results/<tên>/`. `ecgr ec57` ghi vào thư mục của
+  `ECGR_RUN_TAG` và mặc định lấy checkpoint mà một run huấn luyện tình cờ để lại.
 * **Kiểm tra điều kiện TRƯỚC khi tốn GPU**: `bxb`/`sumstats` trên PATH, database có trên đĩa,
-  checkpoint tồn tại, và tensorflow import được bằng đúng interpreter đang chạy. Thiếu bất kỳ cái
-  nào thì bình thường sẽ hiện ra dưới dạng một báo cáo rỗng sau một giờ.
-* **Đánh dấu theo ngưỡng nghiệm thu**: `*` đạt, `!` chưa, kèm danh sách cái nào thiếu bao nhiêu.
-  Ngưỡng nằm trong `TARGETS` ở đầu file (mitdb Q ≥ 99.95 hai chiều, S Se > 43 / +P > 80; v4-beat
-  S Se > 88 / +P > 92); database không có ngưỡng thì không bị đánh dấu.
-* **Không chấm hai split portal** (`portal-train`/`portal-eval`, mục 7b) — chúng là công cụ của
-  một run huấn luyện, không phải của việc nghiệm thu một file.
+  file checkpoint tồn tại, giá trị `LEAD_MODE`/`LEAD_FILL` hợp lệ, và tensorflow import được bằng
+  đúng interpreter đang chạy — chạy bằng `/usr/bin/python3` sẽ báo ngay *"tensorflow is not
+  importable by /usr/bin/python3 … invoke it with ~/miniconda3/envs/beat/bin/python"* thay vì
+  chết giữa chừng. Thiếu bất kỳ cái nào bình thường sẽ hiện ra dưới dạng một báo cáo rỗng sau
+  một giờ.
+* **Đánh dấu theo ngưỡng nghiệm thu**: `*` đạt, `!` chưa, kèm danh sách thiếu bao nhiêu. Ngưỡng
+  ở hằng `TARGETS` (mitdb Q ≥ 99.95 hai chiều, S Se > 43 / +P > 80; v4-beat S Se > 88 / +P > 92);
+  database không có ngưỡng thì không bị đánh dấu, và `-` của lớp không có nhịp tham chiếu được
+  giữ nguyên chứ không thành 0.00.
+* **Không chấm hai split portal** (mục 7b) — chúng là công cụ của một run huấn luyện, không phải
+  của việc nghiệm thu một file.
 
-Dự đoán `.ain` và báo cáo WFDB thô được giữ dưới thư mục kết quả, nên mọi con số truy ngược được
-về từng record. `--lead-mode`, `--min-run`, `--s-boost` giống hệt `ecgr ec57` (mục 7b, 8f, 8i).
+Mặc định của script **bằng** mặc định của dự án (`LEAD_MODE`/`LEAD_FILL`), có test ghim, nên chạy
+trần là đo đúng thứ `ecgr ec57` sẽ đo. Dự đoán `.ain` và báo cáo WFDB thô được giữ dưới thư mục
+kết quả, nên mọi con số truy ngược được về từng record.
+
+Ví dụ đầu ra:
+
+```
+database        records    Q_Se    Q_+P    V_Se    V_+P    S_Se    S_+P
+-----------------------------------------------------------------------
+dataset-v4-beat       3 100.00 100.00       -       -  70.00!  87.50!
+mitdb                 3 100.00*  99.96* 100.00  33.33  91.18* 100.00*
+
+* = meets the acceptance target, ! = below it
+below target:
+  dataset-v4-beat  S_Se   70.00  (target 88.0)
+```
+
+## 7e. Kiểm tra rò rỉ và shape — kết quả đo ngày 22/09/2026
+
+### Shape, từ config xuống tới từng record
+
+| | shape | ghi chú |
+|---|---|---|
+| contract | `(2500, 3)` → `(500, 4)` | 2500/500 = 5 mẫu/bước = 20 ms |
+| 4 model dựng mới | `(None, 2500, 3)` → `(None, 500, 4)` | cả bốn kích thước |
+| 6 checkpoint đã giao | `(2500, 3)` → `(500, 4)` | softmax tổng = 1 (lệch ≤ 2.4e-07) |
+| tfrecord manifest | 2500 × 3, 500 × 4, float32/uint8 | khớp config, `check_manifest` chặn nếu lệch |
+| batch thực tế | `(8, 2500, 3)` float32 · `(8, 500, 4)` float32 | đọc từ tfrecord |
+| mitdb, nstdb | 2 ch @ 360 Hz → `(451389, 3)` @ 250 Hz | 2 kênh thật + 1 kênh lấp 0 |
+| escdb, ahadb, afdb | 2 ch @ 250 Hz → `(N, 3)` | 2 kênh thật + 1 kênh lấp 0 |
+| v4 beat-eval | 3 ch @ 250 Hz → `(15000, 3)` | 3 kênh thật, **không** lấp |
+
+> **Một cái bẫy đã sửa nhờ chính lần kiểm này.** `read_leads` và `predict_record` mặc định
+> `lead_mode='auto'`, còn `'auto'` trên record 2 chuyển đạo với model 3 kênh rơi về `'single'`
+> — nên một lời gọi trực tiếp dùng **một** chuyển đạo mitdb trong khi `ecgr ec57` (resolve từ
+> config, nay là `native`) dùng **hai**. Không con số nào đã công bố bị ảnh hưởng: cả bốn scorer
+> đều resolve `lead_mode or config.EC57_LEAD_MODE` và mọi call site truyền tường minh. Nhưng
+> mặc định giờ là `None` → lấy từ config, mô tả `'auto'` trong config đã sửa lại cho đúng, và
+> [`tests/test_ec57.py`](tests/test_ec57.py) ghim rằng lời gọi trần phải trùng với đường pipeline.
+
+### Rò rỉ dữ liệu — đo trên những gì có trên đĩa
+
+| kiểm tra | kết quả |
+|---|---|
+| tfrecord train/eval nằm dưới `PHYSIONET_DIR` | **0** / 76 file |
+| tfrecord có tên chứa `mitdb|nstdb|escdb|ahadb|afdb` | **0** |
+| `train ∩ study-giữ-lại` | **0** (62,282 study train) |
+| `eval ∩ study-giữ-lại` | **0** (15,609 study eval) |
+| `train ∩ eval` | **0** |
+| v4 beat-eval: 5,227 record → 2,242 study | **toàn bộ** nằm trong danh sách giữ lại |
+| `v4 ∩ train`, `v4 ∩ eval` | **0**, **0** |
+| `portal-eval ∩ v4` | **0** — hai holdout rời nhau |
+| `portal-eval ∩ train` | **0** |
+
+Bốn bất biến này giờ là test ([`tests/test_leakage.py`](tests/test_leakage.py)), đọc từ study id
+**lưu trong npy** và từ đường dẫn tfrecord đã resolve — không phải từ ý định của code. Kèm một
+test kiểm rằng chính cái guard `assert_no_benchmark_data` có báo lỗi khi được đưa đường dẫn
+physionet, vì một guard không bao giờ nói "không" thì không phải guard.
+
+### Rò rỉ khi tuning — hai quyết định đã dùng số benchmark
+
+Tầng dữ liệu sạch, nhưng **quy trình thì không hoàn toàn**. Mọi lựa chọn tự động đều nằm trên
+`portal-eval` (split eval của dữ liệu portal — rời hoàn toàn khỏi v4 và EC57): chọn checkpoint
+([`select.py`](ecgr/training/select.py)), chọn epoch của head ([`refine.py`](ecgr/training/refine.py)),
+hiệu chuẩn `s_boost` (0.75), quyết định loại bỏ công thức nhiễu (0/48 epoch hợp lệ). Hai quyết
+định **do tôi** đưa ra thì có nhìn số EC57:
+
+1. **`EC57_LEAD_MODE = 'native'` (mục 8f)** — tôi quyết dựa trên bảng mitdb/nstdb/escdb. Đây là
+   chọn *chính sách đọc dữ liệu* bằng benchmark. Giảm nhẹ: lý lẽ là **cơ chế**, không phải tham
+   số khớp — sóng P của record 232 chỉ có trên V5, và +297 trong +304 nhịp S bắt thêm nằm đúng ở
+   record đó; `portal-eval` không bị ảnh hưởng (record portal vốn 3 chuyển đạo thật nên `native`
+   không đổi gì ở đó); và đó là một lựa chọn nhị phân, không phải một cuộc tìm kiếm. Nhưng bằng
+   chứng tôi trưng ra là bảng mitdb, nên phải nói rõ.
+2. **`resumamba_2m_sonly_head.keras` = epoch 4** — quy tắc tự động **đã loại** mọi epoch của head
+   này (giữ `epoch_00` = base, vì chúng đổi S Se lấy S +P). Tôi lấy epoch 4 ra thủ công sau khi
+   xem mitdb. Giảm nhẹ: epoch 4 **cũng là** epoch có S F1 `portal-eval` cao nhất trong 6 epoch
+   (88.14 so với 87.94–88.10), nên quyết định trùng với cái mà chỉ `portal-eval` cũng đưa ra —
+   nhưng thứ tự việc làm thì không sạch.
+
+Một điểm nữa, không phải rò rỉ nhưng nên nói: `AUGMENT_LEAD_DUPLICATE_PROB` và
+`AUGMENT_LEAD_DROP_PROB` được đặt **vì biết trước** database EC57 có 2 chuyển đạo và được gán nhãn
+trên chuyển đạo đầu. Đó là dùng kiến thức về **định dạng** của benchmark, không phải về nhãn hay
+điểm số của nó — nhưng nó vẫn là lý do công thức augment có hình dạng như vậy.
 
 
 ## 8. So sánh nhiều model
@@ -1012,7 +1185,7 @@ mức siêu tham số.
 ./run_pipeline.sh test          # hoặc: python -m pytest tests/ -q
 ```
 
-89 test, không cái nào cần dataset thật trừ [`test_ec57.py`](tests/test_ec57.py) (tự skip khi
+101 test, không cái nào cần dataset thật trừ [`test_ec57.py`](tests/test_ec57.py) (tự skip khi
 thiếu database). Chúng ghim đúng những thứ đã từng sai âm thầm:
 
 | file | ghim cái gì |
@@ -1038,7 +1211,7 @@ ecg_resumamba/
 │   ├── evaluation/         step_metrics.py · bxb.py · ec57.py · report.py
 │   └── cli.py              `python -m ecgr <stage>`
 ├── evaluate.py             chấm EC57 + v4 beat-eval tại local, một lệnh (mục 7d)
-├── tests/                  89 test, chạy ở đâu cũng được
+├── tests/                  101 test, chạy ở đâu cũng được
 ├── docs/references/        danh mục tài liệu tham khảo
 ├── checkpoints/            4 checkpoint 3 chuyển đạo + weights ssl/cpc + manifest.json; legacy_1lead/ = 3 bản cũ
 ├── logs/tensorboard_legacy_1lead/  log train của 3 run 1 chuyển đạo cũ
@@ -1068,7 +1241,7 @@ ecg_resumamba/
 | cửa sổ cuối khi sweep | có thể >90% là đệm, rồi bị z-score | kết thúc đúng tại hết record |
 | build npy | một tiến trình | **đa tiến trình** (~5000 record/s với 32 worker) |
 | `bxb` | `shell=True` không quote, bỏ qua exit status | quote đầy đủ + kiểm exit status |
-| test | không có | **89** |
+| test | không có | **101** |
 
 ### Bất định của GPU — đã biết, đã đo
 
