@@ -80,7 +80,8 @@ def core_bounds(starts, segment_length=config.SEGMENT_SAMPLES, signal_length=Non
 
 
 def decode_beats(preds, segments, starts, s_boost=1.0,
-                 min_rr=config.MIN_RR_INTERVAL, signal_length=None, min_run_steps=1):
+                 min_rr=config.MIN_RR_INTERVAL, signal_length=None, min_run_steps=1,
+                 min_peak_prob=None):
     """Per-step predictions of a whole record -> (positions, symbols), sorted by position.
 
     A beat is a run of consecutive steps predicted non-background. Its position is the
@@ -97,8 +98,17 @@ def decode_beats(preds, segments, starts, s_boost=1.0,
     own sensitivity / positive-predictivity curve without retraining. Calibrate it on portal
     data only: tuning it against mitdb would make the EC57 benchmark self-scoring, the same
     prohibition that rules out training on those databases.
+
+    min_peak_prob drops a run whose beat probability (1 - p_None) never reaches it - the
+    refusal to call a beat out of signal the model cannot read. None takes
+    config.DECODE_MIN_PEAK_PROB, where the measured cost and benefit are written down; 0 is
+    off. It is read from the UNBOOSTED probabilities, because p_None is what says "there is
+    no beat here" and s_boost rescales a different column. The filter runs before the min_rr
+    suppression, so a rejected artefact no longer shadows a real beat 180 ms behind it.
     """
     preds = np.asarray(preds)
+    floor = config.DECODE_MIN_PEAK_PROB if min_peak_prob is None else float(min_peak_prob)
+    beat_prob = 1.0 - preds[..., 0] if floor > 0.0 else None
     if s_boost != 1.0:
         preds = preds.copy()
         preds[..., config.CLASS_NAMES.index('S')] *= s_boost
@@ -120,6 +130,8 @@ def decode_beats(preds, segments, starts, s_boost=1.0,
 
         for group in groups:
             if len(group) < min_run_steps:
+                continue
+            if beat_prob is not None and beat_prob[seg_idx, group].max() < floor:
                 continue
             lo = int(group[0] * STEP_SAMPLES)
             hi = min(int((group[-1] + 1) * STEP_SAMPLES), len(trace))
