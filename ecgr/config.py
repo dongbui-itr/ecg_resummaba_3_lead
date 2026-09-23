@@ -96,6 +96,31 @@ MIN_RR_INTERVAL = int(0.18 * SAMPLING_RATE)   # shortest allowed gap between two
 # Shortest run of non-background steps decoded as a beat (labels.decode_beats). 1 = every run.
 DECODE_MIN_RUN_STEPS = int(os.environ.get("ECGR_MIN_RUN_STEPS", 1))
 
+# Peak beat probability (1 - p_None) a decoded run must reach somewhere along it to be
+# emitted at all - the "refuse to call a beat out of unreadable signal" knob. 0 = off, which
+# is what every number in README section 8 was measured with.
+#
+# This is the mechanism that works for noisy signal, and it is NOT the obvious one. Measured
+# on nstdb with resumamba_2m, pooled over the 12 scored records (21,462 reference beats), at
+# the operating point that holds sensitivity at the 80% floor:
+#
+#     suppress by                         best +P at Se >= 80
+#     ----------------------------------  -------------------
+#     peak beat probability (this knob)          99.47
+#     mean beat probability over the run         98.43
+#     signal quality (band-passed kurtosis)      95.77
+#     decoded run length (DECODE_MIN_RUN_STEPS)  92.69
+#
+# A hand-made signal-quality measure is the weakest of the four: the model's own uncertainty
+# already localises unreadable signal better than a kurtosis track does, and it needs no
+# second detector to go wrong. Conditioning this threshold on that kurtosis track as well
+# was measured too, and it was worse than applying it everywhere (+P 99.08 vs 99.30).
+#
+# CALIBRATE ON PORTAL DATA ONLY, exactly as for the S boost: the threshold that produces a
+# given number on nstdb was chosen against nstdb, and a benchmark tuned against itself is not
+# a benchmark. The figures above are a feasibility measurement, not a setting to ship.
+DECODE_MIN_PEAK_PROB = float(os.environ.get("ECGR_DECODE_MIN_PEAK_PROB", 0.0))
+
 # ---------------------------------------------------------------------------
 # Datasets
 # ---------------------------------------------------------------------------
@@ -257,6 +282,27 @@ AUGMENT_NOISE = os.environ.get("ECGR_AUGMENT_NOISE", "1") not in ("0", "", "fals
 AUGMENT_WANDER_PROB, AUGMENT_WANDER_AMP = 0.5, 0.6
 AUGMENT_NOISE_PROB, AUGMENT_NOISE_AMP = 0.5, 0.25
 AUGMENT_MOTION_PROB = float(os.environ.get("ECGR_AUGMENT_MOTION_PROB", 0.2))
+
+# ONE lead wrecked per sample (data/pipeline._lead_noise). The three components above switch
+# on per SAMPLE, so when they fire they fire on every lead at once: the case a 3-lead holter
+# produces constantly - one electrode in trouble while the other two are clean - was the one
+# distribution training never showed. A flat lead the model does know
+# (AUGMENT_LEAD_DROP_PROB), but a flat lead is trivially detectable; a lead full of artefact
+# is not, and that is where both the missed beats and the false ones come from.
+# Amplitudes are per-lead z-score units, the same as above, where the QRS peaks at ~3-8.
+AUGMENT_LEAD_NOISE_PROB = float(os.environ.get("ECGR_AUGMENT_LEAD_NOISE_PROB", 0.35))
+# Ceiling for a SECONDARY lead, drawn uniformly below it, so the lead lands anywhere from
+# mildly degraded to swamped: measured over 2,048 samples, the peak deviation on a corrupted
+# secondary lead is median 2.59, p90 4.93, max 7.93 - i.e. the top of the range is at or above
+# the QRS itself. The other two leads still carry the beats, so the labels stay honest and
+# the lesson is "read the other leads" rather than "invent one".
+AUGMENT_LEAD_NOISE_AMP = 2.5
+# Lead 0 is the lead the labels refer to. It is corrupted too - nstdb is exactly that case -
+# but capped below the QRS scale, so it degrades rather than disappears. Destroying it while
+# keeping its labels would teach the model to invent beats out of artefact, which is the
+# opposite of what the noisy-database positive predictivity needs.
+AUGMENT_LEAD_NOISE_PRIMARY_AMP = 0.8
+AUGMENT_LEAD_NOISE_SPAN = 0.3     # shortest burst, as a fraction of the window
 
 # Save every epoch from CKPT_START_EPOCH on (<ckpt>/epochs/epoch_NN.keras), not only the
 # step-F1 improvements: the checkpoint that scores best at beat level is chosen afterwards by

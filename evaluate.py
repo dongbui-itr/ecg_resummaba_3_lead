@@ -70,6 +70,11 @@ LEAD_FILL = 'zero'
 
 # --- decoding ------------------------------------------------------------------------
 MIN_RUN = 1                     # drop decoded runs shorter than this many 20 ms steps
+# Refuse to emit a beat whose run never reaches this beat probability (1 - p_None), i.e. skip
+# signal the model cannot read. 0 = off. The measured cost/benefit curve, and why this beats a
+# hand-made signal-quality measure, is in config.DECODE_MIN_PEAK_PROB. CALIBRATE ON PORTAL
+# DATA ONLY - the same rule as S_BOOST below.
+MIN_PEAK_PROB = 0.0
 # Multiplies the S probability before the argmax, i.e. slides the model along its own
 # sensitivity / positive-predictivity curve. CALIBRATE ON PORTAL DATA ONLY - tuning it
 # against mitdb makes the EC57 benchmark self-scoring. It saturates: on the best ensemble,
@@ -228,12 +233,14 @@ def main():
     # than at a run directory, and apply this run's decode options.
     config.EC57_DIR = os.path.dirname(out_dir)
     config.DECODE_MIN_RUN_STEPS = MIN_RUN
+    config.DECODE_MIN_PEAK_PROB = MIN_PEAK_PROB
 
     print(f"checkpoint   : {', '.join(CHECKPOINTS)}"
           f"{'  (ensemble: outputs averaged)' if len(checkpoints) > 1 else ''}")
     print(f"output       : {out_dir}")
     print(f"leads        : mode {LEAD_MODE}, fill {LEAD_FILL}")
-    print(f"decoding     : min-run {MIN_RUN}, s-boost {S_BOOST}")
+    print(f"decoding     : min-run {MIN_RUN}, s-boost {S_BOOST}, "
+          f"min-peak-prob {MIN_PEAK_PROB}")
     print(f"scoring      : {', '.join(databases) if databases else '(no physionet)'}"
           f"{' + dataset-v4-beat' if SCORE_V4 else ''}")
 

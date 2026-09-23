@@ -26,7 +26,7 @@ cd ecg_resumamba
 pip install -r requirements.txt          # hoặc dùng env conda `beat` có sẵn trên máy này
 python -c "import tensorflow as tf; print(tf.config.list_physical_devices('GPU'))"
 which bxb sumstats                       # trống = chưa cài WFDB apps, bước ec57 sẽ báo lỗi
-./run_pipeline.sh test                   # 101 test, ~2 phút
+./run_pipeline.sh test                   # 111 test, ~2 phút
 ```
 
 > **`libdevice not found at ./libdevice.10.bc`.** Bánh xe `tensorflow[and-cuda]` có cuDNN và
@@ -361,6 +361,88 @@ các tích chập dày của nhánh ResU, vốn được thay bằng tích chậ
 
 ## 6. Tự giám sát rồi train — [`ecgr/training/`](ecgr/training/)
 
+### 6.0. Tổng quan: chặng nào không nhãn, chặng nào cần nhãn
+
+Bốn chặng huấn luyện, **hai chặng đầu không đụng vào nhãn**:
+
+```
+ssl   ──► backbone            tái tạo có che            KHÔNG NHÃN
+cpc   ──► context encoder     InfoNCE                   KHÔNG NHÃN   ──► đóng băng
+train ──► backbone + head     poly2 trên 4 lớp          CẦN NHÃN
+refine──► head thời gian      poly2, base đóng băng     CẦN NHÃN
+```
+
+**Bao nhiêu tham số học được mà không cần nhãn**
+
+| model | `ssl` (backbone) | `cpc` (context) | **không nhãn** | chỉ có nhãn (head) |
+|---|---|---|---|---|
+| `2m` | 1,458,296 (74%) | 179,552 (9%) | **83%** | 339,812 (17%) |
+| `1m` | 639,200 (68%) | 101,832 (11%) | **79%** | 193,444 (21%) |
+| `100k` | 50,588 (54%) | 6,485 (7%) | **61%** | 36,444 (39%) |
+| `30k` | 15,044 (51%) | 2,605 (9%) | **59%** | 12,092 (41%) |
+
+Model càng lớn thì phần học được không nhãn càng lớn — vì head có kích thước gần như cố định
+còn backbone nở theo chiều rộng.
+
+**Mục tiêu không nhãn lấy "đáp án" từ đâu**
+
+Một mục tiêu tự giám sát vẫn cần một đích để so; điều làm nó *tự* giám sát là đích ấy **lấy từ
+chính tín hiệu**, không từ chú thích của con người.
+
+| chặng | đích là gì | lấy từ đâu |
+|---|---|---|
+| `ssl` | 5 mẫu thô nằm sau mỗi bước đầu ra, trên cả 3 chuyển đạo (15 số/bước) | `reshape` của **chính đầu vào** — `_target()` không làm gì khác |
+| `cpc` | latent `v_{i+j}` của cửa sổ tương lai | **chỉ số thời gian** `i+j`, không phải lớp |
+
+**`ssl` — tái tạo có che.** Đầu vào bị làm hỏng hai kiểu, mỗi kiểu bật theo xác suất riêng cho
+từng mẫu (≈ 80% batch mang ít nhất một loại):
+
+* **che theo khoảng** — 35% trong 500 bước, theo các khoảng liền nhau 12 bước (240 ms ≈ một
+  nhịp), làm 0 trên **mọi** chuyển đạo. Điền lại một nhịp bị che từ các nhịp lân cận chính là
+  ngữ cảnh nhiều nhịp mà nhánh state-space tồn tại để cung cấp;
+* **che theo chuyển đạo** — với xác suất 0,5, **một** chuyển đạo bị làm 0 hoàn toàn và phải
+  được tái tạo từ hai chuyển đạo kia.
+
+Loss là MSE **chỉ trên phần bị che**. Lấy trung bình trên mọi bước sẽ cho model ghi điểm bằng
+cách chép lại 65% đầu vào nó vẫn thấy. Decoder (2 lớp conv) cố tình nhỏ và **bị vứt đi** sau
+chặng này — một decoder có sức chứa riêng sẽ tái tạo được từ một biểu diễn yếu hơn, tức chuyển
+việc học ra khỏi backbone.
+
+**`cpc` — InfoNCE.** Đoạn 10 s cắt thành 9 cửa sổ 2 s chồng 50%; bộ mã hóa cho latent `v_i`; một
+mô hình tự hồi quy **nhân quả** cho vector ngữ cảnh `c_i`. Từ `c_i` dự đoán `v_{i+j}` với
+`j ∈ {1, 2}`, cạnh tranh với **mọi** latent khác trong batch — cả cửa sổ khác lẫn **đoạn khác**.
+Chính phần "đoạn khác" ép biểu diễn phải mang đặc trưng riêng của từng đoạn.
+
+**Khi nào KHÔNG cần nhãn**
+
+* **Toàn bộ chặng `ssl` và `cpc`.** Không chỉ mục tiêu — cả **đầu vào**: `parse_signal` thậm chí
+  không khai báo trường `labels`, nên hai chặng này đọc được một kho bản ghi **hoàn toàn không
+  có nhãn** y như đọc tfrecord của dự án. (Trước đây nhãn bị parse rồi bỏ, tức trường ấy vẫn
+  **bắt buộc** tồn tại — mục tiêu thì không nhãn nhưng đầu vào thì có, và điều đó vô hiệu hoá
+  đúng cái lợi thực tế của tự giám sát. Đã sửa, có test.)
+* **Hệ quả thực tiễn**: nếu anh có nhiều ECG chưa gán nhãn và ít ECG đã gán, hãy chạy `ssl` +
+  `cpc` trên **toàn bộ** kho chưa gán rồi chỉ dùng phần đã gán cho `train`. Kiến trúc không đổi,
+  chỉ cần trỏ `ECGR_TFRECORD_DIR` sang kho đó cho hai chặng đầu.
+* **Bộ mã hóa ngữ cảnh thì không bao giờ cần nhãn**, kể cả về sau: `train` nạp nó rồi **đóng
+  băng** (`freeze_ctx=True`). Đo trên `30k`: 2,605 tham số của nó có **0** tham số trainable khi
+  train có nhãn. Đây đúng là cách bài báo giữ bộ mã hóa bệnh nhân bất biến — để hàm mất mát của
+  bài toán nhịp không nắn một mô tả về biến thiên gây nhiễu thành một bộ phát hiện nhịp.
+
+**Khi nào CẦN nhãn**
+
+* **`train`** — đây là chặng duy nhất dạy model *ý nghĩa* của các lớp. Nhãn là 500 bước ×
+  4 lớp one-hot, loss `poly2` có trọng số lớp. Đo trên `30k`: cập nhật **26,336** tham số
+  (backbone 14,244 + head 12,092); backbone khởi tạo từ `ssl` rồi **được fine-tune**, nên nhãn
+  *có* chạm vào nó — `ssl` là điểm khởi đầu, không phải một khối đóng băng.
+* **`refine`** — đầu tinh chỉnh thời gian, cũng `poly2`, base đóng băng.
+* **Chọn checkpoint** — `val_weighted_f1` và mọi lần chấm bxb đều cần nhãn tham chiếu.
+* **Đánh giá** — EC57 và v4 beat-eval cần chú thích của chuyên gia. Không có cách nào quanh
+  chuyện này: một con số Se/+P là một so sánh với nhãn.
+
+Tóm lại: **nhãn cần cho việc gán *tên* lớp và cho việc *đo*, không cần cho việc học *biểu diễn***
+— và ở bản `2m` thì 83% tham số học xong biểu diễn trước khi nhìn thấy nhãn đầu tiên.
+
+
 ### 6a. Chặng 1: backbone — [`ssl.py`](ecgr/training/ssl.py)
 
 ```bash
@@ -559,6 +641,46 @@ Nhãn giữ nguyên. Cùng run này bật `SAVE_EVERY_EPOCH`: mọi epoch từ `
 F1 mức bước — đúng cảnh báo của chính README này rằng F1 mức bước không chọn được model tốt ở mức
 nhịp. SSL/CPC được tái dùng từ `260917_3lead` (`ECGR_SSL_RUN` / `ECGR_CPC_RUN`), kiến trúc không
 đổi.
+
+### 6i. Hai chặng tự giám sát có thật sự **không dùng nhãn**? — chứng minh, không phải khẳng định
+
+tfrecord mang nhãn **trong cùng một record** với tín hiệu, nên chỉ cần một dòng là bắt đầu dùng
+nhãn một cách vô tình, và **không gì ở phía sau báo lỗi** — chặng đó chỉ đơn giản thôi không còn
+là tự giám sát. Vì vậy [`tests/test_label_free.py`](tests/test_label_free.py) tấn công tính chất
+này theo ba đường:
+
+**1. Cấu trúc** — dataset mà hai chặng đọc trả về **một** tensor, tức nhãn **vắng mặt khỏi
+graph** chứ không phải "có nhưng không dùng":
+
+```
+signal_only=True  -> TensorSpec(shape=(None, 2500, 3), dtype=tf.float32)     # một tensor
+signal_only=False -> (TensorSpec(2500, 3), TensorSpec(500, 4))               # có nhãn
+```
+
+và `train_step` / `test_step` của cả hai trainer có chữ ký đúng `(self, signal)`.
+
+**2. Từ vựng** — sau khi bỏ docstring và comment, code của `ssl.py`/`cpc.py` không chứa
+`y_true`, `CLASS_WEIGHTS`, `SYMBOL_TO_LABEL`, `CLASS_NAMES`, `NUM_CLASSES`, `LOSSES`,
+`labels_from_annotations`. (Chú ý: `ssl.py` **có** dùng `tf.one_hot`, nhưng là one-hot trên chỉ
+số **kênh** để chọn chuyển đạo bị che — không liên quan lớp nhãn. Đây là một dương tính giả mà
+chính lần chạy test đầu tiên bắt được, và danh sách từ khoá đã được sửa cho đúng.)
+
+**3. Nhân quả — cái không thể lừa được.** Cùng một bộ tín hiệu, **hai bộ nhãn hoàn toàn khác
+nhau** (toàn 0 so với ngẫu nhiên 0–3, khác nhau ở 11,930/16,000 bước), cùng seed, cùng trọng số
+khởi tạo:
+
+| chặng | loss với nhãn A | loss với nhãn B | |
+|---|---|---|---|
+| `ssl` | 0.5532110929 | 0.5532110929 | **giống từng bit** |
+| `cpc` | 4.23913908 | 4.23913908 | **giống từng bit** |
+
+Nếu một nhãn từng đến được một trong hai mục tiêu — trực tiếp, qua đường augment, hay qua một
+trọng số lớp — hai lần chạy này đã phân kỳ. Test còn kiểm rằng loss **có di chuyển** giữa các
+epoch, vì hai hằng số bằng nhau thì chẳng chứng minh điều gì.
+
+Đích của hai mục tiêu cũng đến từ chính đầu vào, không từ nhãn: `ssl` tái tạo **5 mẫu thô sau
+mỗi bước đầu ra** của chính tín hiệu (`_target` chỉ là một phép `reshape` của đầu vào), còn `cpc`
+dự đoán latent `v_{i+j}` xác định bằng **chỉ số thời gian**, không bằng lớp.
 
 ## 7. Eval
 
@@ -1185,7 +1307,7 @@ mức siêu tham số.
 ./run_pipeline.sh test          # hoặc: python -m pytest tests/ -q
 ```
 
-101 test, không cái nào cần dataset thật trừ [`test_ec57.py`](tests/test_ec57.py) (tự skip khi
+111 test, không cái nào cần dataset thật trừ [`test_ec57.py`](tests/test_ec57.py) (tự skip khi
 thiếu database). Chúng ghim đúng những thứ đã từng sai âm thầm:
 
 | file | ghim cái gì |
@@ -1211,7 +1333,7 @@ ecg_resumamba/
 │   ├── evaluation/         step_metrics.py · bxb.py · ec57.py · report.py
 │   └── cli.py              `python -m ecgr <stage>`
 ├── evaluate.py             chấm EC57 + v4 beat-eval tại local, một lệnh (mục 7d)
-├── tests/                  101 test, chạy ở đâu cũng được
+├── tests/                  111 test, chạy ở đâu cũng được
 ├── docs/references/        danh mục tài liệu tham khảo
 ├── checkpoints/            4 checkpoint 3 chuyển đạo + weights ssl/cpc + manifest.json; legacy_1lead/ = 3 bản cũ
 ├── logs/tensorboard_legacy_1lead/  log train của 3 run 1 chuyển đạo cũ
@@ -1241,7 +1363,7 @@ ecg_resumamba/
 | cửa sổ cuối khi sweep | có thể >90% là đệm, rồi bị z-score | kết thúc đúng tại hết record |
 | build npy | một tiến trình | **đa tiến trình** (~5000 record/s với 32 worker) |
 | `bxb` | `shell=True` không quote, bỏ qua exit status | quote đầy đủ + kiểm exit status |
-| test | không có | **101** |
+| test | không có | **111** |
 
 ### Bất định của GPU — đã biết, đã đo
 

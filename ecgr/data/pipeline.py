@@ -95,6 +95,24 @@ def assert_no_benchmark_data(files):
             f"(e.g. {bad[:3]}). Training on them would make every EC57 number self-scored.")
 
 
+def parse_signal(proto_batch):
+    """Parse only the signal of a BATCH of examples.
+
+    A separate parser rather than parse_batch-then-drop, because the two differ in what they
+    REQUIRE of the file: this one declares no `labels` feature, so the self-supervised stages
+    can read a corpus that has none. Dropping the labels after parsing them still makes the
+    field mandatory, which quietly turned "pretrain on unlabeled recordings" - the whole
+    practical point of self-supervision - into "pretrain on labelled recordings, ignoring the
+    labels". Files that do carry labels are read by this parser too; the field is simply left
+    alone.
+    """
+    parsed = tf.io.parse_example(proto_batch, {
+        'signal': tf.io.FixedLenFeature([], tf.string),
+    })
+    signal = tf.io.decode_raw(parsed['signal'], tf.float32)
+    return tf.reshape(signal, [-1, config.SEGMENT_SAMPLES, config.IN_CHANNELS])
+
+
 def parse_batch(proto_batch):
     """Parse a BATCH of examples (see module docstring for why it is batched)."""
     parsed = tf.io.parse_example(proto_batch, {
@@ -228,6 +246,75 @@ def _noise(signal):
     return signal + on * sign * amp * bump * lead
 
 
+def _lead_noise(signal):
+    """Wreck ONE lead of the sample, hard enough that the model has to read the others.
+
+    Everything in `_noise` switches on per SAMPLE, so when it fires it fires on every lead at
+    once. The situation a 3-lead holter actually produces - one electrode in trouble while the
+    other two are clean - was therefore never in the training distribution. A FLAT lead the
+    model does know (AUGMENT_LEAD_DROP_PROB), but a flat lead is trivially detectable: the
+    hard skill, and the one both the missed beats and the false ones turn on, is telling
+    "this lead carries no evidence" apart from "this lead says there is no beat".
+
+    Three things are drawn per sample:
+
+      * WHICH lead - any of them, lead 0 included, each about a third of the time. Lead 0 is
+        the lead the labels refer to, so its amplitude is capped at
+        AUGMENT_LEAD_NOISE_PRIMARY_AMP: degraded, still readable. A secondary lead is drawn
+        uniformly below the higher AUGMENT_LEAD_NOISE_AMP and so lands anywhere from mildly
+        degraded to swamped (measured peak deviation: median 2.59, p90 4.93, max 7.93, against
+        a QRS at 3-8), because the beats remain legible on the two leads that are left.
+        Destroying lead 0 outright while keeping its labels would instead teach the model to
+        invent beats out of artefact - the exact failure the noisy databases' positive
+        predictivity is already losing to.
+      * WHEN - a raised-cosine envelope over a span of AUGMENT_LEAD_NOISE_SPAN..1 of the
+        window, i.e. everything from a short burst to an electrode useless for the whole strip.
+      * WHAT - a mixture of white noise and 1-25 Hz oscillation. White hiss is the easy case;
+        the artefact that costs positive predictivity is the one with QRS-band energy, because
+        that is the one a detector mistakes for a beat.
+
+    Labels are untouched, and most steps of any window are background, so this supplies the
+    one pairing the existing noise cannot: long stretches of artefact that carry NO beat, on a
+    lead the other two contradict. "Artefact is not a beat" is learnable from that and from
+    very little else.
+
+    Called before _lead_jitter, like everything else per-lead: the duplicate branch there has
+    to come out with three EXACTLY equal leads (see augment), which it does because it copies
+    lead 0 over whatever this did to the others.
+    """
+    if not config.AUGMENT_NOISE or config.AUGMENT_LEAD_NOISE_PROB <= 0.0:
+        return signal
+    batch = tf.shape(signal)[0]
+    n, c, fs = config.SEGMENT_SAMPLES, config.IN_CHANNELS, float(config.SAMPLING_RATE)
+    two_pi = 2.0 * 3.14159265
+    t = tf.range(n, dtype=tf.float32) / fs                                      # (n,)
+
+    victim_idx = tf.random.uniform([batch], 0, c, dtype=tf.int32)
+    victim = tf.one_hot(victim_idx, c)[:, None, :]                              # (b, 1, c)
+    primary = tf.cast(tf.equal(victim_idx, 0), tf.float32)
+    ceiling = (primary * config.AUGMENT_LEAD_NOISE_PRIMARY_AMP +
+               (1.0 - primary) * config.AUGMENT_LEAD_NOISE_AMP)[:, None, None]  # (b, 1, 1)
+    amp = tf.random.uniform([batch, 1, 1], 0.0, 1.0) * ceiling
+
+    span = tf.random.uniform([batch, 1, 1], config.AUGMENT_LEAD_NOISE_SPAN, 1.0) * float(n)
+    centre = tf.random.uniform([batch, 1, 1], 0.0, float(n))
+    x = (tf.range(n, dtype=tf.float32)[None, :, None] - centre) / (span / 2.0)
+    env = tf.where(tf.abs(x) <= 1.0, 0.5 * (1.0 + tf.cos(3.14159265 * x)), 0.0)  # (b, n, 1)
+
+    freq = tf.random.uniform([batch, 1, 3], 1.0, 25.0)
+    phase = tf.random.uniform([batch, 1, 3], 0.0, two_pi)
+    # Three random-phase sinusoids have std sqrt(3/2); normalise so `amp` means what it says
+    # on both branches of the mixture.
+    band = tf.reduce_sum(tf.sin(two_pi * freq * t[None, :, None] + phase),
+                         axis=-1, keepdims=True) / 1.2247449                    # (b, n, 1)
+    mix = tf.random.uniform([batch, 1, 1])
+    noise = mix * tf.random.normal([batch, n, 1]) + (1.0 - mix) * band
+
+    on = tf.cast(tf.random.uniform([batch, 1, 1]) < config.AUGMENT_LEAD_NOISE_PROB,
+                 tf.float32)
+    return signal + on * amp * env * noise * victim
+
+
 def augment(signal, labels):
     """Time-scale, noise, per-lead amplitude jitter and lead manipulations, on the GPU batch.
 
@@ -239,6 +326,7 @@ def augment(signal, labels):
     """
     signal, labels = _time_scale(signal, labels)
     signal = _noise(signal)
+    signal = _lead_noise(signal)
     # Per LEAD, not per sample: the leads of one record already differ in gain by a factor of
     # several, and a single shared factor cannot teach that.
     gain = tf.random.uniform([tf.shape(signal)[0], 1, signal.shape[-1] or
@@ -255,19 +343,20 @@ def make_dataset(files, batch_size, training=False, cache=None, signal_only=Fals
     if training:
         ds = ds.shuffle(config.SHUFFLE_BUFFER, reshuffle_each_iteration=True)
     ds = ds.batch(batch_size)
-    ds = ds.map(parse_batch, num_parallel_calls=tf.data.AUTOTUNE, deterministic=not training)
     if signal_only:
-        # The self-supervised stages are label-free: the labels are parsed (the schema is
-        # fixed) and then dropped, so the same tfrecords serve every stage with no second
-        # copy of the data. Time-scale augmentation is off for them - it would teach the
-        # encoder that a strip and its rescaled self are different recordings, the opposite
-        # of what a contrastive objective is for. Lead jitter is left to the caller
-        # (`lead_jitter=True`): the CPC stage wants it, while the masked-reconstruction
-        # stage masks leads itself and would otherwise corrupt the same input twice.
-        ds = ds.map(lambda sig, _lab: sig, num_parallel_calls=tf.data.AUTOTUNE)
+        # The self-supervised stages never see a label: parse_signal does not even declare
+        # the field, so they run on a corpus that has none as readily as on these tfrecords.
+        # Time-scale augmentation is off for them - it would teach the encoder that a strip
+        # and its rescaled self are different recordings, the opposite of what a contrastive
+        # objective is for. Lead jitter is left to the caller (`lead_jitter=True`): the CPC
+        # stage wants it, while the masked-reconstruction stage masks leads itself and would
+        # otherwise corrupt the same input twice.
+        ds = ds.map(parse_signal, num_parallel_calls=tf.data.AUTOTUNE,
+                    deterministic=not training)
         if lead_jitter and training and config.AUGMENT:
             ds = ds.map(_lead_jitter, num_parallel_calls=tf.data.AUTOTUNE)
         return ds.prefetch(tf.data.AUTOTUNE)
+    ds = ds.map(parse_batch, num_parallel_calls=tf.data.AUTOTUNE, deterministic=not training)
     if training and config.AUGMENT:
         ds = ds.map(augment, num_parallel_calls=tf.data.AUTOTUNE)
     return ds.prefetch(tf.data.AUTOTUNE)
