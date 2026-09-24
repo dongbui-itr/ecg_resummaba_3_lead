@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 # Train and score the whole model family, one size after another.
 #
-#   ./run_pipeline.sh data                                  # rebuild npy + tfrecords
+#   ./run_pipeline.sh data                                  # rebuild npy + tfrecords (60 s windows)
 #   ./run_pipeline.sh sweep                                 # all four sizes, end to end
-#   ./run_pipeline.sh sweep resumamba_30k                   # ... or just this one
+#   ./run_pipeline.sh sweep resumamba_100k                  # ... or just this one
 #   ./run_pipeline.sh summary                               # the comparison table again
-#   ./run_pipeline.sh refine resumamba_2m                   # temporal head on the trained base,
+#   ./run_pipeline.sh regress                               # every size against its 10 s baseline
+#   ./run_pipeline.sh refine resumamba_5m                   # temporal head on the trained base,
 #                                                           #   then EC57 under <model>_refined
 #
-# Each size runs ssl -> cpc -> train -> stepeval -> ec57. Both self-supervised stages are
-# label-free and depend only on the architecture, so they are skipped when weights already
-# exist - in this run, or in the run ECGR_SSL_RUN / ECGR_CPC_RUN names.
+# Each size runs ssl -> cpc -> train -> select -> stepeval -> ec57 -> regress. Both
+# self-supervised stages are label-free and depend only on the architecture, so they are
+# skipped when weights already exist - in this run, or in the run ECGR_SSL_RUN / ECGR_CPC_RUN
+# names. `select` scores every saved epoch with bxb on portal-eval and picks the beat-level
+# winner (step F1 does not pick it - README section 8); ec57 then scores that checkpoint.
 #
 # A sweep runs for hours, so START IT DETACHED - `nohup ... &` alone is not enough, it stays
 # in the launching shell's process group and dies with it:
@@ -21,9 +24,9 @@
 # <CHECKPOINT_DIR>/<model>/ and each EC57 into <EC57_DIR>/<tag>/ with its own symlink farm,
 # so parallel queues cannot collide. Pin ECGR_RUN_TAG so both write the same run:
 #
-#   export ECGR_RUN_TAG=260917_3lead
-#   ECGR_GPU=0 setsid nohup ./run_pipeline.sh sweep resumamba_2m resumamba_100k </dev/null >logs/q0.log 2>&1 &
-#   ECGR_GPU=1 setsid nohup ./run_pipeline.sh sweep resumamba_1m resumamba_30k  </dev/null >logs/q1.log 2>&1 &
+#   export ECGR_RUN_TAG=260923_60s
+#   ECGR_GPU=0 setsid nohup ./run_pipeline.sh sweep resumamba_5m resumamba_100k </dev/null >logs/q0.log 2>&1 &
+#   ECGR_GPU=1 setsid nohup ./run_pipeline.sh sweep resumamba_3m resumamba_1m   </dev/null >logs/q1.log 2>&1 &
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -31,19 +34,19 @@ cd "$(dirname "$0")"
 PY="${PY:-/home/ai-server/miniconda3/envs/beat/bin/python}"
 [[ -x "${PY}" ]] || { echo "python not found: ${PY} (set PY=...)" >&2; exit 2; }
 
-export ECGR_RUN_TAG="${ECGR_RUN_TAG:-$(date +%y%m%d)_3lead}"
+export ECGR_RUN_TAG="${ECGR_RUN_TAG:-$(date +%y%m%d)_60s}"
 export ECGR_IN_CHANNELS="${ECGR_IN_CHANNELS:-3}"
 export TF_CPP_MIN_LOG_LEVEL="${TF_CPP_MIN_LOG_LEVEL:-2}"
 export CUDA_VISIBLE_DEVICES="${ECGR_GPU:-0}"
 
 GPU="${ECGR_GPU:-0}"
-GPU_FREE_MIB="${ECGR_GPU_FREE_MIB:-9000}"          # wait for this much VRAM before training
+GPU_FREE_MIB="${ECGR_GPU_FREE_MIB:-18000}"         # wait for this much VRAM before training (60 s x batch 32)
 GPU_FREE_INFER_MIB="${ECGR_GPU_FREE_INFER_MIB:-4000}"
 GPU_WAIT_MAX="${ECGR_GPU_WAIT_MAX:-21600}"         # ... but no longer than this (s); 0 = never wait
 
 # Largest first: the big sizes are the ones worth a free card early, and a queue that dies
 # halfway has then produced the results that matter most.
-SIZES=(resumamba_2m resumamba_1m resumamba_100k resumamba_30k)
+SIZES=(resumamba_5m resumamba_3m resumamba_1m resumamba_100k)
 
 LOGS="$PWD/logs"
 mkdir -p "$LOGS"
@@ -129,23 +132,48 @@ stage_ec57_refined() {
         "${PY}" -m ecgr ec57 --model "$1" --checkpoint "${ckpt}" --tag "$1_refined"
 }
 
-stage_stepeval() {
+# The checkpoint the eval stages score: the bxb-selected epoch when `select` has run, else
+# the step-F1 pick (ecgr's own default).
+selected_ckpt() {
+    "${PY}" -c "from ecgr import config, models; import os; p=os.path.join(config.CHECKPOINT_DIR, models.keras_name('$1'), 'epochs', 'selected_by_bxb.keras'); print(p if os.path.exists(p) else '')"
+}
+
+stage_select() {
     wait_gpu "${GPU_FREE_INFER_MIB}"
-    echo "[$(date +%H:%M:%S)] stepeval $1"
+    echo "[$(date +%H:%M:%S)] select $1 (bxb on portal-eval over every saved epoch)"
+    run_stage "${LOGS}/$1_select.log" \
+        "(^candidate|^step-F1|^epoch_|WINNER|regresses|selected_by_bxb|Traceback|.*Error)" \
+        "${PY}" -m ecgr select --model "$1"
+}
+
+stage_stepeval() {
+    local ckpt; ckpt="$(selected_ckpt "$1")"
+    wait_gpu "${GPU_FREE_INFER_MIB}"
+    echo "[$(date +%H:%M:%S)] stepeval $1${ckpt:+ (bxb-selected checkpoint)}"
     run_stage "${LOGS}/$1_stepeval.log" \
-        "(Weighted F1|^ *(None|N|V|S) |report ->|checkpoint:|Traceback|.*Error)" \
-        "${PY}" -m ecgr stepeval --model "$1"
+        "(Weighted F1|Lead quality|^ *(None|N|V|S) |report ->|checkpoint:|Traceback|.*Error)" \
+        "${PY}" -m ecgr stepeval --model "$1" ${ckpt:+--checkpoint "${ckpt}"}
 }
 
 stage_ec57() {
+    local ckpt; ckpt="$(selected_ckpt "$1")"
     wait_gpu "${GPU_FREE_INFER_MIB}"
-    echo "[$(date +%H:%M:%S)] ec57 $1 (physionet, one lead duplicated + portal 3-lead)"
+    echo "[$(date +%H:%M:%S)] ec57 $1 (physionet native 2 leads + zero fill, portal 3-lead)${ckpt:+ (bxb-selected checkpoint)}"
     run_stage "${LOGS}/$1_ec57.log" \
-        "(^=====|^EC57 report|^  (Average|Gross|Total)|^EC57 summary|^  db=|Traceback|.*Error)" \
-        "${PY}" -m ecgr ec57 --model "$1"
+        "(^=====|^EC57 report|^  (Average|Gross|Total)|^EC57 summary|^  db=|lead quality|geometry|Traceback|.*Error)" \
+        "${PY}" -m ecgr ec57 --model "$1" ${ckpt:+--checkpoint "${ckpt}"}
 }
 
-STAGE="${1:?stage: data|sweep|refine|summary|test}"
+stage_regress() {
+    echo "[$(date +%H:%M:%S)] regress $1 (against the 10 s baseline in assets/baselines/)"
+    set +e
+    "${PY}" -m ecgr regress --model "$1" 2>&1 | tee "${LOGS}/$1_regress.log"
+    local rc=${PIPESTATUS[0]}
+    set -e
+    [[ ${rc} -eq 0 ]] || { echo "REGRESSION (rc=${rc}), see ${LOGS}/$1_regress.log" >&2; return ${rc}; }
+}
+
+STAGE="${1:?stage: data|sweep|refine|summary|regress|test}"
 shift || true
 
 echo "=== ${STAGE} ==="
@@ -187,8 +215,14 @@ case "${STAGE}" in
         elif ! stage_train "$m"; then
             failures+=("${m}:train"); continue
         fi
+        if [[ -f "${CKPT_ROOT}/${keras}/epochs/selected_by_bxb.keras" ]]; then
+            echo "[$(date +%H:%M:%S)] ${m}: bxb selection present, skipping select"
+        elif ls "${CKPT_ROOT}/${keras}/epochs/"epoch_*.keras >/dev/null 2>&1; then
+            stage_select "$m" || failures+=("${m}:select")
+        fi
         stage_stepeval "$m" || failures+=("${m}:stepeval")
         stage_ec57 "$m"     || failures+=("${m}:ec57")
+        stage_regress "$m"  || failures+=("${m}:regress")
     done
 
     "${PY}" -m ecgr compare "${list[@]}" || true
@@ -217,6 +251,16 @@ case "${STAGE}" in
 
   summary)
     "${PY}" -m ecgr compare "${@:-${SIZES[@]}}"
+    ;;
+
+  regress)
+    if [[ $# -gt 0 ]]; then list=("$@"); else list=("${SIZES[@]}"); fi
+    failures=()
+    for m in "${list[@]}"; do stage_regress "$m" || failures+=("$m"); done
+    if [[ ${#failures[@]} -gt 0 ]]; then
+        echo "=== regressions in: ${failures[*]} ==="; exit 1
+    fi
+    echo "=== no regression against the 10 s baselines ==="
     ;;
 
   *) echo "unknown stage ${STAGE}" >&2; exit 2 ;;

@@ -8,6 +8,10 @@ split and badly on bxb, which is the hardest kind of bug to see.
 The channel axis carries ECG LEADS. `build_leads` is the single place that decides which
 physical signal lands on which channel, and it guarantees one invariant everything
 downstream relies on: **channel 0 is the annotated lead**.
+
+Window geometry is read from config at call time (None defaults), never bound at import, so
+config.apply_geometry can re-point the whole inference path at a checkpoint of another
+window length.
 """
 import numpy as np
 from scipy.signal import butter, filtfilt, resample_poly
@@ -42,6 +46,18 @@ def resample_leads(signal, fs_in, fs_out=config.SAMPLING_RATE):
     return resample_poly(signal, int(fs_out) // g, int(fs_in) // g, axis=0)
 
 
+def lead_order(n_sig, primary):
+    """Record signal index for each model channel: the annotated lead first, cyclic after.
+
+    The inverse question - "model channel c is which lead of the record?" - is answered by
+    indexing this list, which is how a best-lead answer (labels.best_lead) is mapped back to
+    the record's own channel numbering.
+    """
+    if config.PRIMARY_LEAD_FIRST:
+        return [(int(primary) + k) % int(n_sig) for k in range(int(n_sig))]
+    return list(range(int(n_sig)))
+
+
 def build_leads(raw, fs=config.SAMPLING_RATE, in_channels=None, primary=0, fill_mode=None):
     """Raw record signal -> (N, in_channels) float32, band-passed, annotated lead first.
 
@@ -52,9 +68,9 @@ def build_leads(raw, fs=config.SAMPLING_RATE, in_channels=None, primary=0, fill_
     Two rules, and they are the whole contract of this function:
 
     1. **The annotated lead becomes channel 0.** The remaining leads keep their cyclic order
-       after it, so the mapping is deterministic and reversible. Labels, the R-peak search in
-       decode_beats, the flatness test and the rhythm descriptor all read channel 0, and they
-       would all read a lead nobody annotated without this.
+       after it, so the mapping is deterministic and reversible (lead_order). Labels, the
+       R-peak search in decode_beats, the flatness test and the rhythm descriptor all read
+       channel 0, and they would all read a lead nobody annotated without this.
     2. **A record with too few leads is filled per `fill_mode`** (default
        config.LEAD_FILL_MODE = 'zero'): the leftover channels are silence, which is what the
        model sees whenever an electrode comes off and what training produces on purpose
@@ -76,9 +92,7 @@ def build_leads(raw, fs=config.SAMPLING_RATE, in_channels=None, primary=0, fill_
 
     x = butter_bandpass_filter(x, config.FILTER_LOWCUT, config.FILTER_HIGHCUT, fs, axis=0)
 
-    order = ([(primary + k) % n_sig for k in range(n_sig)] if config.PRIMARY_LEAD_FIRST
-             else list(range(n_sig)))
-    x = x[:, order][:, :n_ch]
+    x = x[:, lead_order(n_sig, primary)][:, :n_ch]
 
     if x.shape[1] < n_ch:
         if fill not in ('zero', 'duplicate'):
@@ -109,14 +123,31 @@ def is_flat(window, threshold=config.MIN_AMPLITUDE):
 
     Lead-off and saturated stretches land here. Only channel 0 is tested: the labels come
     from that lead, so a window is unusable exactly when that lead is dead, however lively
-    the other two are.
+    the other two are. Callers hand in the REVIEWED part of a window: a strip whose lead 0 is
+    dead outside the span but alive inside it still carries every labelled beat.
     """
     trace = window[:, 0] if window.ndim > 1 else window
+    if trace.size == 0:
+        return True
     return float(np.max(trace) - np.min(trace)) < threshold
 
 
-def segment_starts(length, segment_length=config.SEGMENT_SAMPLES,
-                   overlap=config.EC57_SEGMENT_OVERLAP):
+def pad_to_length(x, length):
+    """Edge-pad an (N, leads) array along time to `length` samples (no-op when long enough).
+
+    Edge padding rather than zeros: after the per-window z-score either becomes a constant
+    stretch, and repeating the last sample avoids a step discontinuity the band-passed
+    signal never contains. Both the builder (a 30 s strip) and the sweeper (a record shorter
+    than one window) pad this way, so the model meets the same padding in both places.
+    """
+    x = np.asarray(x)
+    if len(x) >= length:
+        return x
+    pad = np.repeat(x[-1:], length - len(x), axis=0)
+    return np.concatenate([x, pad], axis=0)
+
+
+def segment_starts(length, segment_length=None, overlap=None):
     """Window start offsets that cover [0, length) with `overlap` samples between neighbours.
 
     Every window lies entirely inside the signal, and the last one is pulled back to end
@@ -125,6 +156,8 @@ def segment_starts(length, segment_length=config.SEGMENT_SAMPLES,
     sample padding - and since each window is z-scored independently, that padding came back
     as a full-amplitude flat trace the model then saw as signal.
     """
+    segment_length = config.SEGMENT_SAMPLES if segment_length is None else int(segment_length)
+    overlap = config.EC57_SEGMENT_OVERLAP if overlap is None else int(overlap)
     step = max(1, segment_length - overlap)
     if length <= segment_length:
         return np.zeros(1, dtype=np.int64)
@@ -134,21 +167,19 @@ def segment_starts(length, segment_length=config.SEGMENT_SAMPLES,
     return starts
 
 
-def segment_record(signal, segment_length=config.SEGMENT_SAMPLES,
-                   overlap=config.EC57_SEGMENT_OVERLAP):
+def segment_record(signal, segment_length=None, overlap=None):
     """Cut a whole record into overlapping, normalized windows for inference.
 
     Returns (segments, starts) with segments (n, segment_length, leads) float32. A record
     shorter than one window - and only that case - is edge-padded; `decode_beats` is told the
     true length so nothing detected inside the padding survives.
     """
+    segment_length = config.SEGMENT_SAMPLES if segment_length is None else int(segment_length)
     x = np.asarray(signal, dtype=np.float32)
     if x.ndim == 1:
         x = x[:, None]
 
-    if len(x) < segment_length:
-        pad = np.repeat(x[-1:], segment_length - len(x), axis=0)
-        x = np.concatenate([x, pad], axis=0)
+    x = pad_to_length(x, segment_length)
 
     starts = segment_starts(len(x), segment_length, overlap)
     index = np.arange(segment_length)[None, :] + starts[:, None]

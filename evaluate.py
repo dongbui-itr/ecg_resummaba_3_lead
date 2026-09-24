@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Score a trained checkpoint on EC57 and the v4 beat-eval set.
+"""Score a trained checkpoint on EC57 and the v4 beat-eval set, and diff it against the baseline.
 
     ~/miniconda3/envs/beat/bin/python evaluate.py        # the env with tensorflow
 
@@ -16,7 +16,12 @@ is started from; it checks its prerequisites before spending GPU time, and marks
 against the acceptance targets.
 
 The .ain predictions and the raw WFDB reports are kept, so any number here can be traced
-back to a record.
+back to a record. A two-output (60 s) checkpoint also leaves its output 2 - the most reliable
+lead per record - as lead_quality.csv beside the predictions. The window geometry is taken
+from the checkpoint, so a 10 s checkpoint and a 60 s one are scored by the same code.
+
+Exit status 1 when any Se/+P cell fell below BASELINE by more than the tolerance
+(config.REGRESSION_TOLERANCE_PP) - the "no metric may decrease" contract, checked by machine.
 """
 import csv
 import os
@@ -87,7 +92,10 @@ BATCH_SIZE = None               # None = config.BATCH_SIZE
 GPU = None                      # e.g. '0'; None = leave CUDA_VISIBLE_DEVICES alone
 BXB_ONLY = False                # True = re-score the predictions already under OUT_DIR
 WHOLE_RECORD = False            # v4: score the whole 60 s strip, not the reviewed window
-BASELINE = None                 # an ec57_summary.csv to diff against, e.g. a previous run
+# An ec57_summary.csv to diff against. 'auto' = the 10 s / 3-lead baseline the first
+# checkpoint's size is held to (config.BASELINE_FOR -> assets/baselines/10s_3lead/), which
+# is the "no metric may decrease" reference; None = no diff.
+BASELINE = 'auto'
 
 # ===========================================================================
 # End of CONFIG
@@ -162,11 +170,34 @@ def preflight(checkpoints=None, databases=None, score_v4=None, bxb_only=None):
     return list(databases)
 
 
-def load_baseline(path=None):
+def size_of(checkpoint_path):
+    """The family size a checkpoint file name starts with ('resumamba_1m'), or None."""
+    from ecgr import models
+    stem = os.path.splitext(os.path.basename(checkpoint_path))[0]
+    for name in models.list_models():
+        if stem == name or stem.startswith(name + '_'):
+            return name
+    return None
+
+
+def baseline_path(path=None, checkpoints=None):
+    """Resolve BASELINE: a file, 'auto' (the size's 10 s baseline), or None."""
+    from ecgr import config
     path = BASELINE if path is None else path
     if not path:
+        return None
+    if path != 'auto':
+        return resolve(path)
+    checkpoints = CHECKPOINTS if checkpoints is None else checkpoints
+    size = size_of(checkpoints[0]) if checkpoints else None
+    return config.baseline_summary(size) if size else None
+
+
+def load_baseline(path=None, checkpoints=None):
+    resolved = baseline_path(path, checkpoints)
+    if not resolved or not os.path.exists(resolved):
         return {}
-    with open(resolve(path)) as f:
+    with open(resolved) as f:
         return {row['db']: row for row in csv.DictReader(f)}
 
 
@@ -255,11 +286,20 @@ def main():
         print("\nno bxb reports were produced - see the messages above", file=sys.stderr)
         return 1
 
-    print_table(rows, load_baseline())
+    baseline = load_baseline()
+    print_table(rows, baseline)
+    if baseline:
+        from ecgr.evaluation import report
+        drops = report.print_regression({r['db']: r for r in rows}, baseline,
+                                        label=os.path.basename(baseline_path() or 'baseline'))
+    else:
+        drops = []
     print(f"\nsummary  : {os.path.join(out_dir, 'ec57_summary.csv')}")
     print(f"reports  : {out_dir}/<database>/*_QRS_report_line.out")
+    print(f"lead quality (output 2): {out_dir}/<database>/lead_quality_summary.json and "
+          f"{out_dir}/_ann/<database>/lead_quality.csv")
     print(f"predictions kept in {out_dir}/_ann/ - set BXB_ONLY = True to re-score them")
-    return 0
+    return 1 if drops else 0
 
 
 if __name__ == '__main__':

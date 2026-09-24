@@ -100,7 +100,7 @@ def test_predictions_are_written_where_bxb_can_read_them(tmp_path):
     """The full per-record path with a stand-in model: sweep, decode, write a .ain that wfdb
     can read back at the record's own sampling rate."""
     from ecgr import models
-    model = models.build('resumamba_30k')
+    model = models.build('resumamba_100k')
 
     # 30 s of record 100 is enough to exercise the whole path without a real prediction
     record = wfdb.rdrecord(os.path.join(MITDB, '100'), sampto=360 * 30)
@@ -177,7 +177,7 @@ def test_portal_split_scores_end_to_end(tmp_path, monkeypatch):
     """A 3-record eval-split sample through predict -> .hea rewrite -> bxb -> report."""
     from ecgr import models
     monkeypatch.setattr(config, 'EC57_DIR', str(tmp_path))
-    model = models.build('resumamba_30k')
+    model = models.build('resumamba_100k')
     path = ec57.score_portal_split(model, 'eval', str(tmp_path / 'probe'), max_records=3)
     assert path and os.path.exists(path), "bxb wrote no report"
     row = __import__('ecgr.evaluation.report', fromlist=['parse_report']).parse_report(path)
@@ -205,6 +205,68 @@ def test_an_event_listed_by_two_datasets_is_scored_once(tmp_path, monkeypatch):
     assert names.count('7_abc') == 1, "the re-listed event must appear once"
     assert next(r for r in rows if r[2] == 'abc')[0] == 'orig', "first dataset's review wins"
     assert len(rows) == 3
+
+
+@needs_mitdb
+def test_a_two_output_model_reports_its_best_lead(tmp_path):
+    """Output 2 on a real record: predict_record logs the model's best lead in the RECORD's
+    channel numbering, and write_lead_quality persists it beside the predictions."""
+    from ecgr import models
+    model = models.build('resumamba_100k')
+    record = wfdb.rdrecord(os.path.join(MITDB, '100'), sampto=360 * 70)
+    wfdb.wrsamp('100', fs=record.fs, units=record.units, sig_name=record.sig_name,
+                p_signal=record.p_signal, write_dir=str(tmp_path))
+    out_dir = tmp_path / 'ann'
+    out_dir.mkdir()
+    log = []
+    ec57.predict_record(model, str(tmp_path / '100'), '100', str(out_dir), channel=1,
+                        lead_mode='native', quality_log=log)
+    assert len(log) == 1
+    name, lead, means, model_ch = log[0]
+    assert name == '100' and lead in (0, 1), "a filled (zero) channel can never be chosen"
+    assert model_ch in (0, 1) and len(means) == config.IN_CHANNELS
+    # channel 1 was annotated: model channel 0 is record lead 1, model channel 1 is lead 0
+    assert lead == (1 if model_ch == 0 else 0)
+    # 'single' mode: only the annotated lead is real, so it is the only possible answer
+    log = []
+    ec57.predict_record(model, str(tmp_path / '100'), '100', str(out_dir), channel=1,
+                        lead_mode='single', quality_log=log)
+    assert log[0][1] == 1
+    path = ec57.write_lead_quality(log, str(out_dir), str(tmp_path / 'rep'), {'100': 1})
+    import json
+    summary = json.load(open(path))
+    assert summary['records'] == 1 and summary['agrees_with_reviewer_channel'] == 1.0
+    assert (out_dir / 'lead_quality.csv').read_text().startswith(
+        'record,best_lead,best_model_ch,q_model_ch0')
+
+
+def test_load_checkpoints_takes_the_window_geometry_from_a_legacy_checkpoint(tmp_path):
+    """A 10 s checkpoint of the previous family is scored in 10 s windows by the same code:
+    that is what makes the baseline comparison in assets/baselines/ apples to apples."""
+    legacy = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          'checkpoints', 'resumamba_30k.keras')
+    if not os.path.exists(legacy):
+        pytest.skip('legacy 10 s checkpoint not in the checkout')
+    saved = (config.SEGMENT_SAMPLES, config.OUTPUT_STEPS, config.EC57_SEGMENT_OVERLAP)
+    # a 60 s model, built BEFORE the geometry is re-derived from the legacy checkpoint
+    from ecgr import models
+    fresh = str(tmp_path / 'fresh_60s.keras')
+    models.build('resumamba_100k').save(fresh)
+    try:
+        model = ec57.load_checkpoints(legacy)
+        assert tuple(model.input_shape[1:]) == (2500, 3)
+        assert (config.SEGMENT_SAMPLES, config.OUTPUT_STEPS, config.STEP_SAMPLES) == (2500, 500, 5)
+        assert config.EC57_SEGMENT_OVERLAP <= 2500 // 6
+        from ecgr.signal_ops import segment_record
+        segments, starts = segment_record(np.zeros((7000, 3), np.float32))
+        assert segments.shape[1:] == (2500, 3) and len(starts) > 1
+        # an ensemble of a 10 s and a 60 s checkpoint has no single geometry: refused
+        with pytest.raises(ValueError, match='input shape'):
+            ec57.load_checkpoints([legacy, fresh])
+    finally:
+        config.apply_geometry(saved[0], saved[1])
+        config.EC57_SEGMENT_OVERLAP = saved[2]
+    assert config.SEGMENT_SAMPLES == 15000
 
 
 def test_default_lead_mode_is_native():

@@ -13,6 +13,14 @@ from keras import layers
 
 PKG = "resumamba_seq2seq"
 
+# BatchNormalization momentum for the BNs that remain (stem, ResU path, context encoder,
+# quality head). Keras's default 0.99 tracks the batch statistics with a ~100-step lag; 0.9
+# follows within ~10 batches, and each batch here is 32 strips x 3000 steps, so the running
+# estimates stay well averaged. Momentum is layer config, not a weight: older checkpoints
+# load unchanged. (It was tried first as the fix for the 5m inference divergence and was
+# not one - see ssm_block for the actual cause and fix.)
+BN_MOMENTUM = 0.9
+
 
 def _pool_plan(input_length, output_steps):
     """Factor input_length/output_steps into small pooling sizes (2500/500 -> [5])."""
@@ -33,7 +41,8 @@ def conv_bn_act(x, filters, kernel_size, separable=False, dilation_rate=1, name=
     conv = layers.SeparableConv1D if separable else layers.Conv1D
     x = conv(filters, kernel_size, padding='same', dilation_rate=dilation_rate,
              use_bias=False, name=None if name is None else name + '_conv')(x)
-    x = layers.BatchNormalization(name=None if name is None else name + '_bn')(x)
+    x = layers.BatchNormalization(momentum=BN_MOMENTUM,
+                                  name=None if name is None else name + '_bn')(x)
     return layers.Activation('relu', name=None if name is None else name + '_relu')(x)
 
 
@@ -216,11 +225,23 @@ def ssm_block(x, filters, state_dim, kernel_len, bidirectional=True, name=None):
     channel and per step, how much of that long-range evidence to let through. That gate is the
     part of Mamba's selectivity that survives a non-selective SSM, and it is what lets the model
     ignore the state-space output inside a noisy stretch.
+
+    Normalisation is LayerNormalization over the channels of each step, never BatchNorm, and
+    that is load-bearing. The gate multiplies the normalised branch, the block adds the result
+    to the residual stream, and the next block's gate grows with that stream: any mismatch
+    between a normaliser's training-mode and inference-mode behaviour is therefore MULTIPLIED
+    from block to block. With BatchNorm here the 5m size (five blocks) trained normally while
+    its inference-mode reconstruction diverged - SSL val_nmse 5.5, then 187, then 3e9 after
+    lowering the BN momentum - because BN normalises each batch with its own mean and the
+    running estimates can never reproduce that exactly. LayerNorm computes the same statistic
+    in both modes, so the residual stream is bounded the same way at train and at test.
+    (Measured 2026-09-23 on run 260923_60s; the ResU path keeps BatchNorm, its residual is
+    additive and it has been stable across every size and window length.)
     """
     tag = (lambda s: None if name is None else f'{name}_{s}')
     u = layers.Conv1D(filters, 1, use_bias=False, name=tag('in_proj'))(x)
     u = layers.DepthwiseConv1D(3, padding='same', use_bias=False, name=tag('dw'))(u)
-    u = layers.BatchNormalization(name=tag('bn'))(u)
+    u = layers.LayerNormalization(axis=-1, name=tag('ln'))(u)
     u = layers.Activation('silu', name=tag('silu'))(u)
     u = DiagSSM1D(state_dim=state_dim, kernel_len=kernel_len, bidirectional=bidirectional,
                   name=tag('ssm'))(u)
@@ -230,7 +251,7 @@ def ssm_block(x, filters, state_dim, kernel_len, bidirectional=True, name=None):
 
     y = layers.Multiply(name=tag('mul'))([u, g])
     y = layers.Conv1D(filters, 1, use_bias=False, name=tag('out_proj'))(y)
-    y = layers.BatchNormalization(name=tag('out_bn'))(y)
+    y = layers.LayerNormalization(axis=-1, name=tag('out_ln'))(y)
     if x.shape[-1] == filters:
         y = layers.Add(name=tag('res'))([x, y])
     return layers.Activation('relu', name=tag('out_relu'))(y)

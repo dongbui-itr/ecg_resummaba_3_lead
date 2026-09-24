@@ -1,32 +1,38 @@
 """Portal records -> labelled npy batches.
 
-One reviewed record becomes a stack of 10 s windows sliding by 1 s, each with a 500-step
-label vector over three leads with the annotated lead on channel 0. Only the reviewed span
-[start_sample, stop_sample] is used: the rest of the strip carries annotations nobody signed
-off on.
+One reviewed record becomes ONE 60 s window - the whole strip - with a 3000-step label
+vector over three leads, the annotated lead on channel 0. The labels are trustworthy only
+inside the reviewed span [start_sample, stop_sample): every step outside it is written as
+config.IGNORE_LABEL, so the model still SEES the other 50 s (context for the beats it is
+asked about, and signal for the label-free stages) but is never scored against annotations
+nobody signed off on.
 
-Two arithmetic faults in the previous version are fixed here, and between them they touched
-a fifth of the corpus:
+Geometry, per record:
+
+    span >= one window   sliding windows of SEGMENT_STRIDE_SECONDS inside the span, as the
+                         10 s builder did; every step labelled
+    span <  one window   one window holding the span - centred on it where the strip allows,
+                         which for a 60 s strip is simply the strip - steps outside = IGNORE
+    strip < one window   the strip is edge-padded to one window; the padding = IGNORE
+
+A record must still contribute at least config.MIN_REVIEWED_SAMPLES of reviewed signal
+(10 s minus the slack below): that is the same floor the 10 s builder had, so the two
+pipelines train on the same population of events and their numbers compare event for event.
+
+Two arithmetic faults in the earlier version are fixed here and kept fixed, and between
+them they touched a fifth of the corpus:
 
   * The reviewed span was converted with `start // fs * fs`, i.e. truncated to whole
-    SECONDS. Both rates are 250 Hz, so the conversion was the identity apart from that
-    truncation - which moved 95k windows up to 249 samples outside the span the reviewer
+    SECONDS - which moved 95k windows up to 249 samples outside the span the reviewer
     certified, and shortened 19,763 records enough that they produced NO window at all.
   * 114,920 records (23.1%) have a reviewed span of exactly 2499 samples - one sample short
-    of 10 s. A strict `window must fit inside the span` rule discards every one of them.
-    SPAN_SLACK_SAMPLES lets a window reach a tenth of a second past the boundary, which
-    recovers them; anything shorter than that is still refused and counted.
+    of 10 s. SPAN_SLACK_SAMPLES admits them (MIN_REVIEWED_SAMPLES is 10 s minus this slack).
 
-The event mix made this expensive rather than merely untidy: the dropped records were ~14%
-of all SVE and VE event strips, i.e. concentrated in the two classes the model is weakest on.
-
-A third fault is in the data rather than the arithmetic, and `_record_files` now handles it:
+A third fault is in the data rather than the arithmetic, and `_record_files` handles it:
 **every dataset-2 event folder holds the same recording twice**, under two different
-event-id prefixes and byte for byte identical (200/200 sampled events). Processing every
-`.dat` match therefore emitted each dataset-2 window twice - and since dataset-2 is the
-largest single contributor of segments, roughly a quarter of the whole training set was an
-exact duplicate of another quarter. It is not a train/eval leak (the split is per study),
-but it silently doubles one dataset's weight in the loss and doubles the RAM `cache()` needs.
+event-id prefixes and byte for byte identical. Processing every `.dat` match emitted each
+dataset-2 window twice - roughly a quarter of the training set was an exact duplicate of
+another quarter, silently doubling one dataset's weight in the loss.
 """
 import glob
 import hashlib
@@ -44,16 +50,16 @@ import wfdb
 from tqdm import tqdm
 
 from .. import config
-from ..labels import labels_from_annotations
-from ..signal_ops import build_leads, is_flat, normalize_window, resample_leads
+from ..labels import ignore_outside, labels_from_annotations
+from ..signal_ops import build_leads, is_flat, normalize_window, pad_to_length, resample_leads
 from . import splits
 
-# How far a window may reach past the reviewed span. A tenth of a second is under half a
-# QRS complex and shorter than the label block itself, so it cannot pull in an unlabelled
-# beat; it exists purely to accept the off-by-one spans above.
+# The tolerance that admits the 2499-sample spans: a tenth of a second is under half a QRS
+# complex and shorter than the label block itself.
 SPAN_SLACK_SAMPLES = int(0.1 * config.SAMPLING_RATE)
 
 STAT_KEYS = ('record_files', 'segments', 'N', 'V', 'S', 'steps_N', 'steps_V', 'steps_S',
+             'steps_labelled', 'steps_ignored', 'padded',
              'skipped_flat', 'skipped_short_span', 'skipped_no_file', 'skipped_duplicate',
              'errors')
 
@@ -101,39 +107,57 @@ def _record_files(db_name, study_id, event_id, dedupe=True):
     return unique, len(files) - len(unique)
 
 
-def window_starts(i_start, i_end, total, segment_samples=config.SEGMENT_SAMPLES,
-                  hop=None, slack=SPAN_SLACK_SAMPLES):
-    """Start offsets of the windows that cover the reviewed span [i_start, i_end).
+def window_starts(i_start, i_end, total, segment_samples=None, hop=None,
+                  min_reviewed=None):
+    """Start offsets of the windows that carry the reviewed span [i_start, i_end).
 
-    Sliding by `hop` while the window stays inside the span, then:
-      * a final window anchored at the span's END, so the last up-to-hop samples of a long
-        span are not thrown away
-      * for a span up to `slack` short of one window, a single window centred on the span
-    Returns [] when the span is genuinely too short, which the caller counts.
+      * span shorter than min_reviewed (default config.MIN_REVIEWED_SAMPLES): [] - the
+        caller counts it as skipped_short_span
+      * span at least one window: slide by `hop` while the window stays inside the span,
+        plus a final window anchored at the span's end so its tail is not thrown away
+      * otherwise: ONE window centred on the span and clipped to the record; a record
+        shorter than a window gives start 0 and the caller pads it
+
+    A start may therefore lie before the span and the window may reach past it; the steps
+    outside are IGNORE_LABEL (labels.ignore_outside), never background.
     """
-    hop = config.SEGMENT_STRIDE_SECONDS * config.SAMPLING_RATE if hop is None else hop
+    size = config.SEGMENT_SAMPLES if segment_samples is None else int(segment_samples)
+    hop = config.SEGMENT_STRIDE_SECONDS * config.SAMPLING_RATE if hop is None else int(hop)
+    floor = config.MIN_REVIEWED_SAMPLES if min_reviewed is None else int(min_reviewed)
     i_start, i_end = max(0, int(i_start)), min(int(i_end), int(total))
     span = i_end - i_start
-    if span < segment_samples - slack or total < segment_samples:
+    if span < floor:
         return []
 
-    if span < segment_samples:                      # the 2499-sample case
-        start = i_start - (segment_samples - span) // 2
-        return [int(np.clip(start, 0, total - segment_samples))]
+    if span >= size:
+        starts = list(range(i_start, i_end - size + 1, hop))
+        tail = i_end - size
+        if tail > starts[-1]:
+            starts.append(tail)
+        return starts
 
-    starts = list(range(i_start, i_end - segment_samples + 1, hop))
-    tail = i_end - segment_samples
-    if tail > starts[-1]:
-        starts.append(tail)
-    return starts
+    if int(total) <= size:                            # the whole strip is the window
+        return [0]
+    start = i_start - (size - span) // 2
+    return [int(np.clip(start, 0, int(total) - size))]
+
+
+def cut_window(leads, start, size):
+    """leads[start:start+size], edge-padded when the record ends first. (window, n_padded)."""
+    window = leads[start:start + size]
+    padded = size - len(window)
+    if padded > 0:
+        window = pad_to_length(window, size)
+    return window, padded
 
 
 def process_record(record_info, db_name):
     """Cut one reviewed record into labelled windows.
 
     Returns (segments, labels, stats) - lists of (SEGMENT_SAMPLES, IN_CHANNELS) float32 and
-    (OUTPUT_STEPS,) int64 arrays, plus a counter dict. Never raises: one unreadable record
-    out of half a million must not take a build down, so failures are counted and reported.
+    (OUTPUT_STEPS,) uint8-valued int64 arrays (IGNORE_LABEL outside the reviewed span), plus a
+    counter dict. Never raises: one unreadable record out of half a million must not take a
+    build down, so failures are counted and reported.
     """
     study_id, event_id, channel, start_sample, stop_sample = record_info
     stats = new_stats()
@@ -145,6 +169,8 @@ def process_record(record_info, db_name):
         stats['skipped_no_file'] += 1
         return segments, labels, stats
 
+    size = config.SEGMENT_SAMPLES
+    per_step = config.STEP_SAMPLES
     for path in paths:
         path = path[:-4]
         try:
@@ -170,22 +196,34 @@ def process_record(record_info, db_name):
                 stats['skipped_short_span'] += 1
                 continue
 
-            size = config.SEGMENT_SAMPLES
             for start in starts:
-                window = leads[start:start + size]
-                if is_flat(window):
+                window, padded = cut_window(leads, start, size)
+                span_lo = int(np.clip(i_start - start, 0, size))
+                span_hi = int(np.clip(i_end - start, 0, size))
+                # flatness is judged on the REVIEWED part of lead 0: that is where the
+                # labels are, and a dead lead there makes them unusable
+                if is_flat(window[span_lo:span_hi]):
                     stats['skipped_flat'] += 1
                     continue
 
-                # Beats inside the window, a few samples clear of its edges
-                idx = np.flatnonzero((ann_samples >= start + 5)
-                                     & (ann_samples < start + size - 5))
+                # Every annotation inside the window labels it (a beat straddling the span
+                # boundary then gets its block right); the span decides what is trusted.
+                idx = np.flatnonzero((ann_samples >= start) & (ann_samples < start + size))
                 window_labels = labels_from_annotations(ann_samples[idx] - start,
                                                         ann_symbols[idx])
+                window_labels = ignore_outside(window_labels, span_lo, span_hi)
+                if padded:
+                    first_pad_step = (size - padded) // per_step
+                    window_labels[first_pad_step:] = config.IGNORE_LABEL
+                    stats['padded'] += 1
+
                 segments.append(normalize_window(window).astype(np.float32))
                 labels.append(window_labels)
 
                 stats['segments'] += 1
+                labelled = window_labels != config.IGNORE_LABEL
+                stats['steps_labelled'] += int(labelled.sum())
+                stats['steps_ignored'] += int((~labelled).sum())
                 for name in ('N', 'V', 'S'):
                     value = config.CLASS_NAMES.index(name)
                     hit = int(np.count_nonzero(window_labels == value))
@@ -205,11 +243,12 @@ def _flush(segments, labels, study_ids, out_dir, db_name, split, batch_no):
     The study id per segment is what makes the split auditable straight from the data
     (see splits.audit_written_data): without it the only way to check the separation is to
     recompute what the split *should* have been, which cannot catch a build that wrote
-    something else.
+    something else. Labels are stored as uint8: 4 classes plus IGNORE (255) fit, and at
+    3000 steps a window the int64 they used to be was eight times the bytes for nothing.
     """
     base = os.path.join(out_dir, f"{db_name}_{split}")
     np.save(f"{base}_segments_batch_{batch_no}.npy", np.asarray(segments, dtype=np.float32))
-    np.save(f"{base}_labels_batch_{batch_no}.npy", np.asarray(labels, dtype=np.int64))
+    np.save(f"{base}_labels_batch_{batch_no}.npy", np.asarray(labels, dtype=np.uint8))
     np.save(f"{base}_studyids_batch_{batch_no}.npy", np.asarray(study_ids, dtype=np.int64))
     return len(segments)
 
@@ -306,7 +345,8 @@ def build_dataset(db_name, limit=None, workers=None):
               f"{totals['record_files']:,} record files over {len(chosen):,} reviewed events "
               f"| windows containing N: {totals['N']:,} V: {totals['V']:,} S: {totals['S']:,} "
               f"| label steps N: {totals['steps_N']:,} V: {totals['steps_V']:,} "
-              f"S: {totals['steps_S']:,}")
+              f"S: {totals['steps_S']:,} | labelled {totals['steps_labelled']:,} / ignored "
+              f"{totals['steps_ignored']:,} steps, {totals['padded']:,} windows padded")
         print(f"  skipped: flat {totals['skipped_flat']:,}, span too short "
               f"{totals['skipped_short_span']:,}, no file {totals['skipped_no_file']:,}, "
               f"duplicate copies {totals['skipped_duplicate']:,}, "
@@ -326,10 +366,13 @@ def build_dataset(db_name, limit=None, workers=None):
                    'eval_studyids': [int(s) for s in eval_ids],
                    'held_out_studyids': sorted(int(s) for s in held_out),
                    'segment_samples': config.SEGMENT_SAMPLES,
+                   'segment_seconds': config.SEGMENT_SECONDS,
                    'in_channels': config.IN_CHANNELS,
                    'primary_lead_first': config.PRIMARY_LEAD_FIRST,
                    'output_steps': config.OUTPUT_STEPS,
                    'num_classes': config.NUM_CLASSES,
+                   'ignore_label': config.IGNORE_LABEL,
+                   'min_reviewed_samples': config.MIN_REVIEWED_SAMPLES,
                    'span_slack_samples': SPAN_SLACK_SAMPLES,
                    'stats': summary}, f, indent=4)
     return summary
@@ -347,5 +390,8 @@ def build_all(db_names=None, limit=None, workers=None):
         s = sum(v[split]['steps_S'] for v in grand.values() if split in v)
         vv = sum(v[split]['steps_V'] for v in grand.values() if split in v)
         n = sum(v[split]['steps_N'] for v in grand.values() if split in v)
-        print(f"{split:6s}: {seg:>9,} segments | label steps N {n:>12,} V {vv:>11,} S {s:>11,}")
+        ign = sum(v[split]['steps_ignored'] for v in grand.values() if split in v)
+        lab = sum(v[split]['steps_labelled'] for v in grand.values() if split in v)
+        print(f"{split:6s}: {seg:>9,} segments | label steps N {n:>12,} V {vv:>11,} "
+              f"S {s:>11,} | labelled {lab:>13,} ignored {ign:>13,}")
     return grand

@@ -6,8 +6,8 @@ TIMING - a supraventricular ectopic arrives early against the rhythm around it -
 evidence lives in the sequence of beats the base model has just predicted, not in any one
 step's features. This head is a small bidirectional state-space network run over exactly
 that: the base features concatenated with the base's own per-step class distribution. With a
-256-step kernel each way it sees ~5 s of predicted beats on either side of a step, i.e. the
-6-10 R-R intervals a cardiologist reads prematurity against.
+512-step kernel each way it sees ~10 s of predicted beats on either side of a step, i.e. the
+10-20 R-R intervals a cardiologist reads prematurity against.
 
 Two properties are built in rather than hoped for:
 
@@ -29,7 +29,7 @@ import tensorflow as tf
 from keras import layers
 
 from .. import config
-from .layers import PKG, ssm_block
+from .layers import BN_MOMENTUM, PKG, ssm_block
 
 HEAD_INPUT = 'head_drop'          # the base layer whose INPUT is the pre-softmax feature map
 
@@ -94,7 +94,7 @@ class LogProb(layers.Layer):
         return {**super().get_config(), 'epsilon': self.epsilon}
 
 
-def attach_refinement(base, width=48, blocks=2, state_dim=8, kernel_len=256, dropout=0.1,
+def attach_refinement(base, width=48, blocks=2, state_dim=8, kernel_len=512, dropout=0.1,
                       freeze_base=True, mode='beats', name=None):
     """Wrap a trained base model with the refinement head; returns the composed keras.Model.
 
@@ -102,20 +102,26 @@ def attach_refinement(base, width=48, blocks=2, state_dim=8, kernel_len=256, dro
     graph is reused, not copied: the head reads the tensor feeding `head_drop` and the base's
     softmax output through a sub-model over the same layers, so the base's weights are shared
     and, with freeze_base, untouched by training.
+
+    The refined model keeps the base's output layout: its first output is the refined beat
+    softmax under the name `beat_cls`, and a base that also emits `lead_quality` passes it
+    through unchanged as the second output - the head has nothing to say about lead quality.
     """
     feat = base.get_layer(HEAD_INPUT).input
-    probe = keras.Model(base.inputs, [feat, base.outputs[0]], name=f'{base.name}_probe')
+    extra = list(base.outputs[1:])                      # lead_quality, when the base has it
+    probe = keras.Model(base.inputs, [feat, base.outputs[0]] + extra, name=f'{base.name}_probe')
     probe.trainable = not freeze_base
 
     inp = keras.Input(shape=base.input_shape[1:], name='input')
-    feat, p1 = probe(inp)
+    probed = probe(inp)
+    feat, p1, passthrough = probed[0], probed[1], probed[2:]
 
     # log-probabilities as well as probabilities: the head's first job is to find beats in
     # p1, and a beat at p=0.9 vs 0.99 is a large difference in log space and a small one in
     # probability space - both readings are cheap to give it.
     h = layers.Concatenate(name='refine_in')([feat, p1, LogProb(name='refine_logp')(p1)])
     h = layers.Conv1D(width, 1, use_bias=False, name='refine_proj')(h)
-    h = layers.BatchNormalization(name='refine_proj_bn')(h)
+    h = layers.BatchNormalization(momentum=BN_MOMENTUM, name='refine_proj_bn')(h)
     h = layers.Activation('silu', name='refine_proj_act')(h)
     for i in range(blocks):
         h = ssm_block(h, width, state_dim, kernel_len, name=f'refine_ssm{i}')
@@ -125,7 +131,11 @@ def attach_refinement(base, width=48, blocks=2, state_dim=8, kernel_len=256, dro
     delta = layers.Conv1D(n_out, 1, kernel_initializer='zeros', bias_initializer='zeros',
                           name='refine_delta')(h)
     out = BeatClassRefine(mode=mode, name='refine_compose')([p1, delta])
-    return keras.Model(inp, out, name=name or f'{base.name}_refined')
+    # Named like the base's beat output so the same dataset dict and loss dict fit both.
+    out = layers.Identity(name='beat_cls')(out)
+    outputs = [out] + [layers.Identity(name='lead_quality')(q) for q in passthrough]
+    return keras.Model(inp, outputs if len(outputs) > 1 else out,
+                       name=name or f'{base.name}_refined')
 
 
 def head_parameters(model):

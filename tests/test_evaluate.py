@@ -34,6 +34,22 @@ def test_config_block_is_a_valid_run():
     assert evaluate.LEAD_FILL == config.LEAD_FILL_MODE
 
 
+def test_auto_baseline_resolves_to_the_size_s_10s_summary():
+    """BASELINE = 'auto' diffs a checkpoint against the 10 s model its size is held to."""
+    from ecgr import config
+    assert evaluate.size_of('checkpoints/resumamba_1m.keras') == 'resumamba_1m'
+    assert evaluate.size_of('/x/resumamba_5m_selected.keras') == 'resumamba_5m'
+    assert evaluate.size_of('/x/something_else.keras') is None
+    path = evaluate.baseline_path('auto', ['checkpoints/resumamba_1m.keras'])
+    assert path and path.endswith(os.path.join('10s_3lead', 'resumamba_1m.csv'))
+    assert os.path.exists(path)
+    assert evaluate.baseline_path('auto', ['/x/resumamba_5m.keras']).endswith('resumamba_2m.csv')
+    assert evaluate.baseline_path(None, []) is None
+    assert evaluate.load_baseline('auto', ['checkpoints/resumamba_1m.keras'])['mitdb']['S_Se']
+    for size in config.BASELINE_FOR:
+        assert config.baseline_summary(size), f"no baseline shipped for {size}"
+
+
 def test_resolve_makes_config_paths_independent_of_the_cwd():
     assert evaluate.resolve('checkpoints/x.keras').startswith(ROOT)
     assert evaluate.resolve('/tmp/x.keras') == '/tmp/x.keras'
