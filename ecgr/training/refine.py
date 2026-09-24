@@ -32,7 +32,7 @@ from ..evaluation import ec57, report, step_metrics
 from ..models.refine import attach_refinement, head_parameters
 from .callbacks import WeightedF1Checkpoint
 from .losses import LOSSES
-from .train import JIT_COMPILE, model_dirs, setup_gpus
+from .train import JIT_COMPILE, _targets_for, model_dirs, monitor_key, setup_gpus
 
 METRICS = ('Q_Se', 'Q_+P', 'V_Se', 'V_+P', 'S_Se', 'S_+P')
 
@@ -72,13 +72,22 @@ def train_refinement(model_name, base_checkpoint=None, epochs=None, lr=None,
 
     f1_metric = step_metrics.StepConfusion(name='weighted_f1')
     print(f"loss         : {config.LOSS}, head class weights {class_weights}")
-    model.compile(optimizer=tf.keras.optimizers.Adam(lr),
-                  loss=LOSSES[config.LOSS](class_weights),
-                  metrics=['accuracy', f1_metric], jit_compile=JIT_COMPILE)
+    monitor = monitor_key(model)
+    if models.has_quality_output(model):
+        # The head never touches lead quality: that output is passed through and gets no
+        # loss (Keras wants every output named in the dict; None means "skip").
+        model.compile(optimizer=tf.keras.optimizers.Adam(lr),
+                      loss={'beat_cls': LOSSES[config.LOSS](class_weights),
+                            'lead_quality': None},
+                      metrics={'beat_cls': [f1_metric]}, jit_compile=JIT_COMPILE)
+    else:
+        model.compile(optimizer=tf.keras.optimizers.Adam(lr),
+                      loss=LOSSES[config.LOSS](class_weights),
+                      metrics=[f1_metric], jit_compile=JIT_COMPILE)
 
     pipeline.check_manifest()
-    train_ds = pipeline.load_split('train', batch_size, db_names)
-    eval_ds = pipeline.load_split('eval', batch_size, db_names)
+    train_ds = _targets_for(model, pipeline.load_split('train', batch_size, db_names))
+    eval_ds = _targets_for(model, pipeline.load_split('eval', batch_size, db_names))
 
     _, report_dir, logs_dir = model_dirs(keras_name)
     out_dir = refined_dir(keras_name, tag)
@@ -98,11 +107,12 @@ def train_refinement(model_name, base_checkpoint=None, epochs=None, lr=None,
     print(f"refined      : {out_dir} (epoch_00 = base, then one file per epoch)\n")
 
     model.fit(train_ds, validation_data=eval_ds, epochs=epochs, callbacks=[
-        WeightedF1Checkpoint(f1_metric, out_dir, report_dir, save_start_epoch=1),
+        WeightedF1Checkpoint(f1_metric, out_dir, report_dir, save_start_epoch=1,
+                             monitor=monitor),
         tf.keras.callbacks.ModelCheckpoint(
             os.path.join(out_dir, 'epoch_{epoch:02d}.keras'), save_best_only=False),
         tf.keras.callbacks.TensorBoard(log_dir=logs_dir),
-        tf.keras.callbacks.ReduceLROnPlateau(monitor='val_weighted_f1', mode='max',
+        tf.keras.callbacks.ReduceLROnPlateau(monitor=monitor, mode='max',
                                              factor=0.5, patience=2, min_lr=1e-5, verbose=1),
     ])
     return out_dir

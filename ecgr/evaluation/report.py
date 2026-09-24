@@ -104,3 +104,87 @@ def compare(tags, ec57_root=None):
             if support:
                 print(f"{db:18s} {support:>9,} | " + " | ".join(cells))
     print("\n-  = this database has no reference beats of that class")
+
+
+# ---------------------------------------------------------------------------
+# Non-regression against a baseline summary
+# ---------------------------------------------------------------------------
+
+def load_summary(path):
+    """{db: row} of one ec57_summary.csv."""
+    with open(path) as f:
+        return {row['db']: row for row in csv.DictReader(f)}
+
+
+def regressions(summary, baseline, tolerance=None, metrics=METRICS, dbs=None):
+    """Every (db, metric) where `summary` fell more than `tolerance` below `baseline`.
+
+    Both are {db: row} as load_summary returns. Cells the baseline cannot score ('-', no
+    reference beats of that class, or a 0.00 +P against a '-' Se) are skipped, as are
+    databases missing from either side. Returns a list of dicts sorted by the size of the
+    drop, largest first, plus the list of cells that were compared.
+    """
+    tol = config.REGRESSION_TOLERANCE_PP if tolerance is None else float(tolerance)
+    drops, compared = [], []
+    for db in sorted(set(summary) & set(baseline)):
+        if dbs and db not in dbs:
+            continue
+        for metric in metrics:
+            new, old = _num(summary[db].get(metric)), _num(baseline[db].get(metric))
+            if new is None or old is None:
+                continue
+            se_key = metric.replace('+P', 'Se')
+            if _num(baseline[db].get(se_key)) is None:      # the class has no reference beats
+                continue
+            compared.append((db, metric))
+            if new < old - tol:
+                drops.append({'db': db, 'metric': metric, 'new': new, 'baseline': old,
+                              'delta': round(new - old, 2)})
+    return sorted(drops, key=lambda d: d['delta']), compared
+
+
+def print_regression(summary, baseline, tolerance=None, label='baseline', dbs=None):
+    """Side-by-side table with deltas, and the verdict. Returns the list of regressions."""
+    tol = config.REGRESSION_TOLERANCE_PP if tolerance is None else float(tolerance)
+    drops, compared = regressions(summary, baseline, tol, dbs=dbs)
+    bad = {(d['db'], d['metric']) for d in drops}
+    width = max([len(db) for db in summary] + [8])
+    print(f"\n{'database':{width}s} " + ' '.join(f"{m:>15s}" for m in METRICS)
+          + f"      (new / {label}, delta; ! = below baseline - {tol} pp)")
+    for db in sorted(summary):
+        cells = []
+        for metric in METRICS:
+            new, old = _num(summary[db].get(metric)), _num(baseline.get(db, {}).get(metric))
+            if new is None:
+                cells.append(f"{'-':>15s}")
+            elif old is None:
+                cells.append(f"{new:6.2f}{'':>9s}")
+            else:
+                mark = '!' if (db, metric) in bad else ' '
+                cells.append(f"{new:6.2f}{new - old:+6.2f}{mark}  ")
+        print(f"{db:{width}s} " + ' '.join(cells))
+    if drops:
+        print(f"\n{len(drops)} of {len(compared)} cells fell below the baseline by more than "
+              f"{tol} pp:")
+        for d in drops:
+            print(f"  {d['db']:16s} {d['metric']:5s} {d['new']:6.2f} vs {d['baseline']:6.2f} "
+                  f"({d['delta']:+.2f})")
+    else:
+        print(f"\nno regression: every one of {len(compared)} comparable cells is within "
+              f"{tol} pp of the baseline or above it")
+    return drops
+
+
+def check_no_regression(summary_csv, baseline_csv, tolerance=None, dbs=None, out_json=None):
+    """Diff a summary against a baseline; write the verdict as JSON; return the drops."""
+    import json
+    summary, baseline = load_summary(summary_csv), load_summary(baseline_csv)
+    drops = print_regression(summary, baseline, tolerance,
+                             label=os.path.splitext(os.path.basename(baseline_csv))[0], dbs=dbs)
+    if out_json:
+        with open(out_json, 'w') as f:
+            json.dump({'summary': summary_csv, 'baseline': baseline_csv,
+                       'tolerance_pp': (config.REGRESSION_TOLERANCE_PP if tolerance is None
+                                        else tolerance),
+                       'passed': not drops, 'regressions': drops}, f, indent=2)
+    return drops

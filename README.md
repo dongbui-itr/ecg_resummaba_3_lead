@@ -1,21 +1,47 @@
-# ecgr — phát hiện & phân loại nhịp ECG 3 chuyển đạo bằng ResUMamba
+# ecgr — phát hiện & phân loại nhịp ECG 60 s, 3 chuyển đạo bằng ResUMamba, kèm đầu ra "kênh tin cậy nhất"
 
-Một họ model (ResUMamba thích ứng cho contract seq2seq) ở **bốn** kích thước, một đường đi
-duy nhất qua dữ liệu:
+Một họ model (ResUMamba thích ứng cho contract seq2seq) ở **bốn** kích thước — dưới **5M / 3M /
+1M / 100K** tham số — một đường đi duy nhất qua dữ liệu:
 
 ```
-record portal ──► npy ──► tfrecord ──► ssl ──► cpc ──► train ──► refine ──► step eval ──► beat eval (EC57/bxb)
-                                    └── tự giám sát, không dùng nhãn ──┘      └ head thời gian trên base đóng băng
+record portal ──► npy ──► tfrecord ──► ssl ──► cpc ──► train ──► select ──► step eval ──► beat eval (EC57/bxb) ──► regress
+                                    └── tự giám sát, không dùng nhãn ──┘   └ bxb trên portal-eval chọn checkpoint     └ so với baseline 10 s
 ```
 
-**Contract:** vào `(2500, 3)` = 10 s @ 250 Hz trên **3 chuyển đạo**, ra `(500, 4)` softmax —
-phát hiện **và** phân loại ở độ phân giải 20 ms, không cần cho trước đỉnh R. 4 lớp AAMI:
-`None / N / V / S`.
+**Contract (từ 23/09/2026):** vào `(15000, 3)` = **60 s @ 250 Hz trên 3 chuyển đạo** (chuyển đạo được
+gán nhãn ở kênh 0), ra **hai** đầu:
+
+| đầu ra | tensor | ý nghĩa |
+|---|---|---|
+| `beat_cls` | `(3000, 4)` softmax | mỗi bước 20 ms một lớp `None / N / V / S` — phát hiện **và** phân loại, không cần cho trước đỉnh R |
+| `lead_quality` | `(3000, 3)` sigmoid | độ đọc được của **từng chuyển đạo** tại từng bước; `argmax` của trung bình theo thời gian = **kênh có tín hiệu đáng tin cậy nhất** |
+
+Ba điểm làm nên bản 60 s, chi tiết ở [mục 12](#12-contract-60-s--những-gì-đổi-so-với-bản-10-s):
+
+* **Nhãn chỉ dùng trong khoảng đã review.** Record portal là strip 60 s nhưng người review chỉ
+  chứng nhận ~10 s; phần còn lại mang annotation tự động chưa duyệt. Bước ngoài khoảng review được
+  ghi `IGNORE_LABEL = 255`: loss và metric mức bước **bỏ qua** chúng, không coi là nền. Model vẫn
+  *thấy* trọn 60 s — đó là ngữ cảnh nhịp mà quyết định N/S trong rung nhĩ cần.
+* **Đầu ra 2 là label-free.** Không ai gán nhãn "chuyển đạo tốt/xấu": đích của `lead_quality` được
+  pipeline dựng từ chính phép làm hỏng tín hiệu nó vừa thực hiện (biết chuyển đạo nào, ở đâu, mạnh
+  bao nhiêu) cộng với phép thử phẳng trên tín hiệu gốc ([`pipeline.corrupt`](ecgr/data/pipeline.py)).
+* **Không chỉ số nào được giảm.** Kết quả 10 s của họ trước (`260917_3lead`) được đóng gói trong
+  [`assets/baselines/10s_3lead/`](assets/baselines/10s_3lead/); `python -m ecgr regress` đối chiếu
+  từng ô Se/+P trên 5 database EC57 và bộ beat-eval, tụt quá 0,1 điểm là stage thất bại.
+
+Dữ liệu train là **đúng năm dataset** `dataset-1 … dataset-5` (bỏ ba bộ re-curation trùng lặp), trừ
+mọi study của bộ eval v4 (`assets/list_studies_eval_v4.json`) và `dataset-eval`; **không một record
+EC57 nào** vào training (`pipeline.assert_no_benchmark_data`).
 
 Hai chặng `ssl` và `cpc` là thứ phân biệt họ model này: cả hai đều huấn luyện **không nhãn**.
 `ssl` tiền huấn luyện **backbone** (nơi chứa gần như toàn bộ tham số) bằng tái tạo tín hiệu bị
 che; `cpc` huấn luyện bộ mã hóa ngữ cảnh bằng InfoNCE rồi **đóng băng** nó, nên hàm mất mát của
-bài toán nhịp không bao giờ nắn lại được nó.
+bài toán nhịp không bao giờ nắn lại được nó. Ở 60 s, bộ mã hóa ngữ cảnh cắt strip thành **59 cửa sổ
+2 s** — đúng M ≈ 59 của bài báo gốc với 60 s hiệu chuẩn.
+
+> Bộ SKILL cho Claude Code nằm ở [`.claude/skills/`](.claude/skills/): `ecgr-overview` (đọc trước),
+> `ecgr-data-build`, `ecgr-train-sweep`, `ecgr-evaluate`, `ecgr-model-family`, `ecgr-label-free`,
+> `ecgr-tests-guards`.
 
 ---
 
@@ -43,13 +69,15 @@ which bxb sumstats                       # trống = chưa cài WFDB apps, bư�
 python -m ecgr config                            # cấu hình đang hiệu lực
 python -m ecgr models                            # họ model + số tham số
 python -m ecgr data     --step all               # record → npy → tfrecord
-python -m ecgr ssl      --model resumamba_30k    # backbone, tự giám sát
-python -m ecgr cpc      --model resumamba_30k    # bộ mã hóa ngữ cảnh, tự giám sát
-python -m ecgr train    --model resumamba_30k
-python -m ecgr stepeval --model resumamba_30k
-python -m ecgr ec57     --model resumamba_30k
-python -m ecgr all      --model resumamba_30k    # 5 bước trên, liền mạch
-python -m ecgr compare  resumamba_2m resumamba_1m resumamba_100k resumamba_30k
+python -m ecgr ssl      --model resumamba_100k    # backbone, tự giám sát
+python -m ecgr cpc      --model resumamba_100k    # bộ mã hóa ngữ cảnh, tự giám sát
+python -m ecgr train    --model resumamba_100k
+python -m ecgr stepeval --model resumamba_100k
+python -m ecgr ec57     --model resumamba_100k
+python -m ecgr all      --model resumamba_100k    # 5 bước trên, liền mạch
+python -m ecgr select   --model resumamba_100k    # bxb trên portal-eval chọn epoch tốt nhất mức nhịp
+python -m ecgr regress  --model resumamba_100k    # đối chiếu với baseline 10 s, tụt là exit 1
+python -m ecgr compare  resumamba_5m resumamba_3m resumamba_1m resumamba_100k
 ```
 
 Hoặc chạy cả 4 kích thước tự động: [`run_pipeline.sh`](run_pipeline.sh).
@@ -66,6 +94,9 @@ trường trong launcher, **đừng sửa file khi job đang chạy**:
 | `ECGR_WORK_DIR` | nơi ghi npy/tfrecord/checkpoint/report | `<DATA_DIR>/train` |
 | `ECGR_RUN_TAG` | tên thư mục run | hôm nay `yymmdd_ecgr` |
 | `ECGR_IN_CHANNELS` | **số chuyển đạo** đưa vào model | `3` |
+| `ECGR_SEGMENT_SECONDS` | độ dài cửa sổ (s) — đổi là đổi cây npy/tfrecord | `60` |
+| `ECGR_BATCH_SIZE` | batch huấn luyện (60 s × 3 chuyển đạo: 5m 13,5 GB ở batch 32) | `32` |
+| `ECGR_CACHE_DATASET` | `1` = giữ cả split train trong RAM (~90 GB ở 60 s) | `0` |
 | `ECGR_EC57_LEAD_MODE` | bao nhiêu chuyển đạo **thật**: `native` / `single` / `auto` (mục 7b) | `native` |
 | `ECGR_LEAD_FILL` | lấp kênh còn thiếu bằng gì: `zero` / `duplicate` (mục 3) | `zero` |
 | `ECGR_SSL_RUN` | dùng lại backbone tự giám sát của run khác | — |
@@ -446,7 +477,7 @@ Tóm lại: **nhãn cần cho việc gán *tên* lớp và cho việc *đo*, kh�
 ### 6a. Chặng 1: backbone — [`ssl.py`](ecgr/training/ssl.py)
 
 ```bash
-python -m ecgr ssl --model resumamba_30k
+python -m ecgr ssl --model resumamba_100k
 ```
 
 Đây là chặng tiền huấn luyện **nơi tham số thực sự nằm**. Chặng CPC huấn luyện bộ mã hóa ngữ
@@ -483,7 +514,7 @@ giá trị trung bình**, nên đó là con số đáng theo dõi chứ không p
 ### 6b. Chặng 2: bộ mã hóa ngữ cảnh — [`cpc.py`](ecgr/training/cpc.py)
 
 ```bash
-python -m ecgr cpc --model resumamba_30k
+python -m ecgr cpc --model resumamba_100k
 ```
 
 InfoNCE trên chính tập train, **nhãn bị bỏ đi hoàn toàn**: từ ngữ cảnh quá khứ `c_i`, dự đoán
@@ -505,7 +536,7 @@ cũ, hoặc `--ssl-weights` / `--ctx-weights` trỏ thẳng vào file.
 ### 6c. Huấn luyện — [`train.py`](ecgr/training/train.py)
 
 ```bash
-python -m ecgr train --model resumamba_30k --epochs 30 --lr 1.4e-3
+python -m ecgr train --model resumamba_100k --epochs 30 --lr 1.4e-3
 ```
 
 Hai sub-model tự giám sát được đối xử **khác nhau, có chủ ý**:
@@ -687,15 +718,15 @@ dự đoán latent `v_{i+j}` xác định bằng **chỉ số thời gian**, kh�
 **7a. Mức bước** — chỉ số **rẻ** để chọn checkpoint, **không phải** chỉ số đánh giá cuối:
 
 ```bash
-python -m ecgr stepeval --model resumamba_30k
+python -m ecgr stepeval --model resumamba_100k
 ```
 
 **7b. Mức nhịp, chuẩn EC57 (bxb)** — cái thực sự quyết định:
 
 ```bash
-python -m ecgr ec57 --model resumamba_30k
-python -m ecgr ec57 --model resumamba_30k --bxb-only            # chấm lại, không predict lại
-python -m ecgr ec57 --model resumamba_30k --lead-mode duplicate # một chuyển đạo, ở mọi nơi
+python -m ecgr ec57 --model resumamba_100k
+python -m ecgr ec57 --model resumamba_100k --bxb-only            # chấm lại, không predict lại
+python -m ecgr ec57 --model resumamba_100k --lead-mode duplicate # một chuyển đạo, ở mọi nơi
 ```
 
 `--lead-mode` quyết định trục chuyển đạo được lấp thế nào:
@@ -1374,3 +1405,98 @@ file nạp hai lần cho ra kết quả **giống nhau chính xác**.
 
 Điều này không ảnh hưởng tính nhất quán của việc đánh giá — `stepeval` và `ec57` luôn nạp từ
 file — nhưng nó là lý do một con số EC57 đo lại có thể lệch ở chữ số thập phân thứ hai.
+
+
+## 12. Contract 60 s — những gì đổi so với bản 10 s
+
+Ngày 23/09/2026. Mã nguồn của bản 10 s không còn là mặc định; các bảng ở mục 8 là **baseline** mà
+bản này phải không thua.
+
+| | bản 10 s (`260917_3lead`) | bản 60 s |
+|---|---|---|
+| đầu vào | `(2500, 3)`, cửa sổ 10 s trượt 1 s **trong** khoảng review | `(15000, 3)` = **trọn strip**; khoảng review nằm bên trong |
+| nhãn | 500 bước, mọi bước có lớp | 3000 bước; **`IGNORE_LABEL = 255` ngoài khoảng review** và trong phần đệm record ngắn; loss/metric bỏ qua hàng không khối lượng |
+| đầu ra | `beat_cls (500, 4)` | `beat_cls (3000, 4)` **+ `lead_quality (3000, 3)`** |
+| họ model | 2m / 1m / 100k / 30k | **5m / 3m / 1m / 100k** (4.907.251 / 2.839.144 / 963.375 / 97.636 tham số) |
+| nhân SSM | 128–256 bước (2,5–5 s) | **384–1024 bước (7,7–20,5 s)** — đọc chế độ nhịp, không tốn thêm tham số |
+| bộ mã hóa ngữ cảnh | 9 cửa sổ 2 s | **59 cửa sổ 2 s** (M của bài báo) |
+| dataset train | 8 (kể cả 3 bộ re-curation) | **5**: `dataset-1…5` |
+| batch / lr | 128 / 1,4e-3 | **32 / 7e-4**; cache RAM tắt mặc định |
+| lưu checkpoint từ epoch | 10 | **3** — một epoch 60 s là 1–3 h GPU; `train 3m` bị SIGTERM ở epoch 7 (24/09) mất 20 h vì chưa lưu gì |
+| sweep EC57 | cửa sổ 10 s, chồng 1 s | cửa sổ 60 s, **chồng 10 s**; hình học **lấy từ checkpoint** (`config.apply_geometry`) nên checkpoint 10 s cũ vẫn chấm được bằng cùng một code |
+| chọn checkpoint | F1 mức bước | `ecgr select`: **bxb trên portal-eval**, quy tắc không-giảm |
+| nghiệm thu | đọc bảng bằng mắt | **`ecgr regress`** / `evaluate.py` `BASELINE='auto'`: từng ô Se/+P so với `assets/baselines/10s_3lead/`, dung sai 0,1 điểm, tụt = exit 1 |
+| test | 111 | 146, thêm: mask IGNORE trong loss/metric/parse, một record wfdb thật qua `process_record`, đích chất lượng kênh, hai đầu ra qua fit/ensemble/refine, hình học theo checkpoint, `regress` |
+
+### 12a. Vì sao 60 s
+
+Mục 8i kết luận: mitdb S +P > 80 **không** đạt được bằng bất kỳ đòn bẩy sau-huấn-luyện nào, vì
+model coi nhịp N trong rung nhĩ là "đến sớm" — nó không có đủ ngữ cảnh để biết nhịp ấy nằm trong
+một chế độ vốn bất thường. 10 s là 8–15 nhịp; 60 s là cả phút, và nhân SSM 15–20 s mỗi chiều đọc
+được độ đều nhịp ở quy mô mà một bác sĩ đọc AF. Đó là thay đổi ở mức bài toán, đúng như mục 8i đòi.
+
+### 12b. Mask nhãn — cách làm và cái bẫy đã tránh
+
+`build_npy.process_record` gán nhãn từ **mọi** annotation trong cửa sổ (để một nhịp nằm vắt qua
+biên khoảng review vẫn có block đúng), rồi `labels.ignore_outside` đặt `IGNORE` cho mọi bước ngoài
+`[start, stop)` — **trừ** block của nhịp có đỉnh R nằm trong khoảng (block ấy là của nhịp đã được
+duyệt). Phép thử phẳng chỉ xét kênh 0 **trong** khoảng review. Record ngắn hơn 60 s được đệm mẫu
+cuối, phần đệm là `IGNORE`. Ngưỡng `MIN_REVIEWED_SAMPLES = 2475` giữ đúng tập event mà bản 10 s đã
+train — hai bản so được với nhau theo từng event.
+
+Cái bẫy: `_time_scale` của bản 10 s lấp các bước đệm sau khi co giãn bằng lớp **nền**. Với giá trị
+`IGNORE` tường minh, đệm giờ là hàng 0 — "không biết", không phải "không có nhịp".
+
+### 12c. Đầu ra 2 — đích được dựng thế nào
+
+`pipeline.corrupt` trả về cả tín hiệu đã làm hỏng lẫn đích:
+
+```
+a = RMS cục bộ (1 s) của phần nhiễu đã tiêm, đơn vị z-score theo chuyển đạo
+q = sigmoid((1.0 − a) / 0.3)        # a = 0.25 → 0.92 ; a = 1.0 → 0.5 ; a = 2.5 → ≈ 0
+q = 0   nơi chuyển đạo GỐC phẳng (std cục bộ 2 s < 0.02)        # điện cực rơi
+q = q[kênh 0] trên mọi kênh khi mẫu bị gộp về một chuyển đạo ; q = 0 trên chuyển đạo bị drop
+```
+
+Loss là BCE với đích mềm, trọng số `QUALITY_LOSS_WEIGHT = 0.25`. Tập eval không bị làm hỏng nên
+đích của nó gần tầm thường (1 trừ phẳng); vì thế đầu ra 2 được **đo** trên một probe cố định seed
+đã làm hỏng (`step_metrics.lead_quality_report`: độ chính xác chọn kênh tốt nhất, MAE, độ tách
+đọc-được/không-đọc-được), in mỗi epoch và trong `stepeval`. Khi chấm EC57, mỗi record ghi một dòng
+vào `_ann/<db>/lead_quality.csv` (kênh tốt nhất theo **số kênh của record**, kênh lấp không bao giờ
+thắng) và `<db>/lead_quality_summary.json` — trên bộ portal kèm tỉ lệ trùng với kênh người review
+đã chọn (một chẩn đoán, không phải điểm số: kênh đó là mặc định 83% số record).
+
+### 12d. Chi phí đo được (batch 32, RTX 3090, đầu vào `(15000, 3)`)
+
+| `--model` | tham số | s/step | VRAM đỉnh |
+|---|---|---|---|
+| `resumamba_5m` | 4.907.251 | 0,282 | 13.544 MiB |
+| `resumamba_3m` | 2.839.144 | 0,185 | 9.186 MiB |
+| `resumamba_1m` | 963.375 | 0,096 | 4.794 MiB |
+| `resumamba_100k` | 97.636 | 0,235 † | 1.939 MiB |
+
+† tích chập tách chiều sâu chậm trên GPU dù ít tham số. Với ~490k strip/epoch: 5m ≈ 75 phút/epoch,
+3m ≈ 50, 1m ≈ 25, 100k ≈ 60.
+
+### 12e. Khối SSM: LayerNorm thay BatchNorm — sửa giữa sweep
+
+Chặng `ssl` đầu tiên của `resumamba_5m` (12:23, run `260923_60s`) cho train nmse 0,74 nhưng
+**val_nmse 5,5 sau epoch 1 và 187 sau epoch 2**, trong khi `3m` cùng lúc val 0,64 → 0,54. Chỉ
+BatchNorm khác nhau giữa hai chế độ train/inference. Thử đầu tiên — hạ BN momentum 0,99 → 0,9
+để moving statistics bám kịp — **không** phải nguyên nhân: chạy lại cho val_nmse 3,2 × 10⁹.
+
+Nguyên nhân thật nằm ở cấu trúc khối SSM: nhánh chuẩn hoá được **nhân** với cổng SiLU, cộng
+vào dòng residual, và cổng của khối sau lớn theo dòng ấy — nên bất kỳ sai khác nào giữa cách
+chuẩn hoá lúc train (thống kê từng batch) và lúc inference (thống kê chạy) bị **nhân lên** qua
+từng khối; 5 khối của `5m` đủ để nổ. `ssm_block` giờ dùng `LayerNormalization` theo trục kênh
+ở cả hai chỗ (`_ln`, `_out_ln`) — cùng một phép tính ở cả hai chế độ, dòng residual bị chặn
+giống nhau lúc train và lúc test; nhánh ResU giữ BatchNorm (residual cộng, ổn định ở mọi kích
+thước). Tham số: 4.901.171 / 2.835.368 / 961.839 / 97.252 — vẫn dưới ngân sách. Test
+`test_ssm_blocks_normalise_identically_in_both_modes` ghim tính chất này. Cả `5m` và `3m`
+được chạy lại từ đầu với kiến trúc này (13:0x); `BN_MOMENTUM = 0.9` giữ cho các BN còn lại.
+
+### 12f. Kết quả
+
+Bảng EC57 / beat-eval của họ 60 s được điền bởi `./run_pipeline.sh sweep` vào
+`<RUN_DIR>/ec57/<model>/ec57_summary.csv` và đối chiếu tự động với baseline 10 s (`regress` là
+stage cuối của mỗi size). Xem `logs/q0.log`, `logs/q1.log` của run `260923_60s`.

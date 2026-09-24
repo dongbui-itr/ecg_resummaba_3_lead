@@ -3,14 +3,15 @@
     python -m ecgr config                     # what this run is configured to do
     python -m ecgr models                     # the model family and its parameter counts
     python -m ecgr data      [--step npy|tfrecord|all] [--db ...] [--limit N] [--workers N]
-    python -m ecgr ssl       --model resumamba_30k   # self-supervised backbone
-    python -m ecgr cpc       --model resumamba_30k   # self-supervised context encoder
-    python -m ecgr train     --model resumamba_30k [--epochs N] [--lr 7e-4] ...
-    python -m ecgr refine    --model resumamba_30k   # temporal head on the frozen base
-    python -m ecgr stepeval  --model resumamba_30k [--checkpoint FILE]
-    python -m ecgr ec57      --model resumamba_30k [--dbs mitdb] [--bxb-only]
-    python -m ecgr all       --model resumamba_30k   # ssl -> cpc -> train -> stepeval -> ec57
-    python -m ecgr compare   resumamba_30k resumamba_1m   # side-by-side EC57 table
+    python -m ecgr ssl       --model resumamba_100k   # self-supervised backbone
+    python -m ecgr cpc       --model resumamba_100k   # self-supervised context encoder
+    python -m ecgr train     --model resumamba_100k [--epochs N] [--lr 7e-4] ...
+    python -m ecgr refine    --model resumamba_100k   # temporal head on the frozen base
+    python -m ecgr stepeval  --model resumamba_100k [--checkpoint FILE]
+    python -m ecgr ec57      --model resumamba_100k [--dbs mitdb] [--bxb-only]
+    python -m ecgr all       --model resumamba_100k   # ssl -> cpc -> train -> stepeval -> ec57
+    python -m ecgr compare   resumamba_100k resumamba_1m   # side-by-side EC57 table
+    python -m ecgr regress   --model resumamba_1m    # diff this run's EC57 against the 10 s baseline
 
 The two self-supervised stages come first and use no labels. Both depend only on the
 architecture, so they are skipped when weights already exist - in this run, or in the run
@@ -96,6 +97,10 @@ def build_parser():
     t.add_argument('--freeze-backbone-epochs', type=int, default=None,
                    help='hold the SSL backbone frozen for this many epochs so the random '
                         'head cannot wash out the pretraining (default: config value)')
+    t.add_argument('--steps-per-epoch', type=int, default=None,
+                   help='cap an epoch at this many batches (smoke test; default: a full pass)')
+    t.add_argument('--validation-steps', type=int, default=None,
+                   help='cap the validation pass (smoke test; default: the whole eval split)')
 
     r = sub.add_parser('refine', help='train the temporal refinement head on the frozen best '
                                       'base and pick the no-regression epoch on portal-eval')
@@ -122,6 +127,7 @@ def build_parser():
     _add_model_arg(e)
     e.add_argument('--checkpoint', default=None, help='default: best BEST_F1 of this run')
     e.add_argument('--batch-size', type=int, default=None)
+    e.add_argument('--max-batches', type=int, default=None, help='smoke test: first N batches')
 
     b = sub.add_parser('ec57', help='beat-level EC57 (bxb) over physionet + portal beat-eval')
     _add_model_arg(b)
@@ -185,6 +191,19 @@ def build_parser():
     cmp_ = sub.add_parser('compare', help='side-by-side EC57 table of several tags')
     cmp_.add_argument('tags', nargs='+')
     cmp_.add_argument('--ec57-root', default=None)
+
+    rg = sub.add_parser('regress', help='diff an ec57_summary.csv against a baseline and fail '
+                                        'if any Se/+P cell fell (default baseline: the 10 s '
+                                        'model this size is held to, assets/baselines/)')
+    _add_model_arg(rg, required=False)
+    rg.add_argument('--summary', default=None,
+                    help='ec57_summary.csv to check (default: <EC57_DIR>/<tag or model>/)')
+    rg.add_argument('--tag', default=None, help='report folder under EC57_DIR (default: --model)')
+    rg.add_argument('--baseline', default=None,
+                    help='ec57_summary.csv to compare against (default: config.baseline_summary)')
+    rg.add_argument('--tolerance', type=float, default=None,
+                    help='pp a cell may fall and still pass (default: config.REGRESSION_TOLERANCE_PP)')
+    rg.add_argument('--dbs', nargs='*', default=None, help='restrict to these sources')
     return p
 
 
@@ -194,7 +213,7 @@ def main(argv=None):
 
     # Before ANY TensorFlow import: XLA reads XLA_FLAGS when it first compiles, and without
     # a libdevice path every training stage on a pip-CUDA install dies at its first step.
-    if args.stage not in ('config', 'compare'):
+    if args.stage not in ('config', 'compare', 'regress'):
         from . import xla
         xla.ensure_libdevice()
 
@@ -209,11 +228,39 @@ def main(argv=None):
             backbone = models.sub_model(m, 'backbone').count_params()
             ctx = models.sub_model(m, 'context_encoder').count_params()
             total = m.count_params()
-            print(f"{name:16s} {m.name:26s} {total:>10,} params "
-                  f"(backbone {backbone:>9,}, context {ctx:>7,}, head {total - backbone - ctx:>7,})"
-                  f"  in={m.input_shape[1:]} out={m.output_shape[1:]}"
+            outs = ', '.join(f"{n}{tuple(o.shape[1:])}"
+                             for n, o in zip(models.output_names(m), m.outputs))
+            print(f"{name:16s} {m.name:26s} {total:>10,} params < {models.BUDGETS[name]:>9,} "
+                  f"(backbone {backbone:>9,}, context {ctx:>7,}, heads {total - backbone - ctx:>7,})"
+                  f"  in={tuple(m.input_shape[1:])} out=[{outs}]"
                   f"{'' if total < models.BUDGETS[name] else '  OVER BUDGET'}")
         return 0
+
+    if args.stage == 'regress':
+        from .evaluation import report
+        if args.summary:
+            summary = args.summary
+        elif args.model or args.tag:
+            summary = os.path.join(config.EC57_DIR, args.tag or args.model, 'ec57_summary.csv')
+        else:
+            print("regress: give --summary, or --model/--tag to locate this run's summary",
+                  file=sys.stderr)
+            return 2
+        baseline = args.baseline or (config.baseline_summary(args.model) if args.model else None)
+        if not baseline:
+            print("regress: no baseline - give --baseline, or --model with a size in "
+                  "config.BASELINE_FOR", file=sys.stderr)
+            return 2
+        for path in (summary, baseline):
+            if not os.path.exists(path):
+                print(f"regress: not found: {path}", file=sys.stderr)
+                return 2
+        print(f"summary  : {summary}\nbaseline : {baseline}")
+        drops = report.check_no_regression(summary, baseline, tolerance=args.tolerance,
+                                           dbs=args.dbs,
+                                           out_json=os.path.join(os.path.dirname(summary),
+                                                                 'regression.json'))
+        return 1 if drops else 0
 
     if args.stage == 'data':
         from .data import build_npy, build_tfrecord, splits
@@ -261,7 +308,8 @@ def main(argv=None):
                       ssl_weights=args.ssl_weights, ctx_weights=args.ctx_weights,
                       freeze_ctx=not args.ctx_trainable,
                       freeze_backbone_epochs=args.freeze_backbone_epochs,
-                      init_from=args.init_from)
+                      init_from=args.init_from, steps_per_epoch=args.steps_per_epoch,
+                      validation_steps=args.validation_steps)
         return 0
 
     if args.stage == 'refine':
@@ -297,7 +345,8 @@ def main(argv=None):
 
         if args.stage == 'stepeval':
             from .training import train as trainer
-            trainer.evaluate_checkpoint(ckpt, batch_size=args.batch_size)
+            trainer.evaluate_checkpoint(ckpt, batch_size=args.batch_size,
+                                        max_batches=args.max_batches)
         else:
             from .evaluation import ec57
             if args.min_run is not None:

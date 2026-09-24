@@ -7,18 +7,33 @@ import tensorflow as tf
 from ..evaluation import step_metrics
 
 
+def resolve_monitor(logs, monitor):
+    """The key of `monitor` in `logs`, tolerant of Keras's output-name prefix.
+
+    With two outputs Keras publishes `val_beat_cls_weighted_f1`; with one (a legacy model)
+    `val_weighted_f1`. Asking for either finds the other, so a config written for the
+    two-output family still drives a single-output run - and vice versa.
+    """
+    if monitor in logs:
+        return monitor
+    tail = monitor.split('_', 1)[1] if monitor.startswith('val_') else monitor
+    for key in logs:
+        if key.endswith(tail) and key.startswith('val_') == monitor.startswith('val_'):
+            return key
+    return monitor
+
+
 class WeightedF1Checkpoint(tf.keras.callbacks.Callback):
     """Writes the per-epoch confusion report and keeps the best-F1 weights.
 
     The F1 itself is no longer computed here: `step_metrics.StepConfusion` is a compiled
-    metric, so Keras produces `val_weighted_f1` and the full confusion matrix inside the
+    metric, so Keras produces the weighted F1 and the full confusion matrix inside the
     validation pass it already runs. This callback reads both.
 
     That matters for two reasons beyond tidiness:
 
-      * The eval split is walked ONCE per epoch instead of twice. It is ~600k segments, and
-        the second pass was pure duplication.
-      * `val_weighted_f1` is now in `logs` before any callback runs, so EarlyStopping,
+      * The eval split is walked ONCE per epoch instead of twice.
+      * The monitor is in `logs` before any callback runs, so EarlyStopping,
         ReduceLROnPlateau and ModelCheckpoint can monitor it whatever order they are listed
         in. Publishing a monitor key FROM a callback made the list order load-bearing, and a
         monitor key that is missing early makes those callbacks skip silently.
@@ -30,7 +45,7 @@ class WeightedF1Checkpoint(tf.keras.callbacks.Callback):
     """
 
     def __init__(self, metric, ckpt_dir, report_dir, interval=1, save_start_epoch=1,
-                 monitor='val_weighted_f1'):
+                 monitor='val_beat_cls_weighted_f1', quality_probe=None):
         super().__init__()
         self.metric = metric
         self.monitor = monitor
@@ -44,18 +59,23 @@ class WeightedF1Checkpoint(tf.keras.callbacks.Callback):
         # and then settles into 0.8467-0.8523 for the next fourteen, so a "best" picked from
         # epoch 4 records the noise, not the model.
         self.save_start_epoch = save_start_epoch
+        # A dataset to probe output 2 on each epoch (step_metrics.lead_quality_report), or
+        # None. The eval split's own quality target only knows about flat leads, so the head
+        # is measured on a fixed-seed corrupted probe where the answer is known.
+        self.quality_probe = quality_probe
         self.best_f1 = 0.0
         os.makedirs(self.best_dir, exist_ok=True)
         os.makedirs(report_dir, exist_ok=True)
 
     def on_epoch_end(self, epoch, logs=None):
         logs = logs or {}
-        f1 = logs.get(self.monitor)
+        key = resolve_monitor(logs, self.monitor)
+        f1 = logs.get(key)
         if f1 is None:
             raise RuntimeError(
                 f"{self.monitor} is not in this epoch's logs ({sorted(logs)}). The model has "
-                f"to be compiled with step_metrics.StepConfusion(name='weighted_f1') and "
-                f"given validation data for it to exist.")
+                f"to be compiled with step_metrics.StepConfusion(name='weighted_f1') on its "
+                f"beat output and given validation data for it to exist.")
         if (epoch + 1) % self.interval:
             return
 
@@ -63,7 +83,14 @@ class WeightedF1Checkpoint(tf.keras.callbacks.Callback):
         if matrix.sum() == 0:
             return                                  # no validation pass this epoch
         df_cm, per_class, cm_f1 = step_metrics.metrics_from_confusion(matrix)
-        report = step_metrics.format_report(df_cm, per_class, cm_f1, f"EPOCH {epoch + 1}")
+        quality = None
+        if self.quality_probe is not None:
+            quality = step_metrics.lead_quality_report(self.model, self.quality_probe)
+            for name in ('lead_acc', 'mae', 'sep'):
+                if quality.get(name) is not None:
+                    logs[f'val_quality_{name}'] = float(quality[name])
+        report = step_metrics.format_report(df_cm, per_class, cm_f1, f"EPOCH {epoch + 1}",
+                                            quality=quality)
         with open(os.path.join(self.report_dir, 'confusion_log.txt'), 'a') as f:
             f.write("\n" + report + "\n")
         print(f"\n{report}\n")
@@ -71,8 +98,7 @@ class WeightedF1Checkpoint(tf.keras.callbacks.Callback):
             # The matrix and the logged scalar come from the same accumulator, so a
             # disagreement means the metric was reset between them - worth saying out loud
             # rather than silently reporting two different numbers.
-            print(f"  note: logged {self.monitor}={float(f1):.4f} but the matrix gives "
-                  f"{cm_f1:.4f}")
+            print(f"  note: logged {key}={float(f1):.4f} but the matrix gives {cm_f1:.4f}")
 
         if epoch + 1 < self.save_start_epoch:
             print(f"  epoch {epoch + 1} < save_start_epoch {self.save_start_epoch}: "

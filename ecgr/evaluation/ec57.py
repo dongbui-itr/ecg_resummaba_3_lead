@@ -30,6 +30,19 @@ Predictions are written into <ec57_out>/_ann/<db>/ as real files and kept: bxb c
 re-run with a different exclusion list or a fixed script without paying for inference again.
 Scoring happens in a disposable symlink farm under <ec57_out>/_work/<db>/, so the source
 databases are never touched and two models never overwrite each other.
+
+**Output 2.** A two-output model also says, per record, which lead it found most readable
+(labels.best_lead over its lead_quality output). That answer is written next to the
+predictions as `_ann/<db>/lead_quality.csv` - record, best lead in the RECORD's own channel
+numbering, and the per-lead mean quality - and summarised per source in
+`<ec57_out>/<db>/lead_quality_summary.json`. On the portal beat-eval set the summary also
+reports how often the model's choice coincides with the channel the reviewer worked on: a
+diagnostic, not a score - the reviewer's channel is a default 83% of the time, not a
+judgement of quality.
+
+**Window length.** The sweep reads its geometry from the CHECKPOINT (config.apply_geometry):
+a 10 s model is swept in 10 s windows, a 60 s model in 60 s windows, by the same code, which
+is what makes the non-regression comparison between the two families apples to apples.
 """
 import csv
 import hashlib
@@ -43,8 +56,8 @@ import tensorflow as tf
 import wfdb
 
 from .. import config, models  # noqa: F401  - models registers the custom layers
-from ..labels import decode_beats
-from ..signal_ops import build_leads, resample_leads, segment_record
+from ..labels import best_lead, decode_beats
+from ..signal_ops import build_leads, lead_order, resample_leads, segment_record
 from . import bxb, report
 
 
@@ -117,15 +130,50 @@ class Ensemble:
     def count_params(self):
         return sum(m.count_params() for m in self.members)
 
+    @property
+    def outputs(self):
+        """Mirrors keras.Model.outputs enough for models.has_quality_output: an ensemble emits
+        lead quality when every member does."""
+        return self.members[0].outputs if all(models.has_quality_output(m)
+                                              for m in self.members) else self.members[0].outputs[:1]
+
     def predict_probs(self, segments, batch_size=None):
-        return np.mean([predict_segments(m, segments, batch_size) for m in self.members],
-                       axis=0)
+        return self.predict_full(segments, batch_size)[0]
+
+    def predict_full(self, segments, batch_size=None):
+        results = [predict_segments_full(m, segments, batch_size) for m in self.members]
+        beats = np.mean([r[0] for r in results], axis=0)
+        qualities = [r[1] for r in results]
+        quality = np.mean(qualities, axis=0) if all(q is not None for q in qualities) else None
+        return beats, quality
 
 
-def load_checkpoints(paths):
-    """One .keras path -> that model; several -> an Ensemble of them."""
+def load_checkpoints(paths, adapt_geometry=True):
+    """One .keras path -> that model; several -> an Ensemble of them.
+
+    With adapt_geometry the run's window geometry is re-derived from the checkpoint's input
+    shape (config.apply_geometry), so a checkpoint of the 10 s family is swept in 10 s
+    windows and one of the 60 s family in 60 s windows - by the same code. Members of an
+    ensemble must agree on it.
+    """
     paths = [paths] if isinstance(paths, str) else list(paths)
     loaded = [tf.keras.models.load_model(p, compile=False) for p in paths]
+    shapes = {tuple(m.input_shape[1:]) for m in loaded}
+    if len(shapes) > 1:
+        raise ValueError(f"ensemble members disagree on the input shape: {sorted(shapes)}")
+    (length, channels), = shapes
+    if channels != config.IN_CHANNELS:
+        raise ValueError(f"{paths[0]} takes {channels} leads but this run is configured for "
+                         f"{config.IN_CHANNELS} (ECGR_IN_CHANNELS)")
+    if length != config.SEGMENT_SAMPLES:
+        if not adapt_geometry:
+            raise ValueError(f"{paths[0]} takes {length} samples but this run is configured "
+                             f"for {config.SEGMENT_SAMPLES}")
+        steps = models.split_outputs(loaded[0].outputs)[0].shape[1]
+        config.apply_geometry(length, steps)
+        print(f"geometry     : {length} samples -> {steps} steps, from the checkpoint "
+              f"({length / config.SAMPLING_RATE:g} s windows, sweep overlap "
+              f"{config.EC57_SEGMENT_OVERLAP / config.SAMPLING_RATE:g} s)")
     return loaded[0] if len(loaded) == 1 else Ensemble(loaded)
 
 
@@ -138,8 +186,13 @@ def predict_segments(model, segments, batch_size=None):
     beat-eval records plus two 5,000-record split samples that is ~30 minutes per model of
     pure overhead. Long Physionet records are compute-bound either way.
     """
-    if hasattr(model, 'predict_probs'):               # an Ensemble
-        return model.predict_probs(segments, batch_size)
+    return predict_segments_full(model, segments, batch_size)[0]
+
+
+def predict_segments_full(model, segments, batch_size=None):
+    """(beat softmax (n, steps, classes), lead quality (n, steps, leads) or None)."""
+    if hasattr(model, 'predict_full'):                # an Ensemble
+        return model.predict_full(segments, batch_size)
     fn = getattr(model, '_ecgr_predict', None)
     if fn is None:
         @tf.function(reduce_retracing=True)
@@ -147,19 +200,33 @@ def predict_segments(model, segments, batch_size=None):
             return model(x, training=False)
         model._ecgr_predict = fn
     size = batch_size or config.BATCH_SIZE
-    out = [fn(tf.constant(segments[i:i + size])).numpy()
-           for i in range(0, len(segments), size)]
-    return np.concatenate(out, axis=0)
+    beats, quality = [], []
+    for i in range(0, len(segments), size):
+        b, q = models.split_outputs(fn(tf.constant(segments[i:i + size])))
+        beats.append(b.numpy())
+        if q is not None:
+            quality.append(q.numpy())
+    return np.concatenate(beats, axis=0), (np.concatenate(quality, axis=0) if quality else None)
 
 
 def predict_record(model, record_path, record_name, out_dir, channel=0, s_boost=1.0,
-                   batch_size=None, lead_mode=None, fill_mode=None):
-    """Predict one record and write its .<BEAT_EXTENSION> annotation into `out_dir`."""
+                   batch_size=None, lead_mode=None, fill_mode=None, quality_log=None):
+    """Predict one record and write its .<BEAT_EXTENSION> annotation into `out_dir`.
+
+    Returns the number of beats written. With `quality_log` (a list) and a two-output model,
+    appends (record_name, best_lead_in_record_numbering, [mean quality per model channel]) -
+    output 2 for this record. The model's channel 0 is the annotated lead (`channel`), so the
+    argmax is mapped back through the same rotation build_leads applied; a channel the
+    record does not have (the zero fill) can never win, its quality is masked out.
+    """
     leads, raw_length, fs = read_leads(record_path, channel=channel, lead_mode=lead_mode,
                                        fill_mode=fill_mode)
 
     segments, starts = segment_record(leads)
-    preds = predict_segments(model, segments, batch_size)
+    preds, quality = predict_segments_full(model, segments, batch_size)
+    if quality is not None and quality_log is not None:
+        quality_log.append(record_lead_choice(record_path, record_name, channel, lead_mode,
+                                              quality, starts, len(leads)))
 
     # signal_length keeps the decoder inside the real signal: a record shorter than one
     # window is edge-padded, and a detection in that padding is an artefact of the padding.
@@ -181,6 +248,68 @@ def predict_record(model, record_path, record_name, out_dir, channel=0, s_boost=
                     sample=positions, symbol=list(symbols),
                     fs=fs).wrann(write_fs=True, write_dir=out_dir)
     return len(positions)
+
+
+def record_lead_choice(record_path, record_name, channel, lead_mode, quality, starts,
+                       signal_length):
+    """(record_name, best lead in the record's numbering, per-model-channel mean quality)."""
+    n_sig = wfdb.rdheader(record_path).n_sig
+    lead_mode = lead_mode or config.EC57_LEAD_MODE
+    if lead_mode == 'auto':
+        lead_mode = 'native' if n_sig >= config.IN_CHANNELS else 'single'
+    real = [channel] if lead_mode in ('single', 'duplicate') else \
+        lead_order(n_sig, channel)[:config.IN_CHANNELS]
+    _, means = best_lead(quality, starts, signal_length)
+    masked = np.full_like(means, -1.0)
+    masked[:len(real)] = means[:len(real)]         # filled channels cannot be "the best lead"
+    model_channel = int(np.argmax(masked))
+    return (record_name, int(real[model_channel]), [round(float(m), 4) for m in means],
+            model_channel)
+
+
+def write_lead_quality(quality_log, ann_dir, report_dir, reviewer_channels=None):
+    """Persist output 2: lead_quality.csv beside the predictions, a summary in the report dir.
+
+    `reviewer_channels` maps record name -> the channel the reviewer worked on (portal sets);
+    when given, the summary reports how often the model's choice coincides with it.
+    """
+    if not quality_log:
+        return None
+    os.makedirs(ann_dir, exist_ok=True)
+    os.makedirs(report_dir, exist_ok=True)
+    n_ch = max(len(row[2]) for row in quality_log)
+    # Two numberings on purpose: `best_lead` is the RECORD's channel (what a clinician or the
+    # .hea means by CH0/CH1/CH2); `best_model_ch` and the q_model_ch* columns are the model's,
+    # where channel 0 is always the annotated lead (signal_ops.build_leads).
+    with open(os.path.join(ann_dir, 'lead_quality.csv'), 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['record', 'best_lead', 'best_model_ch']
+                        + [f'q_model_ch{c}' for c in range(n_ch)])
+        for name, lead, means, model_ch in quality_log:
+            writer.writerow([name, lead, model_ch] + list(means))
+    hist = {}
+    for _, lead, _, _ in quality_log:
+        hist[str(lead)] = hist.get(str(lead), 0) + 1
+    summary = {'records': len(quality_log), 'best_lead_histogram': dict(sorted(hist.items())),
+               'mean_quality_per_model_channel':
+                   [round(float(np.mean([m[c] for _, _, m, _ in quality_log if len(m) > c])), 4)
+                    for c in range(n_ch)]}
+    if reviewer_channels:
+        pairs = [(lead, reviewer_channels.get(name)) for name, lead, _, _ in quality_log
+                 if name in reviewer_channels]
+        if pairs:
+            summary['agrees_with_reviewer_channel'] = round(
+                sum(int(a == b) for a, b in pairs) / len(pairs), 4)
+            summary['reviewer_channel_histogram'] = {
+                str(c): sum(1 for _, b in pairs if b == c) for c in sorted({b for _, b in pairs})}
+    path = os.path.join(report_dir, 'lead_quality_summary.json')
+    with open(path, 'w') as f:
+        json.dump(summary, f, indent=2)
+    print(f"  lead quality (output 2): best-lead histogram {summary['best_lead_histogram']}"
+          + (f", agrees with the reviewer's channel on "
+             f"{100 * summary['agrees_with_reviewer_channel']:.1f}% of records"
+             if 'agrees_with_reviewer_channel' in summary else ''))
+    return path
 
 
 # ---------------------------------------------------------------------------
@@ -417,11 +546,12 @@ def score_portal_split(model, split, ec57_out, max_records=None, s_boost=1.0,
         print(f"  --bxb-only: reusing the stored predictions in {ann_dir}")
     else:
         empty = errors = 0
+        quality_log = []
         for i, (name, src, channel, _, _) in enumerate(resolved, 1):
             try:
                 empty += predict_record(model, src, name, ann_dir, channel=channel,
                                         s_boost=s_boost, lead_mode=lead_mode,
-                                        fill_mode=fill_mode) == 0
+                                        fill_mode=fill_mode, quality_log=quality_log) == 0
             except Exception as e:
                 errors += 1
                 if errors <= 3:
@@ -430,6 +560,8 @@ def score_portal_split(model, split, ec57_out, max_records=None, s_boost=1.0,
                 print(f"  {i}/{len(resolved)} records predicted")
         if empty or errors:
             print(f"  {empty} records yielded no beats, {errors} failed")
+        write_lead_quality(quality_log, ann_dir, os.path.join(ec57_out, db_name),
+                           {name: channel for name, _, channel, _, _ in resolved})
 
     work_dir = os.path.join(ec57_out, '_work', db_name)
     scored = build_split_scoring_dir(resolved, ann_dir, work_dir)
@@ -476,17 +608,19 @@ def score_physionet_db(model, db_name, ec57_out, max_records=None, s_boost=1.0,
     if bxb_only:
         print(f"  --bxb-only: reusing the stored predictions in {ann_dir}")
     else:
+        quality_log = []
         for i, name in enumerate(records, 1):
             try:
                 n = predict_record(model, os.path.join(src_dir, name), name, ann_dir,
                                    channel=channel, s_boost=s_boost, lead_mode=lead_mode,
-                                   fill_mode=fill_mode)
+                                   fill_mode=fill_mode, quality_log=quality_log)
                 if n == 0:
                     print(f"  {name}: NO beats detected - no annotation written")
                 elif i % 20 == 0 or i == len(records):
                     print(f"  {i}/{len(records)} records predicted (last: {name}, {n} beats)")
             except Exception as e:
                 print(f"  error on {name}: {e}")
+        write_lead_quality(quality_log, ann_dir, os.path.join(ec57_out, db_name))
 
     work_dir = os.path.join(ec57_out, '_work', db_name)
     scored = build_scoring_dir(src_dir, ann_dir, work_dir, records,
@@ -530,11 +664,14 @@ def score_portal_set(model, db_name, src_dir, ec57_out, max_records=None, s_boos
         print(f"  --bxb-only: reusing the stored predictions in {ann_dir}")
     else:
         empty = 0
+        quality_log, reviewer = [], {}
         for i, name in enumerate(records, 1):
             try:
+                reviewer[name] = record_channel(os.path.join(src_dir, name))
                 n = predict_record(model, os.path.join(src_dir, name), name, ann_dir,
-                                   channel=record_channel(os.path.join(src_dir, name)),
-                                   s_boost=s_boost, lead_mode=lead_mode, fill_mode=fill_mode)
+                                   channel=reviewer[name], s_boost=s_boost,
+                                   lead_mode=lead_mode, fill_mode=fill_mode,
+                                   quality_log=quality_log)
                 empty += (n == 0)
                 if i % 500 == 0 or i == len(records):
                     print(f"  {i}/{len(records)} records predicted")
@@ -542,6 +679,7 @@ def score_portal_set(model, db_name, src_dir, ec57_out, max_records=None, s_boos
                 print(f"  error on {name}: {e}")
         if empty:
             print(f"  {empty}/{len(records)} records yielded no beats at all")
+        write_lead_quality(quality_log, ann_dir, os.path.join(ec57_out, db_name), reviewer)
 
     work_dir = os.path.join(ec57_out, '_work', db_name)
     scored = build_scoring_dir(src_dir, ann_dir, work_dir, records, ('hea', 'dat', 'atr'))
@@ -584,45 +722,44 @@ def run(checkpoint, tag, dbs=None, max_records=None, s_boost=1.0, bxb_only=False
     if not bxb_only:
         print(f"loading {checkpoint}")
         model = load_checkpoints(checkpoint)
-        model.summary()
-    #     expected = (config.SEGMENT_SAMPLES, config.IN_CHANNELS)
-    #     if tuple(model.input_shape[1:]) != expected:
-    #         raise ValueError(
-    #             f"{checkpoint} takes {model.input_shape[1:]} but this run is configured for "
-    #             f"{expected}. Set ECGR_IN_CHANNELS to match the checkpoint.")
-    #     print(f"model: {model.name}, {model.count_params():,} parameters\n")
+        model.summary() if hasattr(model, 'summary') else None
+        print(f"model: {model.name}, {model.count_params():,} parameters, "
+              f"lead quality output: {'yes' if models.has_quality_output(model) else 'no'}\n")
 
-    # with open(os.path.join(ec57_out, 'checkpoint.txt'), 'w') as f:
-    #     f.write(f"{checkpoint}\n"
-    #             f"min_run_steps: {config.DECODE_MIN_RUN_STEPS}\n"
-    #             f"model: {model.name if model else '(not loaded, --bxb-only)'}\n"
-    #             f"params: {model.count_params() if model else '-'}\n"
-    #             f"s_boost: {s_boost}\n"
-    #             f"in_channels: {config.IN_CHANNELS}\n"
-    #             f"lead_mode: {lead_mode}\n"
-    #             f"fill_mode: {fill_mode}\n"
-    #             f"portal_splits: {', '.join(splits) or '-'} "
-    #             f"x {config.PORTAL_SPLIT_RECORDS if split_records is None else split_records}"
-    #             f" records\n")
+    with open(os.path.join(ec57_out, 'checkpoint.txt'), 'w') as f:
+        f.write(f"{checkpoint}\n"
+                f"segment_samples: {config.SEGMENT_SAMPLES} ({config.SEGMENT_SECONDS:g} s)\n"
+                f"output_steps: {config.OUTPUT_STEPS}\n"
+                f"min_run_steps: {config.DECODE_MIN_RUN_STEPS}\n"
+                f"min_peak_prob: {config.DECODE_MIN_PEAK_PROB}\n"
+                f"model: {model.name if model else '(not loaded, --bxb-only)'}\n"
+                f"params: {model.count_params() if model else '-'}\n"
+                f"s_boost: {s_boost}\n"
+                f"in_channels: {config.IN_CHANNELS}\n"
+                f"lead_mode: {lead_mode}\n"
+                f"fill_mode: {fill_mode}\n"
+                f"portal_splits: {', '.join(splits) or '-'} "
+                f"x {config.PORTAL_SPLIT_RECORDS if split_records is None else split_records}"
+                f" records\n")
 
-    # if not skip_physionet:
-    #     for db in (dbs or config.EC57_DBS):
-    #         score_physionet_db(model, db, ec57_out, max_records=max_records,
-    #                            s_boost=s_boost, bxb_only=bxb_only, lead_mode=lead_mode,
-    #                            fill_mode=fill_mode)
-    #         print()
+    if not skip_physionet:
+        for db in (dbs or config.EC57_DBS):
+            score_physionet_db(model, db, ec57_out, max_records=max_records,
+                               s_boost=s_boost, bxb_only=bxb_only, lead_mode=lead_mode,
+                               fill_mode=fill_mode)
+            print()
 
-    # if not skip_portal:
-    #     for db_name, src_dir in sorted(config.PORTAL_EVAL_SETS.items()):
-    #         score_portal_set(model, db_name, src_dir, ec57_out, max_records=max_records,
-    #                          s_boost=s_boost, bxb_only=bxb_only, mark_window=mark_window,
-    #                          lead_mode=lead_mode, fill_mode=fill_mode)
-    #         print()
+    if not skip_portal:
+        for db_name, src_dir in sorted(config.PORTAL_EVAL_SETS.items()):
+            score_portal_set(model, db_name, src_dir, ec57_out, max_records=max_records,
+                             s_boost=s_boost, bxb_only=bxb_only, mark_window=mark_window,
+                             lead_mode=lead_mode, fill_mode=fill_mode)
+            print()
 
-    # for split in splits:
-    #     score_portal_split(model, split, ec57_out, max_records=split_records,
-    #                        s_boost=s_boost, bxb_only=bxb_only, lead_mode=lead_mode,
-    #                        fill_mode=fill_mode)
-    #     print()
+    for split in splits:
+        score_portal_split(model, split, ec57_out, max_records=split_records,
+                           s_boost=s_boost, bxb_only=bxb_only, lead_mode=lead_mode,
+                           fill_mode=fill_mode)
+        print()
 
     return report.summarize(ec57_out)

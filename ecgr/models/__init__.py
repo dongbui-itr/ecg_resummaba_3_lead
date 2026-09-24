@@ -40,6 +40,35 @@ def sub_model(model, name):
     return found
 
 
+def output_names(model):
+    """Names of a model's outputs, i.e. of the layers that produce them ('beat_cls', ...)."""
+    names = getattr(model, 'output_names', None)
+    if names:
+        return list(names)
+    return [getattr(getattr(o, '_keras_history', None), 'operation', o).name
+            for o in model.outputs]
+
+
+def has_quality_output(model):
+    """True when `model` emits [beat_cls, lead_quality] rather than beat_cls alone."""
+    outputs = getattr(model, 'outputs', None)
+    return bool(outputs) and len(outputs) >= 2
+
+
+def split_outputs(outputs):
+    """(beats, quality-or-None) from whatever a model call returned.
+
+    A two-output model returns a list, a legacy one a single tensor; every consumer that
+    only wants the beat softmax - decoding, metrics, ensembles - goes through here so the two
+    layouts are interchangeable.
+    """
+    if isinstance(outputs, dict):
+        return outputs['beat_cls'], outputs.get('lead_quality')
+    if isinstance(outputs, (list, tuple)):
+        return outputs[0], (outputs[1] if len(outputs) > 1 else None)
+    return outputs, None
+
+
 __all__ = ['BUDGETS', 'BUILDERS', 'SIZES', 'build', 'build_backbone',
-           'build_context_encoder', 'build_resumamba_seq2seq', 'keras_name', 'layers',
-           'list_models', 'sub_model']
+           'build_context_encoder', 'build_resumamba_seq2seq', 'has_quality_output',
+           'keras_name', 'layers', 'list_models', 'output_names', 'split_outputs', 'sub_model']

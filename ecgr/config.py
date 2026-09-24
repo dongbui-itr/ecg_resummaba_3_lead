@@ -8,11 +8,28 @@ pin them in the launcher (run_pipeline.sh does), never edit mid-run.
     ECGR_DATA_DIR       where the portal datasets live (records + dataset_info_full.csv)
     ECGR_PHYSIONET_DIR  where mitdb/nstdb/... live
     ECGR_WORK_DIR       where npy, tfrecord, checkpoints and reports are written
-    ECGR_RUN_TAG        name of this run's output folder (default: today, yymmdd)
+    ECGR_RUN_TAG        name of this run's output folder (default: today, yymmdd_60s)
     ECGR_IN_CHANNELS    number of ECG LEADS fed to the model (default 3)
+    ECGR_SEGMENT_SECONDS window length in seconds (default 60)
     ECGR_CPC_RUN        reuse another run's CPC-pretrained context encoders
     ECGR_SSL_RUN        reuse another run's SSL-pretrained backbones
     ECGR_WORKERS        processes used by the npy/tfrecord builders (default: cpus/2)
+    ECGR_BATCH_SIZE     training batch size (default 32 at 60 s)
+    ECGR_CACHE_DATASET  1 = hold the whole split in RAM (default 0 at 60 s: ~90 GB)
+
+The 60 s contract (2026-09-23)
+------------------------------
+The model reads one whole portal strip - 60 s, 3 leads, 250 Hz - and emits two things:
+
+    output 1  beat_cls      (3000, 4) softmax per 20 ms step: None / N / V / S
+    output 2  lead_quality  (3000, 3) sigmoid per step and per LEAD: how readable that lead is;
+                            argmax of its time-average is "the most reliable channel"
+
+Only the reviewed span of a strip carries labels a human signed off on. Steps outside it
+are written as IGNORE_LABEL and contribute nothing to the beat loss or to the step metric;
+the rest of the 60 s is still signal the model sees (and the label-free stages learn from).
+The lead-quality target is derived from the signal and from the corruption the augmentation
+itself injected - no human ever labelled a lead as good or bad - so output 2 is label-free.
 """
 import os
 from datetime import datetime
@@ -27,15 +44,17 @@ WORK_DIR = os.environ.get("ECGR_WORK_DIR", os.path.join(DATA_DIR, "train"))
 # RUN_TAG names the run folder. It defaults to today's date, which silently changes at
 # midnight: a training started yesterday writes to <yesterday> while the eval that follows
 # it this morning would look in <today> and find nothing. Pin it in the launcher.
-RUN_TAG = os.environ.get("ECGR_RUN_TAG", datetime.today().strftime("%y%m%d") + "_ecgr")
+RUN_TAG = os.environ.get("ECGR_RUN_TAG", datetime.today().strftime("%y%m%d") + "_60s")
 
 # ---------------------------------------------------------------------------
 # Signal / segmentation
 # ---------------------------------------------------------------------------
 SAMPLING_RATE = 250                                   # Hz, everything is resampled to this
-SEGMENT_SECONDS = 10
-SEGMENT_SAMPLES = SEGMENT_SECONDS * SAMPLING_RATE     # 2500
-SEGMENT_STRIDE_SECONDS = 1                            # window hop when cutting training data
+SEGMENT_SECONDS = int(os.environ.get("ECGR_SEGMENT_SECONDS", 60))
+SEGMENT_SAMPLES = SEGMENT_SECONDS * SAMPLING_RATE     # 15000
+# Hop between consecutive TRAINING windows when a reviewed span is longer than one window.
+# A portal strip is exactly one window long, so this only matters for the rare long span.
+SEGMENT_STRIDE_SECONDS = 30
 
 FILTER_LOWCUT, FILTER_HIGHCUT, FILTER_ORDER = 0.5, 30.0, 3
 
@@ -71,16 +90,23 @@ PRIMARY_LEAD_FIRST = True
 LEAD_FILL_MODE = os.environ.get("ECGR_LEAD_FILL", "zero")        # 'zero' | 'duplicate'
 
 NORMALIZE_Z_SIGNAL = True     # per-window z-score, per lead
-MIN_AMPLITUDE = 0.1           # mV; flatter windows carry no beat and are dropped
+MIN_AMPLITUDE = 0.1           # mV; a reviewed span flatter than this on lead 0 is dropped
 
 # ---------------------------------------------------------------------------
 # Label grid
 # ---------------------------------------------------------------------------
 # OUTPUT_STEPS must divide SEGMENT_SAMPLES exactly - the model pools down to this grid.
-# 2500/500 = 5 samples per step = 20 ms per label step.
-OUTPUT_STEPS = 500
+# 15000/3000 = 5 samples per step = 20 ms per label step, the same grid as the 10 s model.
+STEP_SAMPLES = 5
+OUTPUT_STEPS = SEGMENT_SAMPLES // STEP_SAMPLES
 NUM_CLASSES = 4
 CLASS_NAMES = ['None', 'N', 'V', 'S']         # index == label value
+
+# Steps with NO trustworthy label: outside the reviewed span of a strip, or in the padding
+# of a record shorter than one window. Stored as this value in the uint8 label stream; the
+# pipeline turns it into an all-zero one-hot row, and every loss and metric skips rows whose
+# mass is zero. 255 so it can never collide with a class index.
+IGNORE_LABEL = 255
 
 # AAMI grouping of the WFDB beat symbols actually present in the portal data.
 BEAT_MAP = {'N': ['N', 'R', 'L'], 'S': ['S', 'A', 'J'], 'V': ['V', 'E']}
@@ -111,11 +137,6 @@ DECODE_MIN_RUN_STEPS = int(os.environ.get("ECGR_MIN_RUN_STEPS", 1))
 #     signal quality (band-passed kurtosis)      95.77
 #     decoded run length (DECODE_MIN_RUN_STEPS)  92.69
 #
-# A hand-made signal-quality measure is the weakest of the four: the model's own uncertainty
-# already localises unreadable signal better than a kurtosis track does, and it needs no
-# second detector to go wrong. Conditioning this threshold on that kurtosis track as well
-# was measured too, and it was worse than applying it everywhere (+P 99.08 vs 99.30).
-#
 # CALIBRATE ON PORTAL DATA ONLY, exactly as for the S boost: the threshold that produces a
 # given number on nstdb was chosen against nstdb, and a benchmark tuned against itself is not
 # a benchmark. The figures above are a feasibility measurement, not a setting to ship.
@@ -124,11 +145,20 @@ DECODE_MIN_PEAK_PROB = float(os.environ.get("ECGR_DECODE_MIN_PEAK_PROB", 0.0))
 # ---------------------------------------------------------------------------
 # Datasets
 # ---------------------------------------------------------------------------
-TRAIN_DATASETS = ["dataset-1", "dataset-2", "dataset-3", "dataset-4", "dataset-5",
-                  "dataset-3-filter-vt-svt-avb2-avb3", "dataset 2_3_4 - AFib - v2",
-                  "dataset_ivcd"]
+# The five primary portal datasets and nothing else. "dataset-3-filter-vt-svt-avb2-avb3",
+# "dataset 2_3_4 - AFib - v2" and "dataset_ivcd" are re-curations of events already in
+# dataset-2/3/4 (README section 4a) and are left out of training since 2026-09-23: the
+# training population is exactly what these five CSVs list, held-out studies removed.
+TRAIN_DATASETS = ["dataset-1", "dataset-2", "dataset-3", "dataset-4", "dataset-5"]
 DATASET_CSV = "dataset_info_full.csv"
 PORTAL_FS = 250               # native sampling rate of the portal records
+
+# Shortest reviewed span (samples) a record must have to enter the training data. The 60 s
+# window no longer constrains it - a window may extend beyond the span, the steps outside
+# are IGNORE_LABEL - so this is a floor on how much LABELLED signal a record contributes.
+# 10 s minus the slack that admits the 2499-sample spans (README 4a): the same population
+# the 10 s pipeline trained on, so the two are comparable event for event.
+MIN_REVIEWED_SAMPLES = 10 * SAMPLING_RATE - int(0.1 * SAMPLING_RATE)     # 2475
 
 # Held out from training entirely, and scored at the end by bxb like a Physionet database.
 TEST_DATASETS = ["dataset-eval"]
@@ -147,7 +177,7 @@ PORTAL_EVAL_SETS = {
 # The portal train and eval SPLITS are scored by bxb too (evaluation/ec57.score_portal_split),
 # on a deterministic hash-ordered sample of their reviewed events - the same sample for every
 # model. 5000 is the scale of the beat-eval set itself (5,227 records) and costs ~3 minutes
-# per split per model; the full splits are 365,787 / 91,342 events (0 = all of them).
+# per split per model; 0 = all of them.
 # 'portal-train' is data the model has seen: read it as an overfitting diagnostic - the gap
 # to 'portal-eval' - never as a performance number.
 PORTAL_SPLITS = ('train', 'eval')
@@ -162,7 +192,11 @@ EC57_BEAT_REF_EXT = {'afdb': 'qrs'}
 # AAMI EC57 leaves the MIT-BIH paced recordings out of the beat scoring
 EC57_EXCLUDE_RECORDS = {'mitdb': ['102', '104', '107', '217']}
 BEAT_EXTENSION = 'ain'        # extension of the AI annotations handed to bxb
-EC57_SEGMENT_OVERLAP = 1 * SAMPLING_RATE   # overlap when sweeping a whole record
+# Overlap between consecutive inference windows when sweeping a whole record. Each window
+# is z-scored on its own and the model is bidirectional, so a beat near a window edge has
+# one-sided context; labels.core_bounds credits every beat to the window where it sits
+# furthest from an edge, and 10 s of overlap keeps that at >= 5 s on either side.
+EC57_SEGMENT_OVERLAP = 10 * SAMPLING_RATE
 
 # Which lead of an EC57 record is the annotated one, 0-based. Every one of these databases
 # is annotated on its first signal. Per-database overrides go here.
@@ -175,38 +209,67 @@ EC57_LEAD_DEFAULT = 0
 #               model was built for: measured on resumamba_2m, switching mitdb from one lead
 #               repeated to MLII+V5 moves S from 45.79/61.17 to 56.87/65.64 and lifts 30 of
 #               32 Physionet cells, because record 232's non-premature APCs are only visible
-#               as a P wave on V5. It also removes a fragility rather than hiding one: the
-#               N/S boundary on sinus tachycardia (record 213) is knife-edge with MLII alone
-#               - any noise fine-tune flips it - and stable once V5 is there.
+#               as a P wave on V5.
 # 'single'    : only the annotated lead is real; the rest are filled per LEAD_FILL_MODE.
 #               The strict single-lead reading, and the control for the finding above.
-#               'duplicate' is accepted as a deprecated alias - it named the mode back when
-#               filling was always by repetition.
+#               'duplicate' is accepted as a deprecated alias.
 # 'auto'      : 'native' only where the record ALREADY has IN_CHANNELS leads, else 'single'.
 #               Every EC57 database has two leads and the model takes three, so on all five
-#               'auto' means 'single' - it is not a synonym for 'native' there. It only
-#               coincides with 'native' on the 3-lead portal records.
+#               'auto' means 'single' - it is not a synonym for 'native' there.
 EC57_LEAD_MODE = os.environ.get("ECGR_EC57_LEAD_MODE", "native")
 
 # ---------------------------------------------------------------------------
 # Training
 # ---------------------------------------------------------------------------
-BATCH_SIZE = 128
+# A 60 s window is six times the activation memory of the 10 s one, so the batch is a
+# quarter of what it was (128 -> 32) and the learning rate follows the usual sqrt scaling
+# from the 1e-3 that batch 64 was tuned at. Measured peak VRAM at batch 32, (15000, 3):
+# see README section 5 / `python -m ecgr models`.
+BATCH_SIZE = int(os.environ.get("ECGR_BATCH_SIZE", 32))
 EPOCHS = 30
-LEARNING_RATE = 1.4e-3          # config default 1e-3 x sqrt(128/64), the usual batch scaling
+LEARNING_RATE = 7e-4
 PATIENCE = 8
 
 # Default loss for this family. Poly2 is what the paper specifies; it also makes val_loss
 # useless as a stopping signal, which is why MONITOR below is the F1 (see training/losses.py).
 LOSS = 'poly2'
 POLY2_EPS = (0.3, -0.5)         # paper sec. 3.6, found by grid search with a flat optimum
-MONITOR = 'val_weighted_f1'
+# The step-level weighted F1 of the BEAT output. Keras prefixes a metric with the output it
+# belongs to once a model has two outputs, hence 'beat_cls_'; training/train.monitor_key
+# resolves the name for a single-output (legacy) model.
+MONITOR = 'val_beat_cls_weighted_f1'
 
 # First epoch (1-indexed) allowed to write a checkpoint. Earlier epochs are still measured
-# and logged, they just cannot be kept as "best". Measured on this family: the 1M size swings
-# between 0.8267 and 0.8519 over its first nine epochs and then settles into 0.8467-0.8523
-# for the next fourteen, so a peak picked from epoch 4 records the noise.
-CKPT_START_EPOCH = 10
+# and logged, they just cannot be kept as "best". The 10 s family used 10 (its 1M size
+# swung between 0.8267 and 0.8519 over its first nine epochs before settling), but at 60 s
+# an epoch is 1-3 GPU-hours and a process can be killed from outside: on 2026-09-24 the 3m
+# training received a SIGTERM at epoch 7 and, with nothing saved before epoch 8, lost ~20 h.
+# Saving from epoch 3 caps that loss at one epoch; `ecgr select` (bxb on portal-eval) is
+# what picks among the saved epochs, so an early, noisy epoch costs nothing but disk.
+CKPT_START_EPOCH = 3
+
+# --- output 2: per-lead signal quality (models/resumamba.py, data/pipeline.corrupt) -------
+# The head reads the backbone features and emits, per step and per lead, the probability
+# that the lead is readable there. Its TARGET is built inside the input pipeline from two
+# label-free sources: (a) the corruption the augmentation itself added to each lead - the
+# pipeline knows exactly which lead it wrecked, where, and by how much - and (b) a flatness
+# test on the original signal (a lead-off is unreadable whether or not we touched it).
+#
+#     q(lead, step) = sigmoid((QUALITY_NOISE_HALF - a) / QUALITY_NOISE_SCALE), scaled so q(0) = 1
+#
+# with `a` the local RMS of the injected corruption in per-lead z-score units, smoothed over
+# QUALITY_SMOOTH_STEPS. QRS peaks sit at ~3-8 in those units: a = 0.25 (the broadband cap)
+# is still q = 0.95, a = 0.5 is 0.87, a = 1.0 is 0.52, a = 2.5 (a swamped secondary lead)
+# is q ~0.007. A duplicated lead inherits lead 0's quality, a dropped or flat lead is 0.
+QUALITY_LOSS_WEIGHT = 0.25       # weight of the quality BCE against the beat loss
+QUALITY_NOISE_HALF = 1.0
+QUALITY_NOISE_SCALE = 0.3
+QUALITY_SMOOTH_STEPS = 50        # 1 s: the scale at which "this stretch is unreadable" holds
+# Flatness of the ORIGINAL lead, judged on a 2 s local window: a lead-off is exactly constant
+# after the z-score, while the quietest T-P stretch of a live lead at 30 bpm still moves by
+# a few hundredths, so the threshold sits well under that.
+QUALITY_FLAT_WINDOW_STEPS = 100  # 2 s
+QUALITY_FLAT_STD = 0.02          # local std (z units) below which a lead is flat
 
 # --- self-supervised stage 1: the backbone (training/ssl.py) ---------------------------
 # Masked-lead + masked-span reconstruction over the same unlabeled tfrecords. It pretrains
@@ -232,7 +295,7 @@ REFINE_LEARNING_RATE = 5e-4
 REFINE_WIDTH = 48
 REFINE_BLOCKS = 2
 REFINE_STATE_DIM = 8
-REFINE_KERNEL_LEN = 256          # steps each way = 5.1 s, 6-10 R-R intervals
+REFINE_KERNEL_LEN = 512          # steps each way = 10.2 s: 10-20 R-R intervals
 REFINE_TOLERANCE_PP = 0.1        # percentage points of bxb noise tolerated on 5,000 records
 # Loss weights for the HEAD. Not CLASS_WEIGHTS: those fight the None/beat imbalance, which
 # the head never sees (p_None is fixed), and their 2.5x on S made the head a threshold shift
@@ -245,7 +308,8 @@ REFINE_MODE = 's_only'
 
 # --- self-supervised stage 2: the context encoder (training/cpc.py) --------------------
 # CPC/InfoNCE, architecture-only, so a later run can reuse an earlier run's encoders instead
-# of paying for them again: set ECGR_CPC_RUN to that run's tag.
+# of paying for them again: set ECGR_CPC_RUN to that run's tag. At 60 s the strip is cut
+# into 59 windows of 2 s at 50% overlap - the paper's own M ~ 59 for its 60 s calibration.
 CPC_EPOCHS = 5
 CPC_STEPS_PER_EPOCH = 400
 CPC_RUN = os.environ.get("ECGR_CPC_RUN")
@@ -255,19 +319,18 @@ CPC_RUN = os.environ.get("ECGR_CPC_RUN")
 # so it is deliberately modest (2.5x N) rather than inverse-frequency.
 CLASS_WEIGHTS = [0.3, 1.0, 2.0, 2.5]
 
-BATCH_SEGMENTS = 10000        # segments per npy batch file
+BATCH_SEGMENTS = 2000         # segments per npy batch file (~360 MB at 60 s x 3 leads)
 
 # Records come off disk grouped by study, so a buffer that is too small leaves a batch made
-# of one patient's beats. It shuffles the SERIALIZED records, which at 3 leads are ~30.5 kB
-# each, so this buffer is ~500 MB of RAM - the reason it is not simply enormous.
-SHUFFLE_BUFFER = 16384
+# of one patient's beats. It shuffles the SERIALIZED records, which at 60 s x 3 leads are
+# ~183 kB each, so this buffer is ~750 MB of RAM - the reason it is not simply enormous.
+SHUFFLE_BUFFER = 4096
 
 # cache() holds the whole split's serialized records in RAM, so only the first epoch touches
-# disk. Sizing it matters more at 3 leads than it did at 1: the train split is ~30 kB per
-# segment, i.e. tens of GB. Two models training side by side each hold their own copy. Set
-# CACHE_DATASET = False on a machine where that does not fit - it costs I/O per epoch, not
-# correctness.
-CACHE_DATASET = True
+# disk. At 60 s the train split is ~90 GB serialized, so caching is OFF by default and every
+# epoch streams from disk (a few GB/s off the RAID keeps the GPU fed). Turn it on with
+# ECGR_CACHE_DATASET=1 on a machine where one copy per training job fits.
+CACHE_DATASET = os.environ.get("ECGR_CACHE_DATASET", "0") not in ("0", "", "false", "False")
 AUGMENT = True                # see data/pipeline.augment
 
 # Probability that a training window is collapsed to ONE lead repeated across the channel
@@ -288,8 +351,8 @@ AUGMENT_MOTION_PROB = float(os.environ.get("ECGR_AUGMENT_MOTION_PROB", 0.2))
 # produces constantly - one electrode in trouble while the other two are clean - was the one
 # distribution training never showed. A flat lead the model does know
 # (AUGMENT_LEAD_DROP_PROB), but a flat lead is trivially detectable; a lead full of artefact
-# is not, and that is where both the missed beats and the false ones come from.
-# Amplitudes are per-lead z-score units, the same as above, where the QRS peaks at ~3-8.
+# is not, and that is where both the missed beats and the false ones come from. It is also
+# the corruption the lead-quality target (output 2) is built from.
 AUGMENT_LEAD_NOISE_PROB = float(os.environ.get("ECGR_AUGMENT_LEAD_NOISE_PROB", 0.35))
 # Ceiling for a SECONDARY lead, drawn uniformly below it, so the lead lands anywhere from
 # mildly degraded to swamped: measured over 2,048 samples, the peak deviation on a corrupted
@@ -302,7 +365,8 @@ AUGMENT_LEAD_NOISE_AMP = 2.5
 # keeping its labels would teach the model to invent beats out of artefact, which is the
 # opposite of what the noisy-database positive predictivity needs.
 AUGMENT_LEAD_NOISE_PRIMARY_AMP = 0.8
-AUGMENT_LEAD_NOISE_SPAN = 0.3     # shortest burst, as a fraction of the window
+# Shortest burst as a fraction of the window: at 60 s, 0.05-1.0 = 3 s up to the whole strip.
+AUGMENT_LEAD_NOISE_SPAN = 0.05
 
 # Save every epoch from CKPT_START_EPOCH on (<ckpt>/epochs/epoch_NN.keras), not only the
 # step-F1 improvements: the checkpoint that scores best at beat level is chosen afterwards by
@@ -312,14 +376,38 @@ SAVE_EVERY_EPOCH = True
 WORKERS = int(os.environ.get("ECGR_WORKERS", max(1, (os.cpu_count() or 8) // 2)))
 
 # ---------------------------------------------------------------------------
+# Non-regression baselines
+# ---------------------------------------------------------------------------
+# The 10 s / 3-lead family's EC57 + beat-eval summaries (README section 8b, run
+# 260917_3lead), versioned under assets/ so `ecgr regress` and evaluate.py can diff a new
+# checkpoint against them without the (git-ignored) eval_results tree. A 60 s size is held
+# to the 10 s size it replaces; the two new large sizes are held to the best 10 s model.
+BASELINES_DIR = os.path.join(_PKG_ROOT, "assets", "baselines", "10s_3lead")
+BASELINE_FOR = {'resumamba_5m': 'resumamba_2m', 'resumamba_3m': 'resumamba_2m',
+                'resumamba_1m': 'resumamba_1m', 'resumamba_100k': 'resumamba_100k'}
+# bxb noise on 5,000 strips / 44 mitdb records: a cell may fall by this much and still count
+# as "not decreased".
+REGRESSION_TOLERANCE_PP = 0.1
+
+
+def baseline_summary(model_name):
+    """Path of the 10 s baseline ec57_summary.csv a model is held to, or None."""
+    ref = BASELINE_FOR.get(model_name, model_name)
+    path = os.path.join(BASELINES_DIR, f"{ref}.csv")
+    return path if os.path.exists(path) else None
+
+
+# ---------------------------------------------------------------------------
 # Derived output layout - one folder per kind of output, one subfolder per model
 # ---------------------------------------------------------------------------
 NPY_DIR = os.environ.get(
     "ECGR_NPY_DIR",
     os.path.join(DATA_DIR, f"npy_{OUTPUT_STEPS}_{NUM_CLASSES}_{SAMPLING_RATE}_"
                            f"{SEGMENT_SECONDS}_{IN_CHANNELS}lead"))
+# The window length is part of the tree name: a 60 s tree and a 10 s tree must never be
+# mistaken for each other (check_manifest would refuse, but a name says it first).
 TFRECORD_DIR = os.environ.get(
-    "ECGR_TFRECORD_DIR", os.path.join(WORK_DIR, f"tfrecord_{IN_CHANNELS}lead"))
+    "ECGR_TFRECORD_DIR", os.path.join(WORK_DIR, f"tfrecord_{SEGMENT_SECONDS}s_{IN_CHANNELS}lead"))
 DATASET_MANIFEST = "dataset_manifest.json"   # written next to the tfrecords, checked on load
 
 RUN_DIR = os.path.join(WORK_DIR, RUN_TAG)
@@ -329,6 +417,28 @@ EC57_DIR = os.path.join(RUN_DIR, "ec57")
 LOGS_DIR = os.path.join(RUN_DIR, "logs")
 
 WFDB_SCRIPTS_DIR = os.path.join(_PKG_ROOT, "scripts")
+
+
+def apply_geometry(segment_samples, output_steps=None):
+    """Re-derive the window geometry at run time, for scoring a checkpoint of another length.
+
+    Evaluation reads SEGMENT_SAMPLES / OUTPUT_STEPS through this module at call time, so a
+    10 s checkpoint can be scored by the very same code path as a 60 s one - which is what
+    makes the non-regression comparison apples to apples. Training data geometry (the
+    tfrecord tree) is NOT re-pointed: that is a build, not a run-time choice.
+    """
+    global SEGMENT_SAMPLES, SEGMENT_SECONDS, OUTPUT_STEPS, STEP_SAMPLES, EC57_SEGMENT_OVERLAP
+    segment_samples = int(segment_samples)
+    output_steps = int(output_steps or segment_samples // STEP_SAMPLES)
+    if segment_samples % output_steps:
+        raise ValueError(f"{output_steps} steps do not divide {segment_samples} samples")
+    SEGMENT_SAMPLES = segment_samples
+    SEGMENT_SECONDS = segment_samples / SAMPLING_RATE
+    OUTPUT_STEPS = output_steps
+    STEP_SAMPLES = segment_samples // output_steps
+    # keep the overlap under one window: the 10 s model swept with 1 s of overlap
+    EC57_SEGMENT_OVERLAP = min(EC57_SEGMENT_OVERLAP, max(SAMPLING_RATE, segment_samples // 6))
+    return SEGMENT_SAMPLES, OUTPUT_STEPS
 
 
 def ensure_run_dirs():
@@ -368,13 +478,20 @@ def describe():
         f"npy          : {NPY_DIR}",
         f"tfrecord     : {TFRECORD_DIR}",
         f"run dir      : {RUN_DIR}",
+        f"datasets     : {', '.join(TRAIN_DATASETS)}",
         f"input        : ({SEGMENT_SAMPLES}, {IN_CHANNELS}) "
-        f"= {SEGMENT_SECONDS} s @ {SAMPLING_RATE} Hz, {IN_CHANNELS} leads "
+        f"= {SEGMENT_SECONDS:g} s @ {SAMPLING_RATE} Hz, {IN_CHANNELS} leads "
         f"(lead 0 = the annotated one)",
-        f"output       : ({OUTPUT_STEPS}, {NUM_CLASSES}) "
-        f"= {1000 * SEGMENT_SECONDS / OUTPUT_STEPS:.0f} ms per step, {CLASS_NAMES}",
+        f"output 1     : beat_cls ({OUTPUT_STEPS}, {NUM_CLASSES}) "
+        f"= {1000 * STEP_SAMPLES / SAMPLING_RATE:.0f} ms per step, {CLASS_NAMES}; "
+        f"steps outside the reviewed span = ignore ({IGNORE_LABEL})",
+        f"output 2     : lead_quality ({OUTPUT_STEPS}, {IN_CHANNELS}) per-lead readability, "
+        f"label-free target, loss weight {QUALITY_LOSS_WEIGHT}",
         f"loss/monitor : {LOSS} / {MONITOR}, checkpoints from epoch {CKPT_START_EPOCH}",
+        f"batch / lr   : {BATCH_SIZE} / {LEARNING_RATE}, cache {'on' if CACHE_DATASET else 'off'}",
         f"ssl reuse    : {SSL_RUN or '(pretrain in this run)'}",
         f"cpc reuse    : {CPC_RUN or '(pretrain in this run)'}",
-        f"ec57 leads   : {EC57_LEAD_MODE} (fill: {LEAD_FILL_MODE})",
+        f"ec57 leads   : {EC57_LEAD_MODE} (fill: {LEAD_FILL_MODE}), "
+        f"sweep overlap {EC57_SEGMENT_OVERLAP / SAMPLING_RATE:g} s",
+        f"baselines    : {BASELINES_DIR}",
     ])
