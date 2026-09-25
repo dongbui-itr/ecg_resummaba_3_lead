@@ -560,8 +560,6 @@ def score_portal_split(model, split, ec57_out, max_records=None, s_boost=1.0,
                 print(f"  {i}/{len(resolved)} records predicted")
         if empty or errors:
             print(f"  {empty} records yielded no beats, {errors} failed")
-        write_lead_quality(quality_log, ann_dir, os.path.join(ec57_out, db_name),
-                           {name: channel for name, _, channel, _, _ in resolved})
 
     work_dir = os.path.join(ec57_out, '_work', db_name)
     scored = build_split_scoring_dir(resolved, ann_dir, work_dir)
@@ -572,6 +570,10 @@ def score_portal_split(model, split, ec57_out, max_records=None, s_boost=1.0,
 
     path = bxb.run_bxb(db_name, work_dir, ec57_out, 'atr', config.BEAT_EXTENSION,
                        script=bxb.SCRIPT_MARK_WINDOW)
+    # After bxb, not before: run_bxb recreates <ec57_out>/<db_name>/ for its reports.
+    if not bxb_only:
+        write_lead_quality(quality_log, ann_dir, os.path.join(ec57_out, db_name),
+                           {name: channel for name, _, channel, _, _ in resolved})
     if path:
         _print_report(path)
     return path
@@ -620,7 +622,6 @@ def score_physionet_db(model, db_name, ec57_out, max_records=None, s_boost=1.0,
                     print(f"  {i}/{len(records)} records predicted (last: {name}, {n} beats)")
             except Exception as e:
                 print(f"  error on {name}: {e}")
-        write_lead_quality(quality_log, ann_dir, os.path.join(ec57_out, db_name))
 
     work_dir = os.path.join(ec57_out, '_work', db_name)
     scored = build_scoring_dir(src_dir, ann_dir, work_dir, records,
@@ -632,6 +633,9 @@ def score_physionet_db(model, db_name, ec57_out, max_records=None, s_boost=1.0,
 
     path = bxb.run_bxb(db_name, work_dir, ec57_out, ref_ext, config.BEAT_EXTENSION,
                        script=bxb.SCRIPT_FULL)
+    # After bxb, not before: run_bxb recreates <ec57_out>/<db_name>/ for its reports.
+    if not bxb_only:
+        write_lead_quality(quality_log, ann_dir, os.path.join(ec57_out, db_name))
     if path:
         _print_report(path)
     return path
@@ -679,7 +683,6 @@ def score_portal_set(model, db_name, src_dir, ec57_out, max_records=None, s_boos
                 print(f"  error on {name}: {e}")
         if empty:
             print(f"  {empty}/{len(records)} records yielded no beats at all")
-        write_lead_quality(quality_log, ann_dir, os.path.join(ec57_out, db_name), reviewer)
 
     work_dir = os.path.join(ec57_out, '_work', db_name)
     scored = build_scoring_dir(src_dir, ann_dir, work_dir, records, ('hea', 'dat', 'atr'))
@@ -692,6 +695,9 @@ def score_portal_set(model, db_name, src_dir, ec57_out, max_records=None, s_boos
     # 5-minute learning period, which would leave an empty interval.
     path = bxb.run_bxb(db_name, work_dir, ec57_out, 'atr', config.BEAT_EXTENSION,
                        script=bxb.SCRIPT_MARK_WINDOW if mark_window else bxb.SCRIPT_SHORT)
+    # After bxb, not before: run_bxb recreates <ec57_out>/<db_name>/ for its reports.
+    if not bxb_only:
+        write_lead_quality(quality_log, ann_dir, os.path.join(ec57_out, db_name), reviewer)
     if path:
         _print_report(path)
     return path
