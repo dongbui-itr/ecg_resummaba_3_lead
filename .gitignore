@@ -7,6 +7,7 @@ __pycache__/
 # Run logs: hundreds of MB of progress bars per sweep; the numbers that matter are in the
 # run directory's eval/ and ec57/ trees and summarised in README section 8b.
 logs/*.log
+logs/*.done
 
 # Trained weights are excluded by checkpoints/.gitignore; force them in for a release:
 #   git add -f checkpoints/*.keras checkpoints/*.weights.h5
