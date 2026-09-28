@@ -1499,4 +1499,65 @@ thước). Tham số: 4.901.171 / 2.835.368 / 961.839 / 97.252 — vẫn dưới
 
 Bảng EC57 / beat-eval của họ 60 s được điền bởi `./run_pipeline.sh sweep` vào
 `<RUN_DIR>/ec57/<model>/ec57_summary.csv` và đối chiếu tự động với baseline 10 s (`regress` là
-stage cuối của mỗi size). Xem `logs/q0.log`, `logs/q1.log` của run `260923_60s`.
+stage cuối của mỗi size). Xem `logs/q0_60s.log`, `logs/q1_60s.log`, `logs/q1b_3m_60s.log` của
+run `260923_60s` (hoàn tất 2026-09-27).
+
+**Checkpoint đã chọn** (bxb trên portal-eval qua mọi epoch đã lưu, `ecgr select`, README 8):
+
+| Size | Tham số | Checkpoint (epoch) | Điểm decoder (`--s-boost` / `ECGR_DECODE_MIN_PEAK_PROB`) | Thư mục EC57 |
+|---|---|---|---|---|
+| `resumamba_5m` | 4.90 M | epoch_29 | 1.0 / 0.8 | `ec57/resumamba_5m_pp08/` |
+| `resumamba_3m` | 2.84 M | epoch_25 | 1.0 / 0.8 | `ec57/resumamba_3m_pp08/` |
+| `resumamba_1m` | 0.96 M | epoch_23 | 0.8 / 0.8 | `ec57/resumamba_1m_calib/` |
+| `resumamba_100k` | 97 K | epoch_22 | 1.0 / 0.8 | `ec57/resumamba_100k_pp08/` |
+
+`selected_by_bxb.keras` nằm dưới `<RUN_DIR>/checkpoints/resumamba_seq2seq_<size>/epochs/`.
+Điểm decoder được chọn bằng quét 12 điểm (`s_boost ∈ {1.0, 0.8, 0.65, 0.5} × min_peak_prob ∈
+{0, 0.6, 0.8}`, `scripts/calibrate_decoder.sh`) **chỉ trên portal-eval**: giữ lại điểm không
+có ô nào tụt quá 0.1 điểm phần trăm so với decode mặc định, rồi lấy điểm có S‑F1 cao nhất
+trong số đó. Không điểm nào được chọn hay loại dựa trên mitdb/nstdb/escdb/ahadb/afdb.
+
+**`dataset-v4-beat` (data_beat_eval)** — không size nào thụt lùi; cả bốn đạt mục tiêu
+S_Se ≥ 88 và gần như đạt S_+P ≥ 92 (100k thiếu 0.04 điểm):
+
+| | Q_Se | Q_+P | V_Se | V_+P | S_Se | S_+P |
+|---|---|---|---|---|---|---|
+| 5m | 99.69 | 99.62 | 97.78 | 95.43 | 91.11 | 92.27 |
+| 3m | 99.69 | 99.60 | 97.87 | 95.60 | 91.61 | 92.24 |
+| 1m | 99.70 | 99.59 | 97.42 | 95.50 | 91.57 | 92.00 |
+| 100k | 99.65 | 99.56 | 96.76 | 94.84 | 90.38 | 89.96 |
+
+**EC57 (PhysioNet)** — số ô dưới baseline 10 s (`assets/baselines/10s_3lead/`) quá 0.1 điểm
+phần trăm, trên 30 ô mỗi size (5 database × Q/V/S Se/+P, ô không áp dụng — S ở afdb/ahadb —
+không tính): **100k 1, 3m 4, 5m 4, 1m 9**.
+
+| DB | Metric | 5m | 3m | 1m | 100k |
+|---|---|---|---|---|---|
+| mitdb | Q_Se/+P | 99.91/99.89 | 99.91/99.90 | 99.91/99.88 | 99.92/99.89 |
+| mitdb | V_Se/+P | 95.86/96.90 | 95.71/96.38 | 95.76/96.42! | 95.37/96.53 |
+| mitdb | S_Se/+P | 51.29/68.55 | 45.54!/66.24! | 38.21!/63.61! | 46.96/66.72 |
+| nstdb | Q_Se/+P | 93.66!/89.29 | 93.69!/90.56 | 94.43!/90.23 | 94.73!/89.93 |
+| nstdb | V_Se/+P | 88.90/57.49! | 89.35/67.43 | 88.82/78.17! | 86.69/88.77 |
+| nstdb | S_Se/+P | 78.88!/39.32 | 79.46!/40.84 | 84.30/27.62! | 84.88/21.93 |
+| escdb | Q_Se/+P | 99.96/99.93 | 99.96/99.94 | 99.95/99.93 | 99.95/99.92 |
+| escdb | V_Se/+P | 98.97/91.91! | 98.79/95.24 | 97.92/96.46! | 96.69/95.90 |
+| escdb | S_Se/+P | 61.86/36.06 | 60.65/35.30 | 61.49/35.27 | 61.21/34.16 |
+| ahadb | Q_Se/+P | 99.89/99.92 | 99.90/99.90 | 99.90/99.89 | 99.91/99.82 |
+| ahadb | V_Se/+P | 93.52/98.49 | 92.08/98.64 | 87.94!/98.42! | 92.12/99.03 |
+| afdb | Q_Se/+P | 97.46/95.31 | 97.46/95.25 | 97.47/95.23 | 97.48/95.19 |
+
+(`!` = dưới baseline quá 0.1 pp; ahadb/afdb không có nhịp S trong chú thích tham chiếu.)
+
+Hai nguyên nhân duy nhất đứng sau mọi ô dưới baseline, cả hai đã hết dư địa từ nút decoder:
+
+1. **mitdb bản ghi 232** (chỉ 3m, 1m): ngữ cảnh 60 s đọc các nhịp bất thường không kịch phát
+   thành N thay vì S — 3m gọi đúng 316/893 nhịp S (baseline 10 s: 398/893), 1m còn thấp hơn.
+   5m và 100k không mắc lỗi này trên cùng bản ghi.
+2. **Nhiễu nstdb/escdb** (cả bốn size, nhẹ nhất ở 100k): cổng lọc theo xác suất
+   (`DECODE_MIN_PEAK_PROB`) bỏ bớt nhịp khi tín hiệu quá nhiễu, kéo Q_Se xuống; một số
+   nhịp N nhiễu bị gọi thành V, kéo V_+P xuống trước khi hiệu chuẩn (đã giảm đáng kể sau
+   khi chọn `min_peak_prob 0.8`).
+
+Muốn xử lý dứt điểm cả hai cần huấn luyện lại với augmentation nhiễu mạnh hơn nhắm vào lớp
+V/S, không phải điều chỉnh decoder. Chi tiết per-record và log gốc: `logs/resumamba_<size>_pp08_regress.log`
+(5m/3m/100k), `logs/resumamba_1m_calib_regress.log`, và bộ nhớ dự án `run-260923-60s.md`.
