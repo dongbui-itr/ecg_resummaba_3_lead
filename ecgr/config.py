@@ -20,8 +20,8 @@ from datetime import datetime
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-DATA_DIR = os.environ.get("ECGR_DATA_DIR", "/mnt/md0/Dong_data/portal_data/")
-PHYSIONET_DIR = os.environ.get("ECGR_PHYSIONET_DIR", "/mnt/md0/Dong_data/physionet/")
+DATA_DIR = os.environ.get("ECGR_DATA_DIR", "/media/Project/ECG/PhysionetData/")
+PHYSIONET_DIR = os.environ.get("ECGR_PHYSIONET_DIR", "/media/Project/ECG/PhysionetData")
 WORK_DIR = os.environ.get("ECGR_WORK_DIR", os.path.join(DATA_DIR, "train"))
 
 # RUN_TAG names the run folder. It defaults to today's date, which silently changes at

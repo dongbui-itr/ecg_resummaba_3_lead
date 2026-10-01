@@ -1331,6 +1331,7 @@ ecg_resumamba/
 │   ├── models/             layers.py (DiagSSM1D, AdaIN, RhythmDescriptor) · resumamba.py · refine.py
 │   ├── training/           losses.py · callbacks.py · ssl.py · cpc.py · train.py · refine.py
 │   ├── evaluation/         step_metrics.py · bxb.py · ec57.py · report.py
+│   ├── rhythm/             rhythm theo từng giây + lead tốt nhất / NOISE theo cửa sổ (mục 12)
 │   └── cli.py              `python -m ecgr <stage>`
 ├── evaluate.py             chấm EC57 + v4 beat-eval tại local, một lệnh (mục 7d)
 ├── tests/                  111 test, chạy ở đâu cũng được
@@ -1374,3 +1375,311 @@ file nạp hai lần cho ra kết quả **giống nhau chính xác**.
 
 Điều này không ảnh hưởng tính nhất quán của việc đánh giá — `stepeval` và `ec57` luôn nạp từ
 file — nhưng nó là lý do một con số EC57 đo lại có thể lệch ở chữ số thập phân thứ hai.
+
+## 12. Phân loại rhythm — [`ecgr/rhythm/`](ecgr/rhythm/)
+
+Nhánh thứ hai, độc lập với model beat nhưng dùng chung tiền xử lý
+([`signal_ops.py`](ecgr/signal_ops.py)) và kiến trúc ([`models/`](ecgr/models/)).
+
+**Contract.** Vào `(2500, 3)` = 10 s × 3 lead @ 250 Hz. Hai output:
+
+| output | shape | ý nghĩa |
+|---|---|---|
+| `rhythm` | `(10, 6)` | mỗi giây một softmax `SINUS, AFIB, SVT, VT, AVB2, AVB3` — cùng bộ lớp với project tham khảo `itr-ai-sensor_annotation-ae_ecg_classification` |
+| `lead` | `(4,)` | cả cửa sổ 10 s một softmax: `0 = NOISE` (không lead nào đọc được), `1/2/3` = CH1/CH2/CH3 là lead có tín hiệu tốt nhất |
+
+```bash
+python -m ecgr.rhythm config
+python -m ecgr.rhythm data                         # train / eval / test + audit holdout
+python -m ecgr.rhythm train --model rhythm_1m [--backbone-from <beat checkpoint .keras>]
+python -m ecgr.rhythm eval  --checkpoint <run>/checkpoints/resumamba_rhythm_1m/best_model.keras
+python -m ecgr.rhythm predict --checkpoint ... --record <đường dẫn record, không đuôi>
+```
+
+Đường dẫn qua biến môi trường: `ECGR_RHYTHM_DATA_ROOT` (mặc định
+`/media/MegaDataSet/DATA_4TINYML/Holter_report_strip`), `ECGR_RHYTHM_EVAL_DIR` (tập test,
+mặc định `<DATA_ROOT>/dataset-eval/rhythm_eval`), `ECGR_RHYTHM_WORK_DIR`, `ECGR_RHYTHM_RUN_TAG`.
+
+**Nhãn** ([`labels.py`](ecgr/rhythm/labels.py), [`inventory.py`](ecgr/rhythm/inventory.py)).
+Như project tham khảo: loại event → lớp, vùng caliper `eventStartSample..eventStopSample` mang
+lớp của event. Chia theo giây: một giây nhận lớp loạn nhịp khi bị phủ ≥ 50%; span ngắn hơn nửa
+giây vẫn giữ được giây phủ nhiều nhất. Khác bản tham khảo ở ba chỗ, đều để nhãn đúng hơn:
+
+- *Ngoài caliper* trên bản ghi 60 s: `SINUS` cho SVT/VT (cơn kịch phát trong nền xoang), nhưng
+  **bỏ qua** (không tính loss) cho AFIB/AVB2/AVB3 — AF không dừng đúng chỗ caliper kết thúc.
+- Strip ectopy (SINGLE_VE, *_COUPLET, *_BIGEMINY, …) được dùng làm `SINUS` — đúng loại âm tính
+  khó nhất cho SVT/VT — và các run ≥ 3 nhịp S/V trong đó được **suy ra từ file `.atr`**. Cách này
+  cũng định vị SVE_RUN/VE_RUN/SVT/VT của dataset-1/4 vốn không có caliper (một strip SVT của
+  dataset-1 thường chỉ có nửa strip là S: `SSSSSSSSSSSSNNNNNNN`).
+- Strip SINUS bị giới hạn 3 strip/study (chọn theo hash): ~200k strip xoang so với ~11k AFIB.
+  Bộ `dataset-sinus` (TACHY/BRADY/PAUSE → SINUS; nguồn `sinus-2`, `sinus-3` là bản ghi 60 s có
+  caliper, `sinus-4p`, `sinus-4` là strip 10 s) được **giữ trước** trong giới hạn này: đó là âm
+  tính khó nhất — nhanh xoang vs SVT, chậm/pause vs AVB. Sau holdout, dedupe và giới hạn: 671 /
+  14.476 / 1.177 / 14.261 event; `sinus-4` trùng 14.764 event ID với `dataset-4` và được tính
+  một lần.
+- **PTB-XL** ([`ptbxl.py`](ecgr/rhythm/ptbxl.py), nguồn `ptbxl`, `ECGR_PTBXL_DIR`): 21.799 bản
+  ghi 12 lead × 10 s @ 500 Hz, không thuộc EC57 nên dùng để train là hợp lệ. Đây là nguồn duy nhất
+  có các âm tính khó mà mitdb báo động giả — block nhánh, nhịp máy, WPW, nhanh/chậm xoang, ngoại
+  tâm thu — portal chỉ có `OTHERS` cho chúng. Nhãn cho cả 10 s theo mã SCP: `AFIB → AFIB`,
+  `AFLT → AFIB` (quy ước AFL = AF, từ 2026-09-29), `SVTAC/PSVT → SVT`, `2AVB → AVB2`,
+  `3AVB → AVB3` (hai lớp khác nhau → bỏ); có `SVARR` → bỏ (không rõ lớp); còn lại → `SINUS` nhưng chỉ giữ khi có một trong
+  `PACE, CLBBB, CRBBB, IVCD, ILBBB, IRBBB, WPW, STACH, SBRAD, SARRH, PVC, PAC, BIGU, TRIGU, 1AVB`
+  hoặc nằm trong 3.000 bản ghi "xoang thường" chọn theo hash (`PTBXL_PLAIN_CAP`) — train đã có
+  1,3 M giây SINUS. Chia theo bệnh nhân qua `strat_fold`: 1–8 train, 9 eval, 10 **không bao giờ
+  đọc** (dự phòng). Study id = `10⁹ + patient_id` để không đụng study portal trong
+  `studyids_*.npy`; `verify_split`/`audit_written` kiểm cả các id này. Mỗi bản ghi cho **2 cửa
+  sổ** với 2 bộ 3-trong-12 lead khác nhau chọn theo hash `ecg_id` (bộ đầu luôn có một lead chi +
+  một lead trước ngực, bộ sau ngẫu nhiên; trường `leads` trong event dict, `build.read_leads` chọn
+  cột trước khi lọc), resample 500 → 250 Hz, lọc + z-score như strip portal. Giữ được: train
+  8.773 bản ghi (SINUS 7.536 — trong đó 3.000 xoang thường —, AFIB 1.194, SVT 23, AVB2 10,
+  AVB3 10) = 17.546 cửa sổ; eval 1.096 bản ghi (SINUS 939, AFIB 149, SVT 5, AVB2 1, AVB3 2);
+  bỏ 205 AFLT/SVARR, 4 đa lớp, 9.523 xoang thường quá cap, 2.198 fold 10. Sau khi thêm: train
+  186.435 cửa sổ, giây SINUS 1.479 M / AFIB 183,5 k / SVT 125,6 k / VT 29,1 k / AVB2 28,1 k /
+  AVB3 13,1 k.
+
+**Holdout.** Mọi study trong thư mục `rhythm_eval` (đọc từ tên thư mục *và* `studyId` trong
+JSON) cùng list v4 bị loại **trước** khi chia; train/eval chia theo hash study
+(`data/splits.study_split_side`). Kiểm tra trước khi ghi (`inventory.verify_split`) và kiểm lại từ
+study id đã ghi ra đĩa (`build.audit_written`, `python -m ecgr.rhythm audit`). Đọc từ thư mục là
+bắt buộc: 110/1.966 study của rhythm_eval **không** có trong list v4. Đo được: rhythm-2 bị loại
+1.066/4.558 event, afib-2 1.833/7.962, dataset-5 6.698/41.011.
+
+**Augmentation** ([`augment.py`](ecgr/rhythm/augment.py)), trên GPU theo batch: gain từng lead,
+**đảo cực từng lead** (p = 0.3, `FLIP_LEAD_PROB` — nhịp không đổi khi lật ngược; SNR và kurtosis
+chẵn theo dấu nên nhãn `lead`/NOISE không đổi, có test), rơi 1 lead (p = 0.2, `LEAD_DROP_PROB` —
+mọi bản ghi Physionet EC57 chỉ có 2 lead thật + 1 lead 0), **đảo ngẫu nhiên thứ tự 3 kênh**, **nhiễu có cường độ ngẫu nhiên** — trộn
+Gauss lọc 30 Hz / dao động 1–25 Hz / xung chuyển động — trên 1–3 lead, SNR mỗi lead rút đều trong
+[-12, 18] dB, theo burst vị trí và độ dài ngẫu nhiên; thêm 12% cửa sổ hỏng cả 3 lead toàn cửa sổ.
+Một lead *đọc được* trong một giây khi SNR ≥ 6 dB — tính chính xác từ nhiễu đã cộng.
+
+- Nhãn `lead`: xếp hạng lead theo (1) số giây đọc được, (2) SNR cả cửa sổ (chặn ở 30 dB), (3) độ
+  nhọn QRS (kurtosis, kSQI) — cái cuối phân định giữa các lead augmentation để sạch. Lead phẳng
+  không bao giờ được chọn. `NOISE` khi lead tốt nhất đọc được < 8/10 giây. Nhãn được hoán vị
+  **cùng** với kênh. Không dùng cột `channel` của reviewer: ở dataset-1/4/5 nó là CH2 cho 83–89%
+  event — giá trị mặc định chứ không phải đánh giá chất lượng. Đo trên mẫu train: NOISE 14.6%,
+  CH1/CH2/CH3 ≈ 28–29% mỗi kênh.
+- Loss rhythm trên giây nhiễu (< 2 lead đọc được) nhân 0.25, và metric rhythm chỉ tính giây sạch.
+- Tập eval dùng cùng nhiễu nhưng seed cố định, nên các epoch so sánh được.
+
+**Model** ([`model.py`](ecgr/rhythm/model.py)): backbone ResUMamba nguyên bản (stem → ResU ‖
+SSM chéo) ở 250 bước (40 ms), AdaIN theo context encoder, cross-attention với rhythm
+descriptor (lấy max qua 3 lead — nhãn rhythm không thuộc về lead nào), rồi pool về 10 giây + một
+khối SSM giữa các giây cho `rhythm`. Nhánh `lead` là một mạng conv nhỏ **dùng chung trọng số cho
+từng lead** (Conv2D kernel `(1, k)` trên ảnh lead × thời gian): mỗi lead một điểm → logit CH1..CH3,
+nên thứ hạng giữa các lead đổi chỗ đúng theo hoán vị (có test); logit NOISE đọc mean/max của 3
+embedding lead + đặc trưng backbone. Bốn kích thước `rhythm_2m / 1m / 100k / 30k`
+(1.960.608 / 941.176 / 99.589 / 29.983 tham số). `--backbone-from` nạp backbone từ checkpoint
+beat cùng kích thước.
+
+**UNet-Mamba, output theo mẫu** ([`unet.py`](ecgr/rhythm/unet.py), `--model rhythm_unet_2m /
+1m / 100k / 30k`, 1.985.296 / 985.208 / 98.497 / 29.115 tham số, checkpoint
+`unetmamba_rhythm_<size>`): input `(2500, 3)` → **`rhythm (2500, 6)`** + `lead (4,)`. Cùng cấu
+trúc hai nhánh, thay nhánh ResU bằng **một U-Net đầy đủ**. Trunk chung: stem 2500 → pool 5 →
+enc1 (500) → pool 2 → enc2 (250). Nhánh U-Net: pool 5 → enc3 (50, 200 ms) → pool 5 → bottleneck
+(10 bước = 1 bước/giây, thấy cả strip) → up 5 ‖ skip enc3 → up 5 ‖ skip enc2 → (250, width).
+Nhánh Mamba giữ nguyên (SSM hai chiều trên trunk 250 bước). Concat → conv 1 → AdaIN + rhythm
+attention (dùng chung với ResUMamba) → **nửa trên U-Net** (`sample_head`): up 2 ‖ enc1 (500) →
+up 5 ‖ stem (2500) → conv 1 softmax. Head lead dùng chung. Không có `--backbone-from`.
+
+**UNet-Mamba 20 ms + noise** (`--model rhythm_unet500_2m / 1m / 100k / 30k`, 1.949.600 /
+960.088 / 93.437 / 27.459 tham số, checkpoint `unetmamba500_rhythm_<size>`): input `(2500, 3)` →
+**`rhythm (500, 6)`** (1 bước = 20 ms: SINUS / AFIB / SVT / VT / AVB2 / AVB3) + **`noise (5, 2)`**
+(mỗi đoạn 2 s: CLEAN / NOISE). Cùng backbone UNet-Mamba; decoder dừng ở mức enc1 (up 2 ‖ enc1 →
+500 bước), không lên tới stem. Head `lead` được thay bằng `noise_head`: conv chung trọng số cho
+từng lead như nhánh lead, nhưng giữ 5 vị trí thời gian; mỗi đoạn đọc mean và max qua 3 lead
+cộng đặc trưng backbone pool về 5 đoạn. Nhãn: rhythm = nhãn theo mẫu ở tâm mỗi khối 5 mẫu;
+noise = đoạn 2 s là NOISE nếu một trong hai giây không đọc được (< `CLEAN_MIN_LEADS` lead đạt
+`CLEAN_SNR_DB`, đúng định nghĩa đang đặt trọng số loss rhythm), sinh on-the-fly từ nhiễu augment.
+Loss `noise` = CE theo đoạn, trọng số `NOISE_LOSS_WEIGHT = 0.5`; log `val_noise_f1` (F1 lớp NOISE)
+và `val_noise_acc`. Predict/EC57: rhythm pool về 25 bước/giây, `p_noise` của mỗi bước = p(NOISE)
+của đoạn 2 s chứa nó (cổng `DECODE_NOISE_THRESHOLD` như cũ).
+
+Hệ quả của output theo mẫu, xuyên suốt pipeline:
+- **Nhãn**: `build` ghi thêm `labels_samples_<k>.npy` `(n, 2500)` (`labels.sample_labels`): mẫu
+  trong span loạn nhịp mang lớp đó (chồng lấn: ưu tiên như decode, VT > SVT > AFIB > AVB3 >
+  AVB2), mẫu trong vùng đã biết là SINUS, còn lại IGNORE — không ngưỡng phủ 50 % như theo giây.
+  `labels_<k>.npy` theo giây giữ nguyên cho ResUMamba. Train/eval tự chọn loại nhãn theo shape
+  output (`model.is_per_sample`); trọng số "giây sạch" lặp ra 250 mẫu (nhiễu đo theo giây).
+- **`val_rhythm_f1` khi train là theo mẫu**, không so trực tiếp với model theo giây; so công
+  bằng bằng cách trung bình 250 mẫu mỗi giây rồi chấm với nhãn theo giây.
+- **Predict / EC57**: xác suất toàn bản ghi giữ ở `SAMPLE_PROBS_HZ = 25` bước/giây (trung bình
+  mỗi 10 mẫu; file 10 h afdb ~11 MB). `.npz` lưu `step_hz` (file cũ = 1). `decode_episodes(...,
+  step_hz)` đổi mọi tham số giây sang số bước, nên `DECODE_*` giữ nguyên nghĩa; episode có biên
+  giây lẻ.
+- **Lưới chấm EC57**: file annotation từng lớp (ref lẫn hyp) viết trên lưới
+  `EC57_GRID_HZ` (env `ECGR_RHYTHM_EC57_GRID_HZ`, mặc định 1 = giây nguyên, đúng như mọi bảng
+  trước — đã kiểm tra decode lại v2 ra đúng số cũ). Tăng lên (vd 25) để biên dưới 1 s được tính;
+  khi đó chấm lại cả model theo giây trên cùng lưới.
+
+**Eval** ([`evaluate.py`](ecgr/rhythm/evaluate.py)) trên tập test rhythm_eval: confusion theo
+giây (Se/+P/F1 từng lớp, macro F1), theo strip 10 s (argmax thô, **không** hậu xử lý — xem ghi
+chú dưới), và confusion 4×4 của
+output `lead` (accuracy, Se/+P của NOISE, tỷ lệ chọn cùng lead khi cả hai đều coi là đọc được) —
+ở dạng nguyên bản và với nhiễu cố định 18/12/6/0/−6 dB. `predict` ghi CSV theo giây (rhythm +
+p_noise) và JSON gồm episode và lead tốt nhất của từng cửa sổ. Test:
+[`tests/test_rhythm.py`](tests/test_rhythm.py) (23 test, không cần dữ liệu thật).
+
+**EC57 thật** ([`ec57.py`](ecgr/rhythm/ec57.py), [`evaluation/epicmp.py`](ecgr/evaluation/epicmp.py)).
+`evaluate.py` ở trên chỉ đo trên tập npy/tfrecord tự lưu của chính model — không phải một phép đo
+độc lập. `ecgr.rhythm ec57` là phép đo đó: chạy model trên bản ghi WFDB thật, rồi so bằng chính công
+cụ EC57 (`epicmp` + `sumstats`, không phải `bxb` — `bxb` so từng nhịp, `epicmp` so từng **episode**
+loạn nhịp) — giống hệt cách `evaluation/ec57.py` dùng `bxb` cho model beat, chỉ đổi công cụ.
+
+```bash
+python -m ecgr.rhythm ec57 --checkpoint <run>/checkpoints/resumamba_rhythm_1m/best_model.keras \
+    --tag mytag [--dbs mitdb afdb escdb] [--classes AFIB VT] [--max-records N] \
+    [--skip-physionet] [--skip-rhythm-eval]
+python -m ecgr.rhythm ec57 --tag mytag --decode-only          # giải mã lại từ npz, chạy lại epicmp
+python -m ecgr.rhythm ec57 --tag mytag --decode-only --sweep  # quét tham số giải mã (mục dưới)
+```
+
+Ba tầng, tầng nào cũng chạy lại được riêng:
+
+1. **Inference — một lần duy nhất.** Xác suất theo giây của mỗi bản ghi lưu vào
+   `<EC57_DIR>/<tag>/_ann/<db>/<record>.npz` (`rhythm (T,6)` + `p_noise (T,)` float16, `fs`,
+   `sig_len`). Đây là tầng tốn kém duy nhất.
+2. **Giải mã** (`labels.decode_episodes`, tham số `rc.DECODE_*`) từ npz → file `.rhi` gộp mọi lớp
+   (đọc bằng `rdann`) **và một file hypothesis riêng cho từng lớp**. `--decode-only` (alias cũ
+   `--predict-only`) làm lại tầng này và tầng sau, không cần model.
+3. **epicmp, một lượt cho mỗi (database, lớp)**, trong thư mục symlink dùng một lần
+   `_work/<db>/<lớp>/`; báo cáo `<db>/<db>_<lớp>_report_line.out`.
+
+**Vì sao chấm theo từng lớp.** `epicmp -A` chỉ so **một** nhịp: các episode có `aux_note` là
+`(AFIB` (và biết `(AFL` phía tham chiếu). Bản trước ghi cả sáu lớp vào một file (`(AFIB/(SVTA/
+(VT/…`) và chạy `epicmp -A` một lần — nên chỉ AFIB được chấm, SVT/VT/AVB2/AVB3 chưa bao giờ được
+đo. Nay với mỗi lớp C, `wfdb_ann.write_class_annotations` ghi một cặp ref/hyp trong đó giây thuộc C
+viết `(AFIB`, mọi giây khác (`SINUS`, lớp khác, `NOISE`, giây không ai gán) viết `(N`, một dấu `+` ở
+giây 0 và tại mỗi lần đổi mã — đúng cách nhánh `dict_ext` của project tham khảo
+`compare_HES_IES_ATR/utils/ec57_eval.py` làm. Đuôi file chỉ gồm chữ (wfdb-python từ chối `_` và
+chữ số): `r<lớp>` / `a<lớp>` — `rafib/aafib`, `rsvt/asvt`, `rvt/avt`, `ravbii/aavbii`,
+`ravbiii/aavbiii` (`rc.class_extensions`).
+
+Hai nguồn tham chiếu:
+
+- **Physionet** (`rc.EC57_DEFAULT_DBS` = mitdb, afdb, escdb; `--dbs` thêm nstdb/ahadb nhưng chúng
+  không có nhịp nào chấm được). Bốn bản ghi nhịp máy của mitdb (102, 104, 107, 217 —
+  `rc.EC57_EXCLUDE_RECORDS`) bị **loại mặc định**, in ra khi chấm; `--include-paced` giữ lại. EC57
+  cũng loại chúng khỏi chấm beat, và với rhythm chúng chỉ sinh báo động giả AFIB/VT không có TP nào
+  để đổi. Đọc dấu `+` trong `.atr`, ánh xạ mã → lớp qua
+  `rc.PHYSIONET_AUX_TO_CLASS`, **chặt**: AFIB = `(AFIB` (riêng `(AFL` giữ nguyên trong file ref
+  của bài AFIB), SVT = `(SVTA` (không tính `(NOD`, `(J`, `(PREX`),
+  VT = `(VT` (không tính `(VFL`, `(IVR`), AVB2 = `(BII`, AVB3 = `(B3` (chỉ escdb có; mitdb không
+  có block độ 3). Mã khác → `(N`. Cặp (lớp, db) chấm mặc định theo `rc.EC57_CLASS_DBS`: AFIB
+  mitdb+afdb, SVT/VT mitdb+escdb, AVB2 mitdb — đúng bảng của sản phẩm tham khảo, escdb là phần
+  thêm. Db không có episode tham chiếu của lớp → cột Se là `-`, không lỗi.
+- **Tập test riêng của model rhythm** (`rc.EVAL_DIR`, chấm cả 5 lớp) — **không** có annotation
+  WFDB cho nhịp, chỉ có nhãn theo giây suy ra từ caliper của reviewer (`labels.second_labels`,
+  giống hệt lúc build dữ liệu train). Tham chiếu được **tổng hợp**: nhãn theo giây → episode
+  (`labels.reference_episodes`, bỏ qua giây `IGNORE` mà không cắt đoạn) → cùng bộ ghi theo lớp ở
+  trên (+ `.rhy` gộp để đọc). Bản ghi 10–60 s nên dùng `epicmp -f 0` (`epicmp-script2.sh`).
+
+`start`/`stop` của episode tính theo **giây**, nên đổi sang sample chỉ là `second * fs` của bản
+ghi gốc. Báo cáo: `report.summarize_episodes` gom mọi `<db>_<lớp>_report_line.out` thành
+`rhythm_ec57_summary.csv` (một dòng mỗi db × lớp: `E_Se E_+P E_F1 D_Se D_+P D_F1`, F1 =
+2·Se·PPV/(Se+PPV) từ hai token của dòng Gross; thêm `.xlsx` nếu có `openpyxl`) và in bảng
+lớp × (Duration | Episode) × db × Se/PPV/F1 kèm dòng `target` của sản phẩm tham khảo
+(`ec57.TARGET_TABLE`, "rhythm 3.0.6").
+
+**Quy ước AFL = AF** (chốt 2026-09-29, `rc.EC57_AFL_AS_AF`, env `ECGR_RHYTHM_EC57_AFL_AS_AF=0`
+để tắt): cuồng nhĩ được tính là AF. Train: PTB-XL `AFLT → AFIB` (+49 bản ghi train / 7 eval).
+Chấm: lượt epicmp của lớp AFIB chạy với **`-x`** (EC38:1998) — `(AFL` của tham chiếu bị loại
+khỏi so sánh +P, nên gọi AFIB trong đoạn cuồng nhĩ không còn là FP; AFL vẫn không bắt buộc cho
+Se. Các lượt SVT/VT/AVB2 không đổi (AFL ở đó vốn là `(N`). Mặc định EC57/EC38:2007 (không `-x`)
+thì khác: AFIB trong AFL là FP — mọi bảng trước 2026-09-29 là theo mặc định đó. Ví dụ đo trên
+v2: 40 % giây FP AFIB mitdb (678 / 1.676) là `(AFL`.
+
+**Hậu xử lý khi giải mã** (`labels.decode_episodes`, để tín hiệu liền mạch thay vì vụn). Chạy
+**một lần trên toàn bản ghi**, sau khi mọi cửa sổ 10 s đã qua model và được ghép thành chuỗi
+xác suất theo giây (`predict.predict_signal`: bước 10 s, cửa sổ cuối kéo lùi, giây bị phủ hai
+lần lấy trung bình) — nên cầu nối, thời lượng tối thiểu đều xuyên qua ranh giới cửa sổ. Không
+bao giờ áp dụng trên một cửa sổ 10 s rời (`ecgr.rhythm eval` theo strip dùng argmax thô).
+Không tham gia vào train: loss/metric train là mức giây, thô. Theo thứ tự:
+
+1. trung bình trượt xác suất **theo từng lớp**, cửa sổ `DECODE_SMOOTH_SECONDS[lớp]` (lẻ; 1 =
+   tắt; SINUS giữ nguyên; một số thay cho dict = cùng cửa sổ cho mọi lớp);
+2. argmax; giây có `p_noise > DECODE_NOISE_THRESHOLD` → `NOISE`;
+3. **nối khoảng trống** từng lớp theo ưu tiên `DECODE_PRIORITY = VT > SVT > AFIB > AVB3 > AVB2`:
+   hai episode cùng lớp cách nhau ≤ `DECODE_MERGE_GAP_SECONDS[lớp]` giây mà khoảng giữa chỉ
+   gồm SINUS / NOISE / lớp ưu tiên thấp hơn thì nối thành một; không bao giờ ghi đè lớp ưu tiên cao;
+4. **thời lượng tối thiểu** `DECODE_MIN_EPISODE_SECONDS`: episode ngắn hơn ngưỡng của lớp nhận
+   lớp của hai láng giềng khi chúng trùng nhau (2 s SVT lọt giữa AFIB → AFIB), ngược lại → SINUS;
+5. nối khoảng trống lần nữa (bước 4 có thể tạo hai đoạn cùng lớp sát nhau).
+
+**Giá trị mặc định (2026-09-29)**, chọn bằng `--sweep` (`ec57.sweep_decoding`: giải mã lại từ
+npz cho từng tổ hợp smoothing {1, 3, 5, `split`} × khoảng trống {0, 1×} × bộ thời lượng tối thiểu
+{`user`, `beats`, `baseline`}, một dòng mỗi tổ hợp trong `decode_sweep.csv`; mục tiêu = trung bình
+F1 Duration+Episode trên các ô `rc.EC57_TARGET_CELLS`, rhythm_eval là điều kiện chặn):
+`DECODE_SMOOTH_SECONDS = {AFIB 5, AVB2 5, AVB3 5, SVT 1, VT 1}`, `DECODE_MERGE_GAP_SECONDS = 0`
+(không nối), `DECODE_MIN_EPISODE_SECONDS = {AFIB 4, SVT 1.5, VT 1, AVB2 6, AVB3 3}`,
+`DECODE_NOISE_THRESHOLD = 0.5`. Lý do, đo trên mitdb (loại paced): độ dài episode tham chiếu
+**(VT trung vị 1,8 s — 51/60 dưới 3 s**, (SVTA 2,4 s (16/26 dưới 3 s), (AFIB 25/83 dưới 7 s, còn
+(BII cả 5 đều ≥ 7 s. Quy tắc cũ "AFIB ≥ 7 s, SVT/VT ≥ 3 s (3 nhịp)" xoá về mặt cấu trúc 85 %
+episode VT tham chiếu — 3 nhịp VT ở 150–200 bpm chỉ là ~1 s — nên VT Episode Se kẹt ở 16–18 % dù
+Duration Se 60 %; và lưới sweep cũ (độ lệch −1/0/+2) không bao giờ thử min 1 s. Làm mượt 5 s
+cũng xoá cơn 2 s (trung bình 5 s kéo xác suất VT xuống dưới xoang) → mượt theo lớp. AVB2 tăng lên
+6 s vì FP AVB2 quanh pause đều ngắn. Nối khoảng trống làm giảm mục tiêu ở mọi cặp cấu hình (52,7
+so với 55,2) và không giúp rhythm_eval → bỏ. Kết quả trên UNet500 (`pp_u500`, AFL = AF): mục tiêu
+Physionet 51,4 → 55,2; mitdb VT Episode F1 **20,6 → 47,2**, AFIB Episode 68,5 → 71,9, AVB2
+63,0/13,1 → 65,8/14,8; rhythm_eval Episode F1 SVT +3,4, VT +9,5, AVB3 +1,5, AFIB −0,6. Bộ cũ
+còn trong sweep dưới tên `user` (`ec57.USER_MIN_SECONDS / USER_MERGE_GAP`). Ngưỡng nhiễu không
+đổi kết quả trên Physionet (`p_noise > 0.5` ở ~0,01 % số giây) — giữ cho dữ liệu Holter thật.
+
+Lịch sử: sweep đầu (tag `pp_v1`, 2026-09-24, lưới smoothing {1,3,5} × ngưỡng nhiễu × khoảng trống
+{0, 1, 1.5×} × độ lệch min {−1, 0, +2}) chọn mượt 5 s + bộ `user`; kết luận "min không quan trọng"
+khi đó là do lưới chưa chạm vùng 1 s.
+
+**UNet500 với decode mặc định mới so với mục tiêu** (`290926_rhythm_unet500`, epoch 25, val
+rhythm F1 0,830 / noise F1 0,955; AFL = AF; F1 Duration / Episode, trong ngoặc Se / PPV):
+
+| Ô | Decode cũ | **Decode mới** | Mục tiêu |
+|---|---|---|---|
+| AFIB afdb | 95,4 / 92,4 | 94,8 (91/99) / **92,9** (90/96) | 97,5 / 86,6 → Episode vượt |
+| AFIB mitdb | 82,4 / 68,5 | 81,7 (77/87) / 71,9 (75/69) | 93,8 (98/90) / 85,6 (80/92) |
+| SVT mitdb | 18,2 / 21,5 | 19,6 (40/13) / 20,1 (**62**/12) | 34,4 (61/24) / 29,1 (62/19) |
+| VT mitdb | 38,6 / 20,6 | 42,7 (**74**/30) / **47,2** (65/37) | 64,8 (75/57) / 67,9 (82/58) |
+| AVB2 mitdb | 63,0 / 13,1 | 65,8 (100/49) / 14,8 (100/8) | 92,2 (98/87) / 100 |
+| VT escdb | 9,2 / 5,8 | **44,3** (30/85) / **55,2** (40/89) | – |
+| rhythm_eval AFIB / SVT / VT / AVB2 / AVB3 (Episode) | 84,2 / 73,0 / 62,4 / 70,7 / 46,2 | 83,6 / 76,4 / 71,9 / 71,2 / 47,7 | – |
+
+Sau decode mới, **Se đã đạt hoặc vượt mục tiêu ở SVT Episode (62), VT Duration (74) và AVB2
+(100)**; khoảng cách còn lại ở mọi ô mitdb là **PPV** (SVT 12–13 so với 19–24, VT 30–37 so với
+57–58, AVB2 8–49 so với 87–100, AFIB Episode 69 so với 92) — tức là dương tính giả, chủ yếu từ
+các bản ghi 215 (nhanh xoang), 232 (chậm xoang/pause), 207 (BBB + `(VFL`), 200/203 (xoang nhiều
+ngoại tâm thu). Phần việc tiếp theo là dữ liệu âm tính khó và ngữ cảnh > 10 s, không phải decode.
+
+**v1 → v2** (`260924_rhythm_v2`, fine-tune 20 epoch từ v1 với lr 3e-4 trên dữ liệu có PTB-XL, đảo
+cực p = 0.3, rơi lead p = 0.2; best epoch 17). Trên **cùng** tập eval mới (PTB-XL fold 9 thêm vào,
+augment mới, `noisy`): val_rhythm_f1 v1 0.791 → v2 0.828; F1 theo giây từng lớp v1 → v2: SINUS
+96.8 → 97.6, AFIB 82.9 → 86.9, SVT 80.5 → 83.1, VT 77.7 → 82.4, AVB2 73.6 → 77.9, AVB3 63.2 → 68.8.
+EC57 (tag `pp_v1_nopaced` / `pp_v2`, cùng giải mã mặc định, cùng loại 4 bản ghi nhịp máy), Se/PPV/F1:
+
+| lớp · db | | v1 Duration | v2 Duration | target D | v1 Episode | v2 Episode | target E |
+|---|---|---|---|---|---|---|---|
+| AFIB | mitdb | 61/65/62.9 | 76/75/**75.5** | 98/90/93.8 | 65/53/58.4 | 75/60/**66.7** | 80/92/85.6 |
+| AFIB | afdb | 87/93/89.9 | 92/97/**94.4** | 96/99/97.5 | 93/81/86.6 | 93/89/**91.0** | 81/93/86.6 |
+| SVT | mitdb | 48/8/13.7 | 38/8/13.2 | 61/24/34.4 | 50/10/16.7 | 38/12/18.2 | 62/19/29.1 |
+| SVT | escdb | 3/0/0.0 | 6/1/1.7 | | 5/0/0.0 | 9/1/1.8 | |
+| VT | mitdb | 56/3/5.7 | 58/32/**41.2** | 75/57/64.8 | 18/5/7.8 | 16/29/**20.6** | 82/58/67.9 |
+| VT | escdb | 13/0/0.0 | 10/44/16.3 | | 11/1/1.8 | 7/62/12.6 | |
+| AVB2 | mitdb | 100/25/40.0 | 100/42/**59.2** | 98/87/92.2 | 100/3/5.8 | 100/7/13.1 | 100/100/100 |
+| AFIB | rhythm_eval | 90/59/71.3 | 90/61/72.7 | | 97/69/80.6 | 97/76/85.2 | |
+| SVT | rhythm_eval | 56/66/60.6 | 56/69/61.8 | | 77/72/74.4 | 77/77/77.0 | |
+| VT | rhythm_eval | 56/37/44.6 | 57/60/58.5 | | 61/42/49.7 | 61/69/64.8 | |
+| AVB2 | rhythm_eval | 76/36/48.9 | 78/38/51.1 | | 93/50/65.0 | 94/57/71.0 | |
+| AVB3 | rhythm_eval | 65/28/39.1 | 62/34/43.9 | | 76/32/45.0 | 75/41/53.0 | |
+
+Báo động giả theo giây trên mitdb (không nhịp máy) v1 → v2: AFIB 2.202 → 1.676 (giây có nhịp
+L/R 779 → 326; phần còn lại chủ yếu là `(AFL` 495 → 678 — flutter bị gọi là AFIB, bản ghi 222/203),
+SVT 1.396 → 1.063 (bản ghi 215 nhanh xoang 922 → 906: **chưa giải quyết**), VT 4.258 → 301
+(bản ghi 112: 1.770 → 0; nhịp L/R 486 → 79; còn lại gần nửa là `(VFL` của 207), AVB2 2.359 → 1.058
+(nhịp L/R 1.076 → 231; bản ghi 232 chậm xoang/pause 928 → 861: **chưa giải quyết**). Quét giải mã
+lại trên v2: điểm tốt nhất (smooth 3, không nối, min {6,2,2,1,1}) 51.6 so với 49.3 của mặc định
+(+2.3, v1 là 37.2) nhưng rhythm_eval mất AFIB E −1.2, AVB2 E −4.0, AVB3 E −1.9 (SVT/VT E +2.0/+5.5)
+→ **giữ mặc định**; file của `pp_v2` đã giải mã lại theo mặc định.
+
+Test: [`tests/test_rhythm_ec57.py`](tests/test_rhythm_ec57.py) — annotation round-trip qua
+`wfdb.rdann`, bộ ghi theo lớp (gộp mã trùng, `(AFL` chỉ ở ref AFIB, đuôi file toàn chữ), đọc `.atr`
+→ episode với ánh xạ chặt, parser Gross-line + F1, và một lượt `epicmp`/`sumstats` thật với hai lớp
+trên bản ghi tổng hợp (không cần mitdb/afdb/rhythm_eval); [`tests/test_rhythm.py`](tests/test_rhythm.py)
+có test riêng cho nối khoảng trống theo ưu tiên, thời lượng tối thiểu và lượt nối thứ hai. Phần cần
+dữ liệu thật bị `skipif` khi không có trên máy.

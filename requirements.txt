@@ -4,6 +4,7 @@ keras>=3.10
 numpy>=1.26
 scipy>=1.11                      # butter/filtfilt/resample_poly in signal_ops
 pandas>=2.0
+openpyxl>=3.1                    # .xlsx read/write in ec57_record_audit.py, rhythm/inventory.py, evaluation/report.py
 wfdb>=4.1
 tqdm>=4.66
 

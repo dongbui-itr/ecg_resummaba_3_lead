@@ -1,8 +1,9 @@
-"""Turning bxb's text reports into one table.
+"""Turning bxb's and epicmp's text reports into one table.
 
 bxb writes a per-database report; `summarize` aggregates the Gross lines (all beats pooled
 over the database - the EC57 headline numbers) into one CSV, and `compare` prints several
-models side by side.
+models side by side. `summarize_episodes` does the same for epicmp's rhythm-episode reports
+(evaluation/epicmp.py), whose Gross line carries four numbers instead of six.
 """
 import csv
 import glob
@@ -12,6 +13,13 @@ from .. import config
 
 METRICS = ['Q_Se', 'Q_+P', 'V_Se', 'V_+P', 'S_Se', 'S_+P']
 COLUMNS = ['db', 'records'] + METRICS + ['total_QRS', 'total_VEB', 'total_SVEB']
+
+# epicmp's Gross line: episode Se/+P, duration Se/+P of the ONE rhythm spelled '(AFIB' - so
+# one report per (database, class), the class being what the annotation pair spelled that way
+# (rhythm/wfdb_ann.write_class_annotations). F1 is derived from the two Gross tokens.
+EPISODE_METRICS = ['E_Se', 'E_+P', 'D_Se', 'D_+P']
+EPISODE_COLUMNS = ['db', 'class', 'records', 'E_Se', 'E_+P', 'E_F1', 'D_Se', 'D_+P', 'D_F1']
+EPISODE_REPORT_SUFFIX = '_report_line.out'
 
 
 def parse_report(path):
@@ -31,6 +39,110 @@ def parse_report(path):
             elif line.startswith('Summary of results from'):
                 row['records'] = t[4]
     return row
+
+
+def parse_gross(path, metrics=EPISODE_METRICS):
+    """Gross and Summary lines of one epicmp/sumstats <db>_rhythm_report_line.out.
+
+    Same convention as parse_report: '-' is kept as written for a class the database has no
+    reference episodes of, rather than turned into a misleading 0.
+    """
+    row = {}
+    with open(path) as f:
+        for line in f:
+            t = line.split()
+            if line.startswith('Gross') and len(t) >= 1 + len(metrics):
+                row.update(zip(metrics, t[1:1 + len(metrics)]))
+            elif line.startswith('Summary of results from'):
+                row['records'] = t[4]
+    return row
+
+
+def f1_token(se, pp):
+    """'93.8'-style F1 of two Gross tokens, '-' when either is unscorable."""
+    se, pp = _num(se), _num(pp)
+    if se is None or pp is None or se + pp == 0:
+        return '-'
+    return f"{2 * se * pp / (se + pp):.1f}"
+
+
+def episode_row(path):
+    """(db, class) + Gross metrics + F1 of one <db>/<db>_<class>_report_line.out."""
+    db = os.path.basename(os.path.dirname(path))
+    name = os.path.basename(path)[:-len(EPISODE_REPORT_SUFFIX)]
+    cls = name[len(db) + 1:] if name.startswith(db + '_') else name
+    row = {'db': db, 'class': cls, **parse_gross(path)}
+    row['E_F1'] = f1_token(row.get('E_Se'), row.get('E_+P'))
+    row['D_F1'] = f1_token(row.get('D_Se'), row.get('D_+P'))
+    return row
+
+
+def episode_rows(ec57_dir, pattern='*' + EPISODE_REPORT_SUFFIX):
+    return [episode_row(p) for p in sorted(glob.glob(os.path.join(ec57_dir, '*', pattern)))]
+
+
+def print_episode_table(rows, classes=None, dbs=None, target=None):
+    """The reference product's layout: class x (Duration | Episode) rows, one Se/PPV/F1
+    triple per database. `target` = {(db, class): {'D': (se, pp), 'E': (se, pp)}} adds the
+    reference product's numbers as an extra row per class."""
+    by = {(r['db'], r['class']): r for r in rows}
+    classes = classes or sorted({r['class'] for r in rows})
+    dbs = dbs or sorted({r['db'] for r in rows})
+    cell = lambda se, pp: f"{str(se):>5s} {str(pp):>5s} {f1_token(se, pp):>6s}"  # noqa: E731
+    print(f"{'class':6s} {'':9s} | " + " | ".join(f"{db:^18s}" for db in dbs))
+    print(f"{'':6s} {'':9s} | " + " | ".join(f"{'Se':>5s} {'PPV':>5s} {'F1':>6s}" for _ in dbs))
+    for cls in classes:
+        for kind, key in (('Duration', 'D'), ('Episode', 'E')):
+            cells = []
+            for db in dbs:
+                r = by.get((db, cls))
+                cells.append(cell(r[f'{key}_Se'], r[f'{key}_+P']) if r else f"{'-':>18s}")
+            print(f"{cls:6s} {kind:9s} | " + " | ".join(cells))
+            if target:
+                cells = []
+                for db in dbs:
+                    t = (target.get((db, cls)) or {}).get(key)
+                    cells.append(cell(*t) if t else f"{'':>18s}")
+                print(f"{'':6s} {'  target':9s} | " + " | ".join(cells))
+
+
+def write_episode_xlsx(rows, path):
+    """Same rows as the CSV in one sheet - only when openpyxl is installed (the reference
+    project's ec57_results_to_xlsx.py depends on it; this project does not)."""
+    try:
+        from openpyxl import Workbook
+    except ImportError:
+        return None
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'rhythm_ec57'
+    ws.append(EPISODE_COLUMNS)
+    for r in rows:
+        ws.append([_num(r.get(c)) if _num(r.get(c)) is not None else r.get(c, '-')
+                   for c in EPISODE_COLUMNS])
+    wb.save(path)
+    return path
+
+
+def summarize_episodes(ec57_dir, classes=None, dbs=None, target=None, quiet=False):
+    """Aggregate every per-class epicmp report under `ec57_dir` into rhythm_ec57_summary.csv
+    (one row per database x class) and print the class x Duration/Episode table."""
+    rows = episode_rows(ec57_dir)
+    if not rows:
+        print(f"no epicmp reports under {ec57_dir}")
+        return []
+
+    path = os.path.join(ec57_dir, 'rhythm_ec57_summary.csv')
+    with open(path, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=EPISODE_COLUMNS, extrasaction='ignore')
+        writer.writeheader()
+        writer.writerows(rows)
+    write_episode_xlsx(rows, path[:-4] + '.xlsx')
+    if not quiet:
+        print(f"\nrhythm EC57 summary ({len(rows)} database x class rows) -> {path}")
+        print_episode_table(rows, classes=classes, dbs=dbs, target=target)
+        print("-  = no reference episodes of that class in this database")
+    return rows
 
 
 def summarize(ec57_dir):
