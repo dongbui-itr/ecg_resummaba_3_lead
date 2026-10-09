@@ -8,6 +8,9 @@ study it came from:
     <NPY_DIR>/<split>/labels_<k>.npy      (n, 10) uint8, config.IGNORE where unlabelled
     <NPY_DIR>/<split>/labels_samples_<k>.npy  (n, 2500) uint8, the same spans per sample
                                           (labels.sample_labels), for the per-sample models
+    <NPY_DIR>/<split>/beats_<k>.npy       (n, 2500) uint8 beat labels (labels.beat_labels):
+                                          0 none, 1/2/3 N/S/V at the R sample, IGNORE where
+                                          the record has no beat annotation
     <NPY_DIR>/<split>/studyids_<k>.npy    (n,) int64
     <NPY_DIR>/<split>/events_<k>.json     source / event id of every window, for tracing
     <NPY_DIR>/manifest.json               geometry, counts per class, the class weights
@@ -37,7 +40,7 @@ from tqdm import tqdm
 from ..signal_ops import build_leads, normalize_window, resample_leads
 from . import config as rc
 from . import inventory
-from .labels import beat_runs, sample_labels, second_labels
+from .labels import beat_labels, beat_runs, sample_labels, second_labels
 
 SHARD_WINDOWS = 20000
 
@@ -136,22 +139,42 @@ def _apply_header_span(ev, path, stats):
                 needs_runs=sinus_only and ev['strip'] is not None)
 
 
+def read_beats(path, ratio, chunk=None):
+    """(R samples at SAMPLING_RATE relative to the chunk, symbols) from <path>.atr, or
+    (None, None) when the record has no beat annotation. `chunk` = (sampfrom, sampto) at the
+    record's own rate for the long records."""
+    if not os.path.exists(path + '.atr'):
+        return None, None
+    if chunk is None:
+        ann = wfdb.rdann(path, 'atr')
+    else:
+        ann = wfdb.rdann(path, 'atr', sampfrom=int(chunk[0]), sampto=int(chunk[1]),
+                         shift_samps=True)
+    symbols = np.asarray(ann.symbol)
+    keep = np.array([sym in rc.BEAT_SYMBOL_TO_CLASS or sym in rc.BEAT_IGNORE_SYMBOLS
+                     for sym in symbols], dtype=bool)
+    samples = np.round(np.asarray(ann.sample)[keep] * ratio).astype(np.int64)
+    return samples, symbols[keep]
+
+
 def process_event(ev):
-    """Cut one event into (segments, labels, sample labels, stats). Never raises."""
+    """Cut one event into (segments, labels, sample labels, beat labels, stats). Never
+    raises."""
     stats = Counter()
-    segments, labels, per_sample = [], [], []
+    segments, labels, per_sample, beats = [], [], [], []
     path = record_path(ev)
     if path is None:
         stats['no_file'] += 1
-        return segments, labels, per_sample, stats
+        return segments, labels, per_sample, beats, stats
     try:
         leads, ratio = read_leads(path, ev.get('leads'), ev.get('chunk'))
         ev = _scale_event(_apply_header_span(ev, path, stats), ratio)
         length = len(leads)
-        if ev.get('needs_runs') and ev['strip'] is not None and os.path.exists(path + '.atr'):
-            ann = wfdb.rdann(path, 'atr')
-            samples = np.round(np.asarray(ann.sample) * ratio).astype(np.int64)
-            runs = beat_runs(samples, ann.symbol, lo=ev['strip'][0], hi=ev['strip'][1])
+        beat_samples, beat_symbols = read_beats(path, ratio, ev.get('chunk'))
+        if beat_samples is None:
+            stats['no_beat_annotation'] += 1
+        if ev.get('needs_runs') and ev['strip'] is not None and beat_samples is not None:
+            runs = beat_runs(beat_samples, beat_symbols, lo=ev['strip'][0], hi=ev['strip'][1])
             ev = dict(ev, spans=sorted(set(ev['spans']) | set(runs)))
             stats['beat_runs'] += len(runs)
 
@@ -160,10 +183,10 @@ def process_event(ev):
         if any(rc.EVENT_TYPE_TO_CLASS[t] in rc.RUN_CLASSES for t in ev['types']) and \
                 not any(rc.CLASS_NAMES[c] in rc.RUN_CLASSES for c, _, _ in spans):
             stats['run_not_found'] += 1
-            return segments, labels, per_sample, stats
+            return segments, labels, per_sample, beats, stats
         if not region:
             stats['no_region'] += 1
-            return segments, labels, per_sample, stats
+            return segments, labels, per_sample, beats, stats
 
         hop = rc.SEGMENT_SAMPLES if ev['source'] == 'rhythm_eval' else None
         for start in inventory.window_starts(region, length, hop=hop):
@@ -178,12 +201,13 @@ def process_event(ev):
             segments.append(normalize_window(window).astype(np.float16))
             labels.append(lab)
             per_sample.append(sample_labels(start, spans, known))
+            beats.append(beat_labels(start, beat_samples, beat_symbols))
         stats['events_used'] += bool(segments)
     except Exception as e:                        # one broken record must not stop a build
         stats['errors'] += 1
         stats[f"error:{type(e).__name__}"] += 1
-        segments, labels, per_sample = [], [], []
-    return segments, labels, per_sample, stats
+        segments, labels, per_sample, beats = [], [], [], []
+    return segments, labels, per_sample, beats, stats
 
 
 def _write_split(split, events, workers):
@@ -193,11 +217,11 @@ def _write_split(split, events, workers):
     os.makedirs(out_dir)
 
     totals, seconds = Counter(), np.zeros(rc.NUM_CLASSES + 1, dtype=np.int64)
-    buf_seg, buf_lab, buf_smp, buf_sid, buf_evt = [], [], [], [], []
+    buf_seg, buf_lab, buf_smp, buf_bt, buf_sid, buf_evt = [], [], [], [], [], []
     shard = 0
 
     def flush(force=False):
-        nonlocal buf_seg, buf_lab, buf_smp, buf_sid, buf_evt, shard
+        nonlocal buf_seg, buf_lab, buf_smp, buf_bt, buf_sid, buf_evt, shard
         while len(buf_seg) >= SHARD_WINDOWS or (force and buf_seg):
             k = min(SHARD_WINDOWS, len(buf_seg))
             base = os.path.join(out_dir, '{}_' + f'{shard}')
@@ -205,24 +229,26 @@ def _write_split(split, events, workers):
             np.save(base.format('labels') + '.npy', np.stack(buf_lab[:k]).astype(np.uint8))
             np.save(base.format('labels_samples') + '.npy',
                     np.stack(buf_smp[:k]).astype(np.uint8))
+            np.save(base.format('beats') + '.npy', np.stack(buf_bt[:k]).astype(np.uint8))
             np.save(base.format('studyids') + '.npy', np.asarray(buf_sid[:k], dtype=np.int64))
             with open(base.format('events') + '.json', 'w') as f:
                 json.dump(buf_evt[:k], f)
-            buf_seg, buf_lab, buf_smp, buf_sid, buf_evt = (
-                buf_seg[k:], buf_lab[k:], buf_smp[k:], buf_sid[k:], buf_evt[k:])
+            buf_seg, buf_lab, buf_smp, buf_bt, buf_sid, buf_evt = (
+                buf_seg[k:], buf_lab[k:], buf_smp[k:], buf_bt[k:], buf_sid[k:], buf_evt[k:])
             shard += 1
 
     ctx = get_context('spawn')
     chunk = max(1, min(32, len(events) // (workers * 8) or 1))
     with ctx.Pool(workers) as pool:
         results = pool.imap(process_event, events, chunksize=chunk)
-        for ev, (segments, labels, samples, stats) in tqdm(
+        for ev, (segments, labels, samples, beats, stats) in tqdm(
                 zip(events, results), total=len(events), desc=f"rhythm {split}",
                 smoothing=0.05, disable=not sys.stderr.isatty(), mininterval=2.0):
             totals.update(stats)
             buf_seg.extend(segments)
             buf_lab.extend(labels)
             buf_smp.extend(samples)
+            buf_bt.extend(beats)
             buf_sid.extend([int(ev['study_id'])] * len(segments))
             buf_evt.extend([[ev['source'], ev['event_id']]] * len(segments))
             for lab in labels:
@@ -281,6 +307,7 @@ def build(sources=None, limit=None, workers=None, splits=('train', 'eval', 'test
         'sampling_rate': rc.SAMPLING_RATE, 'output_seconds': rc.OUTPUT_SECONDS,
         'class_names': rc.CLASS_NAMES, 'ignore_label': rc.IGNORE,
         'signal_dtype': 'float16', 'labels_dtype': 'uint8', 'sample_labels': True,
+        'beat_labels': True,
         'sources': list(sources or rc.TRAIN_SOURCES), 'limit': limit,
     })
     if 'train' in manifest['splits']:

@@ -38,6 +38,7 @@ import keras
 from keras import layers
 
 from ..models.layers import conv_bn_act, ssm_block
+from . import config as rc
 
 TRUNK_POOLS = (5, 2)          # 2500 -> 500 -> 250 (the fused grid)
 UNET_POOLS = (5, 5)           # 250 -> 50 -> 10 (one step per second)
@@ -97,6 +98,18 @@ def build_unet_backbone(input_length, in_channels, output_steps, width=64,
     y = layers.Concatenate(name='dual_concat')([y_u, y_m])
     y = conv_bn_act(y, width, 1, name='dual_fuse')
     return keras.Model(inp, [y, enc1, stem], name=name)
+
+
+def beat_head(y, enc1, separable=False, dropout=0.15, kernel=7, width=None):
+    """Beat decoder: (250, d) fused features + the enc1 skip -> 'beat' (enc1 steps, 4), a
+    softmax none / N / S / V per step. The same climb as the rhythm head's first stage, with
+    its own weights: beat morphology (QRS width, prematurity) is read at 8-20 ms."""
+    width = width or enc1.shape[-1]
+    h = layers.UpSampling1D(enc1.shape[1] // y.shape[1], name='beat_up')(y)
+    h = layers.Concatenate(name='beat_skip')([h, enc1])
+    h = _double_conv(h, width, kernel, separable, 'beat_dec')
+    h = layers.Dropout(dropout, name='beat_drop')(h)
+    return layers.Conv1D(len(rc.BEAT_CLASSES), 1, activation='softmax', name='beat')(h)
 
 
 def sample_head(y, enc1, stem, num_classes, separable=False, dropout=0.15, kernels=(7, 9),

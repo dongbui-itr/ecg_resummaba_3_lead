@@ -11,8 +11,8 @@ from ecgr.rhythm import config as rc
 from ecgr.rhythm import inventory as inv
 from ecgr.rhythm import labels as L
 from ecgr.rhythm import model as rmodel
-from ecgr.rhythm.objectives import (LeadConfusion, NoiseF1, RhythmF1, lead_loss, noise_loss,
-                                    rhythm_loss)
+from ecgr.rhythm.objectives import (BeatF1, LeadConfusion, NoiseF1, RhythmF1, beat_loss,
+                                    lead_loss, noise_loss, rhythm_loss)
 
 FS = rc.SAMPLING_RATE
 AF, SVT, VT = (rc.CLASS_NAMES.index(n) for n in ('AFIB', 'SVT', 'VT'))
@@ -43,8 +43,8 @@ def test_second_labels_cover_known_and_ignore():
 
 
 def test_a_short_span_is_not_lost():
-    # 0.34 s AVB3 caliper straddling a second boundary: covers no second by half
-    avb3 = rc.CLASS_NAMES.index('AVB3')
+    # 0.34 s AV-block caliper straddling a second boundary: covers no second by half
+    avb3 = rc.CLASS_NAMES.index('AVB')
     lab = L.second_labels(0, [(avb3, 700, 785)], [(0, 2500)])
     assert (lab == avb3).sum() == 1 and lab[2] == avb3
 
@@ -75,7 +75,7 @@ def test_decode_bridges_gaps_by_priority():
     S = rc.SINUS
     #        0  1  2   3   4   5  6   7   8   9  10  11  12  13
     track = [AF, AF, AF, S, S, AF, AF, VT, VT, SVT, S, VT, VT, AF]
-    gaps = {'AFIB': 3, 'SVT': 0, 'VT': 2, 'AVB2': 0, 'AVB3': 0}
+    gaps = {'AFIB': 3, 'SVT': 0, 'VT': 2, 'AVB': 0}
     cls = L.bridge_gaps(track, gaps, rc.DECODE_PRIORITY)
     # VT (top priority) bridges over the SVT + SINUS gap of 2 s; AFIB bridges the 2 s SINUS
     assert cls.tolist() == [AF, AF, AF, AF, AF, AF, AF, VT, VT, VT, VT, VT, VT, AF]
@@ -90,7 +90,7 @@ def test_decode_bridges_gaps_by_priority():
 
 def test_decode_min_duration_takes_agreeing_neighbours_else_sinus():
     S = rc.SINUS
-    mins = {'AFIB': 7, 'SVT': 3, 'VT': 3, 'AVB2': 2, 'AVB3': 2}
+    mins = {'AFIB': 7, 'SVT': 3, 'VT': 3, 'AVB': 2}
     # a 2 s SVT blip inside AFIB becomes AFIB; a 2 s VT between SINUS and AFIB becomes SINUS
     track = [AF] * 8 + [SVT, SVT] + [AF] * 8 + [S, S, VT, VT] + [AF] * 8
     cls = L.enforce_min_duration(track, mins)
@@ -107,7 +107,7 @@ def test_decode_smoothing_and_second_bridging_pass():
     # one flipped second in a long AF run: the 3 s moving average votes it back to AF
     track = [AF] * 6 + [SVT] + [AF] * 6
     r = _probs(track)
-    r[6] = [0.1, 0.4, 0.5, 0, 0, 0]                            # SVT by a hair
+    r[6] = [0.1, 0.4, 0.5, 0, 0]                               # SVT by a hair
     eps = L.decode_episodes(r, smooth_seconds=3, merge_gap={}, min_seconds={})
     assert _spans(eps) == [('AFIB', 0, 13)]
     sm = L.smooth_probs(r, 3)
@@ -177,8 +177,9 @@ def test_ptbxl_label_rule():
     from ecgr.rhythm import ptbxl
     assert ptbxl.record_label(['AFIB', 'IMI']) == ('AFIB', None)
     assert ptbxl.record_label(['SR', 'PSVT']) == ('SVT', None)
-    assert ptbxl.record_label(['2AVB', 'CRBBB']) == ('AVB2', None)
-    assert ptbxl.record_label(['3AVB']) == ('AVB3', None)
+    assert ptbxl.record_label(['2AVB', 'CRBBB']) == ('AVB', None)
+    assert ptbxl.record_label(['3AVB']) == ('AVB', None)
+    assert ptbxl.record_label(['2AVB', '3AVB']) == ('AVB', None)        # one class now
     # flutter counts as AF (rc.EC57_AFL_AS_AF): alone or with AFIB it is an AFIB record
     assert ptbxl.record_label(['AFLT']) == ('AFIB', None)
     assert ptbxl.record_label(['AFIB', 'AFLT']) == ('AFIB', None)
@@ -389,7 +390,7 @@ def test_clean_seconds_counts_readable_leads():
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope='module', params=['rhythm_30k', 'rhythm_unet_30k', 'rhythm_unet500_30k',
-                                        'rhythm_unet1250_30k'])
+                                        'rhythm_unet1250_30k', 'rhythm_unet1250b_30k'])
 def small_model(request):
     return rmodel.build(request.param)
 
@@ -432,7 +433,10 @@ def test_model_contract(small_model):
                 'unetmamba500_rhythm_30k': {'rhythm': (500, rc.NUM_CLASSES),
                                             'noise': (rc.NOISE_SEGMENTS, 2)},
                 'unetmamba1250_rhythm_30k': {'rhythm': (1250, rc.NUM_CLASSES),
-                                             'noise': (rc.NOISE_SEGMENTS, 2)}}
+                                             'noise': (rc.NOISE_SEGMENTS, 2)},
+                'unetmamba1250b_rhythm_30k': {'rhythm': (1250, rc.NUM_CLASSES),
+                                              'noise': (rc.NOISE_SEGMENTS, 2),
+                                              'beat': (rc.BEAT_STEPS, len(rc.BEAT_CLASSES))}}
     assert shapes == expected[small_model.name]
     y = small_model(np.random.randn(2, rc.SEGMENT_SAMPLES, 3).astype('float32'))
     for k in y:
@@ -462,6 +466,16 @@ def test_loss_ignores_unlabelled_seconds_and_metrics_run(small_model, batch):
     assert loss.shape == (64, 10 * per) and np.all(np.isfinite(loss))
     assert np.all(loss[:, 3 * per:4 * per] == 0)                    # IGNORE second
     q = _quality(small_model)
+    if 'beat' in rmodel.output_names(small_model):
+        bt = np.zeros((64, rc.SEGMENT_SAMPLES), np.uint8)
+        bt[:, 200] = 1; bt[:, 900] = 3; bt[:, 1600] = 2; bt[:5] = rc.IGNORE
+        xa, t = A.augment(x, y, tf.constant([1, 1], tf.int64), beats=tf.constant(bt))
+        p = small_model(xa)
+        bl = beat_loss(list(rc.BEAT_CLASS_WEIGHTS))(t['beat'], p['beat']).numpy()
+        assert bl.shape == (64, rc.BEAT_STEPS) and np.all(np.isfinite(bl))
+        assert np.all(bl[:5] == 0)                                   # no beat annotation
+        bf = BeatF1(); bf.update_state(t['beat'], p['beat'])
+        assert 0.0 <= float(bf.result()) <= 1.0 and bf.matrix().sum() > 0
     if q == 'noise':
         assert np.isfinite(float(noise_loss()(t['noise'], p['noise'])))
         f1, acc, nf1 = RhythmF1(), NoiseF1(mode='accuracy'), NoiseF1()
@@ -714,9 +728,10 @@ def test_physionet_train_labels_and_refuses_ec57(tmp_path):
     from ecgr.rhythm.build import process_event
     for e in events + ev:
         assert all(t in rc.EVENT_TYPE_TO_CLASS for t in e['types'])
-        seg, lab, per_sample, stats = process_event(e)
+        seg, lab, per_sample, bts, stats = process_event(e)
         assert not stats.get('errors'), stats
         assert len(seg) == 1 and len(lab) == 1 and per_sample[0].shape == (rc.SEGMENT_SAMPLES,)
+        assert bts[0].shape == (rc.SEGMENT_SAMPLES,) and set(np.unique(bts[0])) <= {0, 1, 2, 3}
     vt = process_event(ev[0])[1][0]
     assert L.class_index('VT') in vt and rc.SINUS not in vt       # svdb: nothing else known
 
@@ -772,7 +787,8 @@ def test_challenge2020_label_rule():
     from ecgr.rhythm import challenge2020 as C
     assert C.record_label({'164889003'}) == ('AFIB', None)                 # AF
     assert C.record_label({'164890007', '59118001'}) == ('AFIB', None)     # AFL (+RBBB) = AF
-    assert C.record_label({'195042002'}) == ('AVB2', None)
+    assert C.record_label({'195042002'}) == ('AVB', None)
+    assert C.record_label({'27885002'}) == ('AVB', None)                   # complete block
     assert C.record_label({'426783006', '284470004'}) == ('SINUS', None)   # sinus + PACs
     assert C.record_label({'426783006'}) == (None, 'plain')
     assert C.record_label({'426761007'})[1] == 'paroxysmal_or_ambiguous'   # SVT: no location
@@ -793,3 +809,157 @@ def test_pipeline_serves_8ms_labels(tmp_path):
     np.save(split / 'labels_samples_0.npy', lab)
     _, l8, _ = pipeline.load_arrays('train', str(tmp_path), label_steps=1250)
     assert l8.shape == (2, 1250) and l8[0, 1] == 3 and 4 not in l8
+
+
+def test_beat_labels_and_targets():
+    samples = np.array([100, 600, 1100, 1700, 2300, 2600])      # last one past the window
+    symbols = np.array(['N', 'A', 'V', 'F', 'L', 'N'])
+    lab = L.beat_labels(0, samples, symbols)
+    assert lab.shape == (rc.SEGMENT_SAMPLES,) and lab.dtype == np.uint8
+    assert lab[100] == 1 and lab[600] == 2 and lab[1100] == 3 and lab[2300] == 1
+    r = int(round(rc.BEAT_IGNORE_RADIUS_SECONDS * rc.SAMPLING_RATE))
+    assert np.all(lab[1700 - r:1700 + r + 1] == rc.IGNORE) and lab[1700 - r - 1] == 0
+    assert np.all(L.beat_labels(0, None, None) == rc.IGNORE)
+    shifted = L.beat_labels(500, samples, symbols)                # window starts at sample 500
+    assert shifted[100] == 2 and shifted[600] == 3 and shifted[0] == 0
+
+    clean = np.ones((1, rc.OUTPUT_SECONDS), np.float32)
+    clean[0, 2] = 0.0                                             # second 2 is noisy
+    t = A.beat_targets(tf.constant(lab[None]), tf.constant(clean)).numpy()[0]
+    nb = len(rc.BEAT_CLASSES)
+    assert t.shape == (rc.BEAT_STEPS, nb + 2)          # heat | N S V | w_heat | w_type
+    heat, typ, w_heat, w_type = t[:, 0], t[:, 1:nb], t[:, nb], t[:, nb + 1]
+    # heatmap: 1 at the R step, Gaussian flanks, ~0 beyond 3 sigma
+    assert heat[50] == pytest.approx(1.0, abs=1e-5) and 0.3 < heat[52] < 0.9
+    assert heat[50 + int(np.ceil(3 * rc.BEAT_HEAT_SIGMA_STEPS)) + 1] == 0
+    # type one-hot on +-BEAT_TYPE_RADIUS_STEPS around each beat, nothing elsewhere
+    r = rc.BEAT_TYPE_RADIUS_STEPS
+    assert np.all(np.argmax(typ[50 - r:50 + r + 1], -1) == 0) and np.all(w_type[50 - r:50 + r + 1] > 0)
+    assert typ[50 - r - 1].sum() == 0 and w_type[50 - r - 1] == 0
+    assert np.argmax(typ[300]) == 1 and np.argmax(typ[550]) == 2       # S at 300, V at 550
+    assert w_heat[850] == 0 and w_heat[845] == 0 and w_heat[830] == 1.0   # IGNORE zone (F beat)
+    assert w_heat[300] == rc.NOISY_SECOND_WEIGHT and w_type[300] == rc.NOISY_SECOND_WEIGHT
+    assert w_heat[560] == 1.0 and w_type[700] == 0
+    assert (w_type > 0).mean() < 0.1 and (heat > 0.5).mean() < 0.05
+
+
+def test_beat_decoder_conditions_the_rhythm_decoder():
+    from ecgr.models import sub_model
+    m = rmodel.build('rhythm_unet1250b_30k')
+    names = {l.name for l in m.layers}
+    assert {'beat', 'beat_sg', 'beat_to_grid', 'beat_ctx_ssm', 'beat_ac', 'beat_tokens'} <= names
+    x = np.random.randn(2, rc.SEGMENT_SAMPLES, 3).astype('float32')
+    y = m(x, training=False)
+    np.testing.assert_allclose(y['beat'].numpy().sum(-1), 1.0, atol=1e-5)
+    # the gradient of the rhythm loss does not reach the beat head (stop-gradient)
+    with tf.GradientTape() as tape:
+        out = m(x, training=True)
+        loss = tf.reduce_mean(out['rhythm'][..., 1])
+    beat_vars = [v for v in m.trainable_variables if v.name.startswith('beat_dec') or
+                 v.path.startswith('beat_dec') if hasattr(v, 'path')] or \
+        [v for v in m.trainable_variables if 'beat_dec' in v.path]
+    grads = tape.gradient(loss, beat_vars)
+    assert beat_vars and all(g is None for g in grads)
+
+
+def test_pipeline_serves_beat_labels(tmp_path):
+    from ecgr.rhythm import pipeline
+    split = tmp_path / 'train'
+    split.mkdir()
+    n = 3
+    np.save(split / 'segments_0.npy', np.zeros((n, rc.SEGMENT_SAMPLES, 3), np.float16))
+    np.save(split / 'labels_0.npy', np.zeros((n, rc.OUTPUT_SECONDS), np.uint8))
+    np.save(split / 'labels_samples_0.npy', np.zeros((n, rc.SEGMENT_SAMPLES), np.uint8))
+    np.save(split / 'studyids_0.npy', np.arange(n))
+    with pytest.raises(FileNotFoundError, match='beat labels'):
+        pipeline.load_arrays('train', str(tmp_path), label_steps=1250, beats=True)
+    bt = np.zeros((n, rc.SEGMENT_SAMPLES), np.uint8); bt[:, 1000] = 3
+    np.save(split / 'beats_0.npy', bt)
+    segs, labs, _, bts = pipeline.load_arrays('train', str(tmp_path), label_steps=1250, beats=True)
+    assert bts.shape == (n, rc.SEGMENT_SAMPLES)
+    with pytest.raises(ValueError, match="'beat' output"):
+        pipeline.make_dataset(segs, labs, 2, mode='clean', outputs=('rhythm', 'noise', 'beat'))
+    x, y = next(iter(pipeline.make_dataset(segs, labs, 2, mode='noisy',
+                                            outputs=('rhythm', 'noise', 'beat'), beats=bts)))
+    assert set(y) == {'rhythm', 'noise', 'beat'}
+    assert y['beat'].shape == (2, rc.BEAT_STEPS, len(rc.BEAT_CLASSES) + 2)
+    assert float(y['beat'][0, 500, 0]) == pytest.approx(1.0, abs=1e-5)   # sample 1000 -> step 500
+    assert int(np.argmax(y['beat'][0, 500, 1:4])) == 2                 # V
+
+
+def test_window_categories_and_stratified_plan():
+    from ecgr.rhythm import pipeline
+    steps = 10
+    lab = np.zeros((40, steps), np.uint8)
+    lab[0:4, :5] = rc.CLASS_NAMES.index('AFIB')
+    lab[4:6, 2:5] = rc.CLASS_NAMES.index('VT')
+    lab[6, 0] = rc.CLASS_NAMES.index('VT')                   # 1 s only: not VT
+    lab[6, 2:8] = rc.CLASS_NAMES.index('AFIB')
+    lab[7, :5] = rc.CLASS_NAMES.index('AFIB')
+    lab[7, 5:8] = rc.CLASS_NAMES.index('SVT')                # AFIB + SVT -> SVT (rarer)
+    cats = pipeline.window_categories(lab)
+    names = [rc.CLASS_NAMES[c] for c in cats]
+    assert names[:4] == ['AFIB'] * 4 and names[4:6] == ['VT'] * 2
+    assert names[6] == 'AFIB' and names[7] == 'SVT' and set(names[8:]) == {'SINUS'}
+    plan, repeat, n_steps = pipeline.stratified_plan(cats, 8, steps_per_epoch=5)
+    assert sum(plan.values()) == 8 and 'AVB' not in plan
+    assert plan['VT'] <= int(np.ceil(2 * rc.STRAT_MAX_REPEAT / 5))     # repeat cap
+    counts = {rc.CLASS_NAMES[c]: int(n) for c, n in zip(*np.unique(cats, return_counts=True))}
+    for k, v in plan.items():                                           # repeat cap, per class
+        if k != 'SINUS':
+            assert v <= int(np.ceil(counts[k] * rc.STRAT_MAX_REPEAT / 5))
+    batches = list(pipeline.stratified_batches(cats, plan, n_steps, seed=1))
+    assert len(batches) == 5 and all(len(b) == 8 for b in batches)
+    for b in batches:
+        got = {rc.CLASS_NAMES[c]: int(n) for c, n in zip(*np.unique(cats[b], return_counts=True))}
+        assert got == plan
+
+
+def test_stratified_dataset_batches(tmp_path):
+    from ecgr.rhythm import pipeline
+    n = 30
+    segs = np.zeros((n, rc.SEGMENT_SAMPLES, 3), np.float16)
+    lab = np.zeros((n, rc.OUTPUT_SECONDS), np.uint8)
+    lab[:3, :] = rc.CLASS_NAMES.index('VT')
+    ds = pipeline.make_dataset(segs, lab, 6, mode='train', outputs=('rhythm', 'noise'),
+                               sampler='stratified', steps_per_epoch=4)
+    xs = list(ds)
+    assert len(xs) == 4 and xs[0][0].shape == (6, rc.SEGMENT_SAMPLES, 3)
+
+
+def test_class_weights_divide_by_sqrt_repeat(monkeypatch):
+    from ecgr.rhythm import train as T
+    monkeypatch.setattr(rc, 'CLASS_WEIGHTS', [1.0] * rc.NUM_CLASSES)
+    w = T.class_weights({'SINUS': 0.5, 'VT': 2.0, 'SVT': 0.25})
+    assert w[rc.SINUS] == pytest.approx(1.0) and w[rc.CLASS_NAMES.index('VT')] == pytest.approx(0.5)
+    assert w[rc.CLASS_NAMES.index('AFIB')] == pytest.approx(1.0)      # absent -> SINUS rate
+    assert w[rc.CLASS_NAMES.index('SVT')] == pytest.approx(1.0)       # under-sampled: never raised
+
+
+def test_five_classes_and_the_legacy_six():
+    assert rc.CLASS_NAMES == ['SINUS', 'AFIB', 'SVT', 'VT', 'AVB']
+    assert rc.EC57_CLASSES == ['AFIB', 'SVT', 'VT', 'AVB']
+    assert rc.EVENT_TYPE_TO_CLASS['AVB2'] == rc.EVENT_TYPE_TO_CLASS['AVB3'] == 'AVB'
+    assert rc.PHYSIONET_AUX_TO_CLASS['(BII'] == rc.PHYSIONET_AUX_TO_CLASS['(B3'] == 'AVB'
+    # labels of a 6-class build: AVB2 (4) and AVB3 (5) -> AVB (4), IGNORE untouched
+    old = np.array([[0, 1, 2, 3, 4, 5, rc.IGNORE]], np.uint8)
+    assert L.to_current_labels(old).tolist() == [[0, 1, 2, 3, 4, 4, rc.IGNORE]]
+    # probabilities of a 6-output checkpoint: the two block columns summed
+    p = np.array([[0.5, 0.1, 0.1, 0.1, 0.12, 0.08]], np.float32)
+    q = L.to_current_classes(p)
+    np.testing.assert_allclose(q, [[0.5, 0.1, 0.1, 0.1, 0.2]], atol=1e-6)
+    assert L.to_current_classes(q) is not None and L.to_current_classes(q).shape == (1, 5)
+    assert L.to_current_weights([0.2, 0.4, 0.8, 1.6, 1.7, 2.4]) == [0.2, 0.4, 0.8, 1.6, 1.7]
+    with pytest.raises(ValueError):
+        L.to_current_classes(np.zeros((1, 4)))
+
+
+def test_legacy_manifest_weights_pool_the_blocks():
+    from ecgr.rhythm import pipeline
+    m = {'class_names': rc.LEGACY_CLASS_NAMES,
+         'splits': {'train': {'seconds': {'SINUS': 1000, 'AFIB': 400, 'SVT': 100, 'VT': 30,
+                                          'AVB2': 20, 'AVB3': 10}}}}
+    assert pipeline.is_legacy(m)
+    w = pipeline.manifest_class_weights(m)
+    assert len(w) == rc.NUM_CLASSES
+    assert w[rc.CLASS_NAMES.index('AVB')] == pytest.approx(np.sqrt(100 / 30))   # median 100

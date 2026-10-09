@@ -31,6 +31,7 @@ Three stages, each re-runnable on its own:
 --sweep repeats stages 2-3 over a grid of decoding parameters (sweep_decoding).
 """
 import itertools
+import json
 import os
 import shutil
 import sys
@@ -56,7 +57,9 @@ if _is_pycharm:
     from ecgr.rhythm import config as rc
     from ecgr.rhythm import inventory, wfdb_ann
     from ecgr.rhythm.build import read_leads
-    from ecgr.rhythm.labels import decode_episodes
+    from ecgr.rhythm.labels import (decode_episodes, decode_track, episodes_from_track,
+                                    to_current_classes, to_current_weights)
+    from ecgr.rhythm import beats as beats_pp
     from ecgr.rhythm.predict import predict_signal, probs_step_hz
 else:
     # VS Code & others: keep current relative imports
@@ -65,7 +68,9 @@ else:
     from . import config as rc
     from . import inventory, wfdb_ann
     from .build import read_leads
-    from .labels import decode_episodes
+    from .labels import (decode_episodes, decode_track, episodes_from_track,
+                         to_current_classes, to_current_weights)
+    from . import beats as beats_pp
     from .predict import predict_signal, probs_step_hz
 
 # The reference product's table ("rhythm 3.0.6"), (Se, PPV), printed under our numbers.
@@ -74,7 +79,7 @@ TARGET_TABLE = {
     ('afdb', 'AFIB'): {'D': (96, 99), 'E': (81, 93)},
     ('mitdb', 'SVT'): {'D': (61, 24), 'E': (62, 19)},
     ('mitdb', 'VT'): {'D': (75, 57), 'E': (82, 58)},
-    ('mitdb', 'AVB2'): {'D': (98, 87), 'E': (100, 100)},
+    ('mitdb', 'AVB'): {'D': (98, 87), 'E': (100, 100)},      # = the AVB2 cell: mitdb has no (B3
 }
 
 RHYTHM_EVAL = 'rhythm_eval'
@@ -103,38 +108,83 @@ def probs_path(ann_dir, name):
     return os.path.join(ann_dir, f"{name}.{rc.RHYTHM_PROBS_EXTENSION}")
 
 
-def save_probs(ann_dir, name, rhythm, p_noise, fs, sig_len, step_hz=1):
+def save_probs(ann_dir, name, rhythm, p_noise, fs, sig_len, step_hz=1, beats=None):
+    """beats (beats.pick_beats dict) are stored alongside when the model has a beat output;
+    load_probs keeps its 5-tuple, load_beats reads them back."""
     os.makedirs(ann_dir, exist_ok=True)
+    extra = {}
+    if beats is not None:
+        extra = dict(beat_t=np.asarray(beats['t'], np.float32),
+                     beat_cls=np.asarray(beats['cls'], np.int8),
+                     beat_conf=np.asarray(beats['conf'], np.float16),
+                     beat_probs=np.asarray(beats['probs'], np.float16))
     np.savez(probs_path(ann_dir, name), rhythm=np.asarray(rhythm, np.float16),
              p_noise=np.asarray(p_noise, np.float16), fs=int(fs), sig_len=int(sig_len),
-             step_hz=int(step_hz))
+             step_hz=int(step_hz), **extra)
 
 
-def load_probs(ann_dir, name):
-    """(rhythm (T, 6) float32, p_noise (T,) float32, fs, sig_len, step_hz), or None if not
-    stored. step_hz = rows per second; npz files written before it existed are per second."""
+def load_beats(ann_dir, name):
+    """The stored beats {t, cls, conf, probs} of a record, or None (no npz / no beat output)."""
     path = probs_path(ann_dir, name)
     if not os.path.exists(path):
         return None
     with np.load(path) as z:
-        return (z['rhythm'].astype(np.float32), z['p_noise'].astype(np.float32),
+        if 'beat_t' not in z.files:
+            return None
+        return dict(t=z['beat_t'].astype(np.float64), cls=z['beat_cls'].astype(int),
+                    conf=z['beat_conf'].astype(np.float32),
+                    probs=z['beat_probs'].astype(np.float32))
+
+
+def load_probs(ann_dir, name):
+    """(rhythm (T, NUM_CLASSES) float32, p_noise (T,) float32, fs, sig_len, step_hz), or None
+    if not stored. step_hz = rows per second; npz files written before it existed are per
+    second; the 6-column ones of the AVB2/AVB3 models are merged to the five classes."""
+    path = probs_path(ann_dir, name)
+    if not os.path.exists(path):
+        return None
+    with np.load(path) as z:
+        return (to_current_classes(z['rhythm'].astype(np.float32)),
+                z['p_noise'].astype(np.float32),
                 int(z['fs']), int(z['sig_len']),
                 int(z['step_hz']) if 'step_hz' in z.files else 1)
 
 
 def predict_record_probs(model, path, batch_size=None):
-    """One WFDB record -> (rhythm, p_noise, fs, sig_len, step_hz); fs is the record's own."""
+    """One WFDB record -> (rhythm, p_noise, fs, sig_len, step_hz, beats); fs is the record's
+    own, beats None for a model without a beat output."""
     header = wfdb.rdheader(path)
     leads, _ratio = read_leads(path)
-    rhythm, p_noise, _windows = predict_signal(model, leads, batch_size=batch_size or 64)
-    return rhythm, p_noise, header.fs, header.sig_len, probs_step_hz(model)
+    rhythm, p_noise, _windows, beats = predict_signal(model, leads, batch_size=batch_size or 64,
+                                                      with_beats=True)
+    return rhythm, p_noise, header.fs, header.sig_len, probs_step_hz(model), beats
 
 
 def predict_record_episodes(model, path, batch_size=None):
     """One WFDB record -> (episodes, fs, length), decoded with the rc.DECODE_* defaults."""
-    rhythm, p_noise, fs, sig_len, step_hz = predict_record_probs(model, path,
-                                                                 batch_size=batch_size)
-    return decode_episodes(rhythm, p_noise, step_hz=step_hz), fs, sig_len
+    rhythm, p_noise, fs, sig_len, step_hz, beats = predict_record_probs(
+        model, path, batch_size=batch_size)
+    return decode_record(rhythm, p_noise, step_hz, beats)[0], fs, sig_len
+
+
+def decode_record(rhythm, p_noise, step_hz, beats=None, decode=None):
+    """Stage 2 of one record: labels.decode_track -> (beat stage, when beats are stored and
+    rc.DECODE_BEAT_POSTPROCESS / decode['beat_pp'] allow) -> episodes. Returns (episodes,
+    beat symbols or None). `decode` = labels.decode_episodes keyword arguments plus the
+    optional 'beat_pp' (bool) and 'beat_criteria' (rc.BEAT_PP_CRITERIA-shaped dict)."""
+    decode = dict(decode or {})
+    beat_pp = decode.pop('beat_pp', rc.DECODE_BEAT_POSTPROCESS)
+    criteria = decode.pop('beat_criteria', None)
+    options = decode.pop('beat_options', None)      # beats.default_options-shaped dict
+    if len(rhythm) == 0:
+        return [], None
+    cls, _probs = decode_track(rhythm, p_noise, step_hz=step_hz, **decode)
+    symbols = None
+    if beats is not None and beat_pp:
+        cls, symbols = beats_pp.postprocess(cls, beats, step_hz, criteria, options)
+    elif beats is not None:
+        symbols = np.asarray(beats['cls'], dtype=int)
+    return episodes_from_track(cls, rhythm, p_noise, step_hz), symbols
 
 
 # ---------------------------------------------------------------------------
@@ -149,8 +199,12 @@ def write_hypothesis(ann_dir, name, classes, decode=None):
     if stored is None:
         return None
     rhythm, p_noise, fs, sig_len, step_hz = stored
-    episodes = decode_episodes(rhythm, p_noise, step_hz=step_hz, **(decode or {}))
+    beats = load_beats(ann_dir, name)
+    episodes, symbols = decode_record(rhythm, p_noise, step_hz, beats, decode)
     wfdb_ann.write_episode_annotations(episodes, name, ann_dir, rc.RHYTHM_AI_EXTENSION, fs)
+    if beats is not None:
+        wfdb_ann.write_beat_annotations(beats['t'], symbols, name, ann_dir,
+                                        rc.RHYTHM_BEAT_AI_EXTENSION, fs)
     for cls in classes:
         _ref, hyp = rc.class_extensions(cls)
         wfdb_ann.write_class_annotations(episodes, cls, name, ann_dir, hyp, fs, sig_len // fs)
@@ -242,6 +296,47 @@ def score_classes(db_name, ec57_out, records, classes, link_record, script, quie
     return paths
 
 
+def score_beats(db_name, ec57_out, records, link_record, ref_dir, script=None, quiet=False):
+    """AAMI beat scoring (bxb + sumstats, QRS / VEB / SVEB Se and +P) of the stored beat
+    hypotheses (.RHYTHM_BEAT_AI_EXTENSION) against the records' beat reference: .atr, or the
+    database's own extension from config.EC57_BEAT_REF_EXT - afdb keeps its beats in .qrs
+    (its .atr holds only rhythm marks, against which every beat would be a false positive).
+    Only for the PhysioNet databases (rhythm_eval has no beat reference). Returns the QRS
+    report dir or None."""
+    from ..evaluation import bxb
+    ref_ext = base_config.EC57_BEAT_REF_EXT.get(db_name, 'atr')
+    ann_dir = annotation_dir(ec57_out, db_name)
+    work_dir = os.path.join(ec57_out, '_work', db_name, 'beats')
+    if os.path.isdir(work_dir):
+        shutil.rmtree(work_dir)
+    os.makedirs(work_dir)
+    scored = []
+    for name in records:
+        h = os.path.join(ann_dir, f"{name}.{rc.RHYTHM_BEAT_AI_EXTENSION}")
+        if not os.path.exists(h):
+            continue
+        ref = os.path.join(ref_dir, f"{name}.{ref_ext}")
+        if not os.path.exists(ref):
+            continue
+        link_record(name, work_dir)
+        _link(ref, os.path.join(work_dir, f"{name}.{ref_ext}"))
+        _link(h, os.path.join(work_dir, f"{name}.{rc.RHYTHM_BEAT_AI_EXTENSION}"))
+        scored.append(name)
+    if not scored:
+        return None
+    if not quiet:
+        print(f"  bxb beats: {len(scored)} records (reference .{ref_ext})")
+    report_root = os.path.join(ec57_out, 'beats')
+    bxb.run_bxb(db_name, work_dir, report_root, ref_ext, rc.RHYTHM_BEAT_AI_EXTENSION,
+                script=script or bxb.SCRIPT_FULL)
+    line = os.path.join(report_root, db_name, f"{db_name}_QRS_report_line.out")
+    if os.path.exists(line) and not quiet:
+        from ..evaluation.report import parse_report
+        row = parse_report(line)
+        print(f"  beats {db_name}: " + ' '.join(f"{k}={v}" for k, v in row.items()))
+    return os.path.join(report_root, db_name)
+
+
 def _print_db_rows(ec57_out, db_name):
     rows = [r for r in report.episode_rows(ec57_out) if r['db'] == db_name]
     for r in rows:
@@ -276,8 +371,10 @@ def physionet_records(db_name, max_records=None, include_excluded=False):
     if not os.path.isdir(src_dir):
         return src_dir, []
     skip = excluded_records(db_name, include_excluded)
+    # a record without a reference annotation (nstdb's noise-only bw / em / ma) cannot be scored
     records = sorted(f[:-4] for f in os.listdir(src_dir)
-                     if f.endswith('.dat') and f[:-4] not in skip)
+                     if f.endswith('.dat') and f[:-4] not in skip
+                     and os.path.exists(os.path.join(src_dir, f[:-4] + '.atr')))
     return src_dir, records[:max_records] if max_records else records
 
 
@@ -330,9 +427,9 @@ def score_physionet_rhythm_db(model, db_name, ec57_out, max_records=None, decode
     else:
         for i, name in enumerate(records, 1):
             try:
-                *probs, fs, sig_len, step_hz = predict_record_probs(
+                *probs, fs, sig_len, step_hz, beats = predict_record_probs(
                     model, os.path.join(src_dir, name))
-                save_probs(ann_dir, name, *probs, fs, sig_len, step_hz)
+                save_probs(ann_dir, name, *probs, fs, sig_len, step_hz, beats)
                 if i % 20 == 0 or i == len(records):
                     print(f"  {i}/{len(records)} records predicted (last: {name}, "
                           f"{sig_len // fs} s)")
@@ -347,6 +444,10 @@ def score_physionet_rhythm_db(model, db_name, ec57_out, max_records=None, decode
     paths = score_classes(db_name, ec57_out, ready, classes_for_db(db_name, classes),
                           physionet_linker(src_dir), epicmp.SCRIPT_FULL)
     _print_db_rows(ec57_out, db_name)
+    try:
+        score_beats(db_name, ec57_out, ready, physionet_linker(src_dir), src_dir)
+    except Exception as e:                       # beat scoring never blocks the rhythm report
+        print(f"  beat scoring skipped: {e}")
     return paths
 
 
@@ -434,8 +535,8 @@ def score_rhythm_eval(model, ec57_out, max_records=None, decode_only=False, clas
         for i, ev in enumerate(events, 1):
             name = eval_record_name(ev)
             try:
-                *probs, fs, sig_len, step_hz = predict_record_probs(model, ev['record'])
-                save_probs(ann_dir, name, *probs, fs, sig_len, step_hz)
+                *probs, fs, sig_len, step_hz, beats = predict_record_probs(model, ev['record'])
+                save_probs(ann_dir, name, *probs, fs, sig_len, step_hz, beats)
             except Exception as e:
                 errors += 1
                 if errors <= 3:
@@ -463,20 +564,20 @@ def score_rhythm_eval(model, ec57_out, max_records=None, decode_only=False, clas
 # The pre-sweep decode, kept as the sweep's reference row.
 BASELINE_DECODE = dict(smooth_seconds=1, noise_threshold=0.5,
                        merge_gap={c: 0 for c in rc.CLASS_NAMES[1:]},
-                       min_seconds={'AFIB': 3, 'SVT': 1, 'VT': 1, 'AVB2': 2, 'AVB3': 3})
-USER_MIN_SECONDS = {'AFIB': 7, 'SVT': 3, 'VT': 3, 'AVB2': 2, 'AVB3': 2}
-USER_MERGE_GAP = {'AFIB': 5, 'SVT': 2, 'VT': 2, 'AVB2': 3, 'AVB3': 3}
+                       min_seconds={'AFIB': 3, 'SVT': 1, 'VT': 1, 'AVB': 2})
+USER_MIN_SECONDS = {'AFIB': 7, 'SVT': 3, 'VT': 3, 'AVB': 2}
+USER_MERGE_GAP = {'AFIB': 5, 'SVT': 2, 'VT': 2, 'AVB': 3}
 # Minimum-duration presets. 'user' is the reviewed rule with "3 beats" read as 3 s; 'beats'
 # reads 3 beats at tachycardia rates as ~1 s and lifts AVB2 to 6 s: mitdb's reference VT
 # episodes have a median length of 1.8 s (51 of 60 under 3 s), its SVTA 2.4 s, while every
 # (BII episode is >= 7 s and the false AVB2 ones are short. 'baseline' is the pre-sweep decode.
 MIN_SETS = {'user': USER_MIN_SECONDS,
-            'beats': {'AFIB': 4, 'SVT': 1.5, 'VT': 1, 'AVB2': 6, 'AVB3': 3},
+            'beats': {'AFIB': 4, 'SVT': 1.5, 'VT': 1, 'AVB': 6},
             'baseline': BASELINE_DECODE['min_seconds']}
 # Smoothing presets: one width for every class, or 'split' - persistent rhythms over 5 s,
 # runs of beats 1 s (labels.smooth_probs with a dict).
 SMOOTH_SETS = {1: 1, 3: 3, 5: 5,
-               'split': {'AFIB': 5, 'AVB2': 5, 'AVB3': 5, 'SVT': 1, 'VT': 1}}
+               'split': {'AFIB': 5, 'AVB': 5, 'SVT': 1, 'VT': 1}}
 # The noise threshold is out of the grid: the gate fires on ~0.01 % of Physionet seconds.
 # prior = alpha of the prior correction (rc.DECODE_CLASS_SCALE = class_weight ** -alpha).
 DEFAULT_GRID = dict(smooth=[1, 3, 5, 'split'], noise_threshold=[0.5],
@@ -488,12 +589,22 @@ VALIDATION_GRID = dict(smooth=[1, 'split'], noise_threshold=[0.5], gap_scale=[0]
                        min_set=['baseline', 'beats'], prior=[0, 0.5, 1])
 
 
-def prior_scale(alpha):
-    """{class: class_weight ** -alpha} from the training manifest; {} for alpha 0."""
+def prior_scale(alpha, train_config=None):
+    """{class: class_weight ** -alpha}; {} for alpha 0. The weights are the EFFECTIVE ones
+    the model was trained with: `train_config` (a train_config.json path, default the
+    ECGR_RHYTHM_TRAIN_CONFIG environment variable - the stratified sampler lowers the rare
+    classes' weights), else the training manifest's."""
     if not alpha:
         return {}
-    from .pipeline import read_manifest
-    weights = read_manifest().get('class_weights') or [1.0] * rc.NUM_CLASSES
+    train_config = train_config or os.environ.get('ECGR_RHYTHM_TRAIN_CONFIG')
+    weights = None
+    if train_config and os.path.exists(train_config):
+        with open(train_config) as f:
+            weights = json.load(f).get('class_weights')
+    if weights is None:
+        from .pipeline import manifest_class_weights, read_manifest
+        weights = manifest_class_weights(read_manifest())
+    weights = to_current_weights(weights)
     return {n: float(w) ** -float(alpha) for n, w in zip(rc.CLASS_NAMES, weights)}
 
 
@@ -620,8 +731,9 @@ def sweep_decoding(ec57_out, grid=None, dbs=None, classes=None, check_db=RHYTHM_
 
 def run(checkpoint, tag, dbs=None, max_records=None, decode_only=False,
         skip_physionet=False, skip_rhythm_eval=False, classes=None, sweep=False,
-        include_excluded=False, sweep_on='ec57'):
-    """Score one rhythm checkpoint over the Physionet EC57 databases and rc.EVAL_DIR."""
+        include_excluded=False, sweep_on='ec57', decode=None):
+    """Score one rhythm checkpoint over the Physionet EC57 databases and rc.EVAL_DIR.
+    `decode` = decode_record keyword overrides (e.g. {'beat_pp': False})."""
     if _is_pycharm:
         from ecgr.training.train import setup_gpus
     else:
@@ -643,12 +755,12 @@ def run(checkpoint, tag, dbs=None, max_records=None, decode_only=False,
         for db in dbs:
             score_physionet_rhythm_db(model, db, ec57_out, max_records=max_records,
                                       decode_only=decode_only, classes=classes,
-                                      include_excluded=include_excluded)
+                                      decode=decode, include_excluded=include_excluded)
             print()
 
     if not skip_rhythm_eval:
         score_rhythm_eval(model, ec57_out, max_records=max_records, decode_only=decode_only,
-                          classes=classes)
+                          classes=classes, decode=decode)
         print()
 
     if sweep:

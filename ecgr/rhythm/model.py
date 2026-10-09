@@ -38,11 +38,15 @@ Sizes: rhythm_2m, rhythm_1m, rhythm_100k, rhythm_30k - the beat family's widths,
 import keras
 from keras import layers
 
-from ..models.layers import AdaIN, RhythmDescriptor, conv_bn_act, ssm_block
+from ..models.layers import (AdaIN, BeatProbability, RhythmDescriptor, StopGradient,
+                             conv_bn_act, ssm_block)
 from ..models.resumamba import SIZES as BEAT_SIZES
 from ..models.resumamba import build_backbone, build_context_encoder
 from . import config as rc
-from .unet import build_unet_backbone, sample_head
+from .dualunet import BUDGETS as DUAL_BUDGETS
+from .dualunet import SIZES as DUAL_SIZES
+from .dualunet import build_dual_unet_model
+from .unet import beat_head, build_unet_backbone, sample_head
 
 
 def build_rhythm_model(width=64, resu_mid=32, resu_depths=(3, 2), ssm_channels=64,
@@ -52,7 +56,8 @@ def build_rhythm_model(width=64, resu_mid=32, resu_depths=(3, 2), ssm_channels=6
                        separable=False, stem_channels=None, head_dim=None, lead_width=16,
                        lead_kernel=7, use_rhythm=True, use_context=True, backbone='resu',
                        unet_filters=None, unet_kernels=(7, 5, 5, 3), rhythm_steps=None,
-                       quality_head='lead', trunk_pools=(5, 2), name='resumamba_rhythm'):
+                       quality_head='lead', trunk_pools=(5, 2), beat_decoder=False,
+                       beat_tokens=4, name='resumamba_rhythm'):
     """(SEGMENT_SAMPLES, 3) -> {'rhythm': (steps, NUM_CLASSES), 'lead': (NUM_LEAD_CLASSES,)}.
 
     backbone='resu' is ResUMamba (ResU || Mamba), rhythm per SECOND (steps = 10).
@@ -61,6 +66,12 @@ def build_rhythm_model(width=64, resu_mid=32, resu_depths=(3, 2), ssm_channels=6
     per 20 ms with rhythm_steps = 500.
     quality_head='lead' is the window-level NOISE / CH1..CH3 output; 'noise' replaces it by
     'noise' (NOISE_SEGMENTS, 2), CLEAN / NOISE per 2 s (noise_head).
+    beat_decoder=True (UNet backbones) adds the 'beat' output (unet.beat_head, none/N/S/V per
+    enc1 step) and conditions the rhythm decoder on it through a stop-gradient: the beat
+    probabilities pooled onto the 250-step grid join the fused features before an extra SSM
+    block, and the autocorrelation of the beat-probability train (RhythmDescriptor on
+    p(beat) instead of the signal envelope - RR regularity read from the beats themselves)
+    adds `beat_tokens` tokens to the rhythm attention.
     The conditioning and the rhythm attention are shared."""
     n, c = rc.SEGMENT_SAMPLES, rc.IN_CHANNELS
     steps = rc.BACKBONE_STEPS
@@ -96,6 +107,18 @@ def build_rhythm_model(width=64, resu_mid=32, resu_depths=(3, 2), ssm_channels=6
             y = AdaIN(name=f'cond{i}_adain')([y, f_p])
             y = layers.LeakyReLU(0.1, name=f'cond{i}_act')(y)
 
+    beat = None
+    if beat_decoder:
+        if not skips:
+            raise ValueError("the beat decoder needs the UNet backbone's enc1 skip")
+        enc1 = skips[0]
+        beat = beat_head(y, enc1, separable=separable, dropout=dropout)
+        beat_sg = StopGradient(name='beat_sg')(beat)                       # (B, enc1, 4)
+        pooled_beat = layers.MaxPooling1D(enc1.shape[1] // steps, name='beat_to_grid')(beat_sg)
+        y = layers.Concatenate(name='beat_cond')([y, pooled_beat])          # (B, 250, d + 4)
+        y = conv_bn_act(y, y.shape[-1] - len(rc.BEAT_CLASSES), 1, name='beat_fuse')
+        y = ssm_block(y, y.shape[-1], state_dim, kernel_len, name='beat_ctx')
+
     if use_rhythm:
         pooled = layers.AveragePooling1D(5, name='rhythm_pool')(inp)       # 50 Hz envelope
         ac = RhythmDescriptor(step_hz=rc.SAMPLING_RATE / 5.0, channel=None,
@@ -103,6 +126,15 @@ def build_rhythm_model(width=64, resu_mid=32, resu_depths=(3, 2), ssm_channels=6
         tok = layers.Dense(rhythm_tokens * rhythm_dim, activation='relu',
                            name='rhythm_proj')(ac)
         tok = layers.Reshape((rhythm_tokens, rhythm_dim), name='rhythm_tokens')(tok)
+        if beat is not None:
+            # p(beat) per step: a spike train whose autocorrelation IS the RR structure
+            p_beat = BeatProbability(name='beat_prob')(beat_sg)
+            ac_b = RhythmDescriptor(step_hz=enc1.shape[1] / rc.SEGMENT_SECONDS, channel=0,
+                                    name='beat_ac')(p_beat)
+            tok_b = layers.Dense(beat_tokens * rhythm_dim, activation='relu',
+                                 name='beat_tok_proj')(ac_b)
+            tok_b = layers.Reshape((beat_tokens, rhythm_dim), name='beat_tokens')(tok_b)
+            tok = layers.Concatenate(axis=1, name='rhythm_all_tokens')([tok, tok_b])
         attn = layers.MultiHeadAttention(num_heads=attn_heads, key_dim=attn_key_dim,
                                          name='rhythm_mha')(query=y, value=tok, key=tok)
         y = layers.LayerNormalization(name='rhythm_ln')(layers.Add(name='rhythm_add')([y, attn]))
@@ -116,7 +148,10 @@ def build_rhythm_model(width=64, resu_mid=32, resu_depths=(3, 2), ssm_channels=6
     if skips:
         rhythm = sample_head(y, *skips, rc.NUM_CLASSES, separable=separable, dropout=dropout,
                              steps=rhythm_steps)
-        return keras.Model(inp, {'rhythm': rhythm, **quality}, name=name)
+        outputs = {'rhythm': rhythm, **quality}
+        if beat is not None:
+            outputs['beat'] = beat
+        return keras.Model(inp, outputs, name=name)
     if rhythm_steps not in (None, rc.OUTPUT_SECONDS):
         raise ValueError("only the UNet backbone emits rhythm finer than one step a second")
 
@@ -237,6 +272,31 @@ for _size in ('2m', '1m', '100k', '30k'):
                                              rhythm_steps=1250, trunk_pools=(2, 5))
     BUDGETS[f'rhythm_unet1250_{_size}'] = BUDGETS[f'rhythm_{_size}']
 
+# ... with the beat decoder and the beat-conditioned rhythm decoder: 'rhythm' (1250, 6),
+# 'noise' (5, 2), 'beat' (1250, 4). The U-Net filters give up a little for the two extra
+# blocks so every size stays under its budget.
+for _size, _unet in {'2m': dict(unet_filters=(28, 56, 80, 96)),
+                     '1m': dict(unet_filters=(28, 44, 56, 72)),
+                     '100k': dict(unet_filters=(8, 12, 16, 20), adain_channels=28),
+                     '30k': dict(unet_filters=(4, 8, 8, 12), adain_channels=12,
+                                 rhythm_dim=8, beat_tokens=2, lead_width=4)}.items():
+    SIZES[f'rhythm_unet1250b_{_size}'] = dict(SIZES[f'rhythm_unet1250_{_size}'],
+                                              beat_decoder=True, **_unet)
+    BUDGETS[f'rhythm_unet1250b_{_size}'] = BUDGETS[f'rhythm_{_size}']
+
+# ... the warm-start variant: the 1m U-Net filters UNCHANGED (32, 48, 72, 96) so every encoder
+# and U-Net tensor of a trained rhythm_unet1250_1m fits by name and shape
+# (train.init_matching; the reduced-filter 1250b_1m only inherits the stem, SSM path, context
+# branch and noise head). The beat blocks push it over the 1m budget (~1.19 M parameters).
+SIZES['rhythm_unet1250b_1mw'] = dict(SIZES['rhythm_unet1250_1m'], beat_decoder=True)
+BUDGETS['rhythm_unet1250b_1mw'] = 1_300_000
+
+# Dual U-Net (dualunet.py): shared encoder with a ventricular and an atrial (QRST-cancelled)
+# branch, three decoders - 'beat' (1250, 4), 'rhythm' (1250, 6), 'channel' (5, 4).
+for _name, _kw in DUAL_SIZES.items():
+    SIZES[_name] = dict(_kw, family='dual')
+    BUDGETS[_name] = DUAL_BUDGETS[_name]
+
 
 def rhythm_steps(model):
     """Rows of the model's 'rhythm' output per 10 s window: 10, 500 or 2500."""
@@ -253,11 +313,15 @@ def output_names(model):
 
 
 def list_models():
-    return sorted(SIZES, key=lambda n: ('unet1250' in n, 'unet500' in n, 'unet' in n,
-                                        -BUDGETS[n]))
+    return sorted(SIZES, key=lambda n: ('dual' in n, 'unet1250b' in n, 'unet1250' in n,
+                                        'unet500' in n, 'unet' in n, -BUDGETS[n]))
 
 
 def keras_name(name):
+    if name.startswith('rhythm_dual_'):
+        return f"dualunet_rhythm_{name[len('rhythm_dual_'):]}"
+    if name.startswith('rhythm_unet1250b_'):
+        return f"unetmamba1250b_rhythm_{name[len('rhythm_unet1250b_'):]}"
     if name.startswith('rhythm_unet1250_'):
         return f"unetmamba1250_rhythm_{name[len('rhythm_unet1250_'):]}"
     if name.startswith('rhythm_unet500_'):
@@ -272,4 +336,6 @@ def build(name, **kw):
         raise KeyError(f"unknown rhythm model {name!r}; available: {list_models()}")
     kwargs = dict(SIZES[name], name=keras_name(name))
     kwargs.update(kw)
+    if kwargs.pop('family', None) == 'dual':
+        return build_dual_unet_model(**kwargs)
     return build_rhythm_model(**kwargs)

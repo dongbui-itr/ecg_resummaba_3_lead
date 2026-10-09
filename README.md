@@ -1494,6 +1494,32 @@ Loss `noise` = CE theo đoạn, trọng số `NOISE_LOSS_WEIGHT = 0.5`; log `val
 và `val_noise_acc`. Predict/EC57: rhythm pool về 25 bước/giây, `p_noise` của mỗi bước = p(NOISE)
 của đoạn 2 s chứa nó (cổng `DECODE_NOISE_THRESHOLD` như cũ).
 
+**UNet-Mamba 8 ms** (`--model rhythm_unet1250_2m / 1m / 100k / 30k`, 1.949.600 / 960.088 /
+93.437 / 27.459 tham số, checkpoint `unetmamba1250_rhythm_<size>`): như họ 500 nhưng trunk pool
+(2, 5) thay vì (5, 2), nên enc1 nằm ở 1250 bước và head rhythm đi 250 → 1250 qua skip đó:
+**`rhythm (1250, 6)`** + `noise (5, 2)`. Nhãn rhythm = nhãn theo mẫu ở tâm mỗi khối 2 mẫu. Lưu ý:
+lưới chấm EC57 mặc định là 1 s (`EC57_GRID_HZ = 1`), nên biên 8 ms chỉ có giá trị khi sản phẩm
+cần biên dưới 1 s hoặc khi chấm với `ECGR_RHYTHM_EC57_GRID_HZ=25`; chưa có so sánh 500 ↔ 1250
+cùng dữ liệu cùng seed.
+
+**UNet-Mamba 8 ms + beat decoder** (`--model rhythm_unet1250b_2m / 1m / 100k / 30k`, 1.974.796 /
+983.108 / 99.181 / 24.347 tham số, checkpoint `unetmamba1250b_rhythm_<size>`, 2026-10-06): một
+encoder chung, hai decoder. **Beat decoder** (`unet.beat_head`): up 250 → 1250 ‖ enc1 → 2×conv →
+**`beat (1250, 4)`** softmax none / N / S / V mỗi 8 ms, nhãn từ `.atr` theo AAMI (L, R, B, e, j → N;
+A, a, J, S → S; V, E → V; F, Q, nhịp máy → IGNORE ±0,1 s; bản ghi không có `.atr` → IGNORE cả
+cửa sổ: PTB-XL, challenge-2020); mỗi nhịp phủ ±1 bước quanh mẫu R (`labels.beat_labels`,
+`augment.beat_targets`), loss CE trọng số `BEAT_CLASS_WEIGHTS = (0.15, 1, 4, 3)` ×
+`BEAT_LOSS_WEIGHT = 0.5`, metric `val_beat_f1` = macro F1 trên N/S/V theo bước. **Rhythm decoder
+được điều kiện hoá theo beat** qua stop-gradient (`StopGradient`, loss rhythm không kéo head
+beat): xác suất beat max-pool về lưới 250 bước ghép vào đặc trưng gộp → conv 1 → một khối SSM
+nữa (`beat_ctx`); và `RhythmDescriptor` chạy trên **chuỗi xác suất nhịp** p(beat) = 1 − p(none)
+(tự tương quan của chuỗi xung nhịp chính là cấu trúc RR: đỉnh sắc = đều, phẳng = AF) → thêm
+`beat_tokens = 4` token vào rhythm attention bên cạnh 4 token từ đường bao tín hiệu. Build ghi
+thêm `beats_<k>.npy` (n, 2500); pipeline chỉ nạp khi model có output `beat`. Lý do: FP VT/SVT trên
+mitdb là các dự đoán tự tin trên BBB (207, 212) và nhanh xoang (215) — nhãn N cho nhịp block
+nhánh và chuỗi S/V thật là tín hiệu đúng định nghĩa "≥ 3 nhịp V/S liên tiếp". Giai đoạn B (chưa
+làm): cắt đoạn TQ giữa hai R và khử template QRST để đọc hoạt động nhĩ (F/f/P).
+
 Hệ quả của output theo mẫu, xuyên suốt pipeline:
 - **Nhãn**: `build` ghi thêm `labels_samples_<k>.npy` `(n, 2500)` (`labels.sample_labels`): mẫu
   trong span loạn nhịp mang lớp đó (chồng lấn: ưu tiên như decode, VT > SVT > AFIB > AVB3 >
@@ -1604,6 +1630,66 @@ Không tham gia vào train: loss/metric train là mức giây, thô. Theo thứ 
 4. **thời lượng tối thiểu** `DECODE_MIN_EPISODE_SECONDS`: episode ngắn hơn ngưỡng của lớp nhận
    lớp của hai láng giềng khi chúng trùng nhau (2 s SVT lọt giữa AFIB → AFIB), ngược lại → SINUS;
 5. nối khoảng trống lần nữa (bước 4 có thể tạo hai đoạn cùng lớp sát nhau).
+
+**Huấn luyện v2 (2026-10-06, sau khi run 1250b từ đầu bị dừng ở epoch 11).** Chẩn đoán: beat
+decoder đã hội tụ theo nghĩa cần (3 bản ghi validation: QRS Se/+P 100/100 ở dung sai 150 ms,
+loại N/S/V đúng 99.9 %) nhưng `val_beat_f1` theo bước 8 ms chỉ 0.55; rhythm bám đúng đường
+cong baseline. Thay đổi (`train.py`, `pipeline.py`, `augment.py`, `objectives.py`):
+- **Đích beat tách "ở đâu" và "là gì"**: target `(1250, 6)` = `[heat | N S V | w_heat | w_type]`;
+  heat = Gauss σ = `BEAT_HEAT_SIGMA_STEPS` (20 ms) quanh R, loss BCE trên p(beat) = 1 − p(none)
+  (dương × `BEAT_HEAT_POS_WEIGHT`); N/S/V one-hot trong ±`BEAT_TYPE_RADIUS_STEPS` (40 ms), loss
+  CE trên xác suất N/S/V chuẩn hoá lại, chỉ trên các bước đó. `val_beat_f1` giờ là F1 loại
+  trên vùng beat; **`BeatMatchLog`** ghép beat (`pick_beats`) với R tham chiếu ở 150 ms trên
+  `BEAT_MATCH_WINDOWS` cửa sổ eval mỗi epoch → `val_beat_se / val_beat_pp / val_beat_type_f1`
+  (đúng cách bxb chấm).
+- **Batch phân tầng** (`SAMPLER=stratified`, `--sampler`): loại cửa sổ = lớp loạn nhịp hiếm nhất có
+  ≥ `STRAT_MIN_SECONDS` (ưu tiên VT > AVB3 > AVB2 > SVT > AFIB), mỗi batch 64 = SINUS 24, AFIB 12,
+  SVT 10, VT 7, AVB2 6, AVB3 5 (`STRAT_BATCH_QUOTA`), lớp lặp quá `STRAT_MAX_REPEAT` lần/epoch
+  trả phần dư cho SINUS. Trọng số lớp chia cho √(tỉ lệ lấy mẫu dày) (`train.class_weights`),
+  không bao giờ tăng; trọng số hiệu dụng lưu trong `train_config.json` và `ec57.prior_scale`
+  đọc nó qua `ECGR_RHYTHM_TRAIN_CONFIG`.
+- **Warm-start** `--init-matching <ckpt>`: mọi layer trùng tên và hình nhận trọng số (từ
+  `rhythm_unet1250_1m` sang `rhythm_unet1250b_1m`: 169/271 tensor — encoder, rhythm decoder,
+  noise head); `--freeze-epochs N` train riêng các layer mới ở `--lr`, rồi mở toàn bộ ở `--lr2`.
+- **Lịch LR cosine** (`LR_SCHEDULE=cosine`, AdamW wd 1e-4, warm-up 1 epoch, sàn 2 %) thay
+  plateau; `LogLR` ghi LR vào history.csv.
+  Với `rhythm_unet1250b_1m` (filter U-Net thu nhỏ 28/44/56/72) chỉ 169/271 tensor khớp (U-Net
+  học lại từ đầu), nên thêm **`rhythm_unet1250b_1mw`**: filter U-Net giữ nguyên 32/48/72/96 của
+  `rhythm_unet1250_1m` → 232/271 tensor khớp, chỉ 15 lớp beat mới; 1.085.884 tham số (vượt
+  ngân sách 1m một chút, budget riêng 1.3 M).
+Run `061026_rhythm_u1250b_v2` (`rhythm_unet1250b_1mw`): 22 epoch, 2 epoch đóng băng ở 1e-3
+(29 tensor beat), rồi mở toàn bộ ở 2e-4 cosine.
+
+**Tầng hậu xử lý theo nhịp (beat)** (`rhythm/beats.py`, 2026-10-06, chỉ với model có đầu ra
+`beat` — họ `rhythm_unet1250b_*`; tắt bằng `ECGR_RHYTHM_BEAT_PP=0` hoặc `ec57 --no-beat-pp`).
+Làm lại tầng 2 của pipeline Holter sản xuất (tài liệu `rhythm-post-process-analysis.md` của
+thư viện Bioflux) trên chính beat decoder của model, sửa các lỗi tài liệu đó liệt kê. Luồng:
+`predict_signal` trung bình xác suất beat (125 Hz) qua các cửa sổ chồng → `pick_beats` (cực đại
+cục bộ của 1 − p(none) > `BEAT_PICK_THRESHOLD`, khoảng trơ `BEAT_REFRACTORY_SECONDS`, nhãn N/S/V
+= argmax ±2 bước) → lưu `beat_t/beat_cls/...` trong cùng `.npz` (`ec57.load_beats`) →
+`ec57.decode_record`: `labels.decode_track` (5 bước trên) → `beats.postprocess` →
+`episodes_from_track`. `postprocess`: (1) mỗi beat nhận lớp đa số của track trong ô của nó (biên
+= trung điểm hai R); (2) chuỗi V (S) có bất kỳ beat VT (SVT) → cả chuỗi VT (SVT); (3) kiểm tra
+tiêu chí `BEAT_PP_CRITERIA` từng vùng: AFIB ≥ 3 s; VT ≥ 3 beat, ≥ 3 V liên tiếp, HR ≥ 100
+(lỗi A, J: số beat có hiệu lực, nhịp tự thất chậm không là VT); SVT ≥ 3 beat, HR ≥ 100 và
+(≥ 3 S liên tiếp, hoặc ≥ 30 % S, hoặc HR nhảy ≥ 1.25× so với 4 beat trước — SVT kéo dài mất
+tính "sớm" nên beat là N); AVB2/3 ≥ 2.5 s, HR ≤ 60 (lỗi F: chặn trên, không phải ≤ 40);
+SINUS < 5 s coi là không hợp lệ; (4) vùng không hợp lệ nhận lớp láng giềng theo luật tường
+minh (hai bên giống nhau → lớp đó; hai bên đều VT/SVT/AVB → SINUS; một bên → bên kia; còn
+lại theo `BEAT_PP_PRIORITY` AFIB > SINUS > NOISE; vùng dài ≥ `BEAT_PP_LONG_INVALID_SECONDS`
+→ SINUS — lỗi E, H: không xếp theo ID lớp, không dùng ¼ bản ghi); (5) tách VT/SVT theo beat:
+beat không phải V trong VT (không phải S và R-R > `BEAT_PP_FAST_RR_SECONDS` trong SVT) nhận lớp
+**nền xung quanh** (AFIB nếu kề AFIB, không mặc định SINUS — lỗi D), mảnh còn lại kiểm tra
+lại tiêu chí; (6) tuỳ chọn trọng tài AFIB/SVT theo cửa sổ (`BEAT_PP_AFIB_SVT_MERGE`, mặc định
+tắt; cửa sổ đóng hai phía — lỗi B, G); (7) beat S trong AFIB → N. Bước NOISE của track giữ
+nguyên; bản ghi < 3 beat trả về track cũ. Hypothesis beat (N/S/V tại R, phần mở rộng
+`RHYTHM_BEAT_AI_EXTENSION = bti`) được chấm bxb/sumstats so với `.atr` (`ec57.score_beats`,
+báo cáo `<tag>/beats/<db>/<db>_QRS_report_line.out`) — báo cáo AAMI beat cho các DB
+PhysioNet. Tiêu chí chọn trên validation (`val_beat_grid.py` trong scratchpad: lưới
+HR VT/SVT × tỉ lệ S × ngưỡng khởi phát × SINUS tối thiểu × ngưỡng vùng dài, mục tiêu tổng
+F1 episode + duration các ô ltafdb, giữ ngân sách AF giả 0.4/h), EC57 chấm một lần.
+Test: `tests/test_rhythm_beats.py` (chuỗi tổng hợp SINUS|SVT|AFIB, AFIB|SINUS<5 s|AFIB,
+VT|N|VT trong AFIB, 2 V không là VT, blip giữa SVT và VT → SINUS, ...).
 
 **Giá trị mặc định (2026-09-29)**, chọn bằng `--sweep` (`ec57.sweep_decoding`: giải mã lại từ
 npz cho từng tổ hợp smoothing {1, 3, 5, `split`} × khoảng trống {0, 1×} × bộ thời lượng tối thiểu

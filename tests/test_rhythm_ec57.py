@@ -41,6 +41,8 @@ def test_excluded_records_default_and_flag(tmp_path, monkeypatch):
     (tmp_path / 'mitdb').mkdir()
     for name in ('100', '102', '104', '201'):
         (tmp_path / 'mitdb' / f"{name}.dat").touch()
+        (tmp_path / 'mitdb' / f"{name}.atr").touch()
+    (tmp_path / 'mitdb' / 'bw.dat').touch()      # noise-only record (nstdb bw/em/ma): no .atr
     monkeypatch.setattr(config, 'PHYSIONET_DIR', str(tmp_path))
     assert ec57.physionet_records('mitdb')[1] == ['100', '201']
     assert ec57.physionet_records('mitdb', include_excluded=True)[1] == ['100', '102', '104',
@@ -79,9 +81,9 @@ def test_write_episode_annotations_skips_all_noise():
         assert not os.path.exists(os.path.join(tmp, 'rec01.rhi'))
 
 
-def test_avb2_avb3_use_explicit_non_standard_codes():
-    for name, code in (('AVB2', '(AVB2'), ('AVB3', '(AVB3')):
-        assert wfdb_ann.RHYTHM_AUX[name] == code
+def test_avb_uses_an_explicit_non_standard_code():
+    assert wfdb_ann.RHYTHM_AUX['AVB'] == '(AVB'
+    assert set(wfdb_ann.RHYTHM_AUX) == set(rc.CLASS_NAMES)
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +123,7 @@ def test_write_class_annotations_collapses_and_round_trips():
         assert [a.split('\x00')[0] for a in ann.aux_note] == ['(N', '(AFIB', '(N']
 
         # a record with none of the class is still a file: one (N, so it is scored
-        n = wfdb_ann.write_class_annotations(episodes, 'AVB3', 'rec02', tmp, 'aavb', fs, 10)
+        n = wfdb_ann.write_class_annotations(episodes, 'AVB', 'rec02', tmp, 'aavb', fs, 10)
         assert n == 1
         ann = wfdb.rdann(os.path.join(tmp, 'rec02'), 'aavb')
         assert list(ann.sample) == [0] and ann.aux_note[0].startswith('(N')
@@ -143,7 +145,7 @@ def test_atr_reference_episodes_maps_codes_strictly(tmp_path):
     # float seconds, exactly where the marks are ...
     assert [(e['rhythm'], e['start'], e['stop']) for e in episodes] == [
         ('SINUS', 10 / fs, 10 + 7 / fs), ('AFIB', 10 + 7 / fs, 20), ('AFL', 20, 30),
-        ('SINUS', 30, 40), ('VT', 40, 50), ('AVB2', 50, 60)]
+        ('SINUS', 30, 40), ('VT', 40, 50), ('AVB', 50, 60)]
     # ... and on the whole-second grid the per-class codes are what s // fs always gave
     codes = wfdb_ann.class_codes(episodes, 'AFIB', seconds, keep_afl=True, grid_hz=1)
     assert codes.tolist() == ['(N'] * 10 + ['(AFIB'] * 10 + ['(AFL'] * 10 + ['(N'] * 30
@@ -204,12 +206,12 @@ def test_parse_gross_keeps_dash_for_unscorable_classes():
 
 
 def test_summarize_episodes_one_row_per_db_and_class(tmp_path):
-    for db, cls in (('mitdb', 'AFIB'), ('mitdb', 'VT'), ('rhythm_eval', 'AVB2')):
+    for db, cls in (('mitdb', 'AFIB'), ('mitdb', 'VT'), ('rhythm_eval', 'AVB')):
         (tmp_path / db).mkdir(exist_ok=True)
         (tmp_path / db / f'{db}_{cls}_report_line.out').write_text(GROSS_FIXTURE)
     rows = report.summarize_episodes(str(tmp_path))
     assert [(r['db'], r['class']) for r in rows] == [
-        ('mitdb', 'AFIB'), ('mitdb', 'VT'), ('rhythm_eval', 'AVB2')]   # db with '_' too
+        ('mitdb', 'AFIB'), ('mitdb', 'VT'), ('rhythm_eval', 'AVB')]    # db with '_' too
     assert rows[0]['E_Se'] == '98' and rows[0]['E_F1'] == '99.0' and rows[0]['D_F1'] == '82.9'
     assert (tmp_path / 'rhythm_ec57_summary.csv').exists()
     assert report.f1_token('-', '0') == '-' and report.f1_token('0', '0') == '-'
@@ -297,3 +299,26 @@ def test_afl_counts_as_af_only_with_x(tmp_path, monkeypatch):
     assert strict['D_Se'] == grouped['D_Se'] == '100'
     assert int(strict['D_+P']) < 60 and grouped['D_+P'] == '100'
     assert ec57.epicmp_flags('VT') == ()
+
+
+def test_score_beats_reads_afdb_beats_from_qrs(tmp_path, monkeypatch):
+    """afdb's .atr holds only rhythm marks; its beats are in .qrs (config.EC57_BEAT_REF_EXT)."""
+    from ecgr.evaluation import bxb
+    seen = {}
+
+    def fake_run_bxb(db_name, work_dir, report_root, ref_ext, ai_ext, script=None):
+        seen.update(db=db_name, ref_ext=ref_ext, files=sorted(os.listdir(work_dir)))
+
+    monkeypatch.setattr(bxb, 'run_bxb', fake_run_bxb)
+    out, ref = tmp_path / 'out', tmp_path / 'ref'
+    ann = out / '_ann'
+    for db in ('afdb', 'mitdb'):
+        (ann / db).mkdir(parents=True)
+        (ann / db / f'r1.{rc.RHYTHM_BEAT_AI_EXTENSION}').write_bytes(b'x')
+    ref.mkdir()
+    for ext in ('atr', 'qrs'):
+        (ref / f'r1.{ext}').write_bytes(b'x')
+    ec57.score_beats('afdb', str(out), ['r1'], lambda name, wd: None, str(ref), quiet=True)
+    assert seen['ref_ext'] == 'qrs' and 'r1.qrs' in seen['files'] and 'r1.atr' not in seen['files']
+    ec57.score_beats('mitdb', str(out), ['r1'], lambda name, wd: None, str(ref), quiet=True)
+    assert seen['ref_ext'] == 'atr' and 'r1.atr' in seen['files']

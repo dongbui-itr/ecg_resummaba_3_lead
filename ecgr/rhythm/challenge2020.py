@@ -6,7 +6,7 @@ None of them is an EC57 database. The challenge's own copies of PTB-XL and INCAR
 and a second copy would put the same patient on both sides.
 
 Label per record (config.CHALLENGE2020_*): AF or atrial flutter -> AFIB (AFL = AF convention),
-second-degree AV block -> AVB2, complete block -> AVB3; two different classes -> skipped; the
+second-degree AV block or complete block -> AVB; two different classes -> skipped; the
 paroxysmal ones (SVT, VT) are skipped too - a record-level label cannot say where the run is;
 everything else SINUS, kept when a hard-negative code is present (sinus tachy / brady /
 arrhythmia, PACs, PVCs, bundle-branch blocks, first-degree block) or under a hash cap of plain

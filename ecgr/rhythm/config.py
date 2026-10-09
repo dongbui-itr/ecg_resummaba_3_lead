@@ -40,10 +40,16 @@ SECOND_SAMPLES = SAMPLING_RATE
 # ---------------------------------------------------------------------------
 # Classes
 # ---------------------------------------------------------------------------
-# The reference project's six rhythm classes (itr-ai-sensor_annotation-ae_ecg_classification
-# data/config_dataset.EVENT_CLASS), index == label value.
-CLASS_NAMES = ['SINUS', 'AFIB', 'SVT', 'VT', 'AVB2', 'AVB3']
+# Five rhythm classes, index == label value (2026-10-07, user decision): SINUS, AFIB (atrial
+# flutter included), SVT, VT and AVB = second- OR third-degree AV block. The reference
+# project's six (itr-ai-sensor_annotation-ae_ecg_classification data/config_dataset.EVENT_CLASS)
+# kept AVB2 and AVB3 apart; LEGACY_CLASS_NAMES is that order, which the npy shards built
+# before this date and the 6-output checkpoints still use - pipeline.load_arrays and
+# labels.to_current_classes map them onto the five (AVB2, AVB3 -> AVB).
+CLASS_NAMES = ['SINUS', 'AFIB', 'SVT', 'VT', 'AVB']
 NUM_CLASSES = len(CLASS_NAMES)
+LEGACY_CLASS_NAMES = ['SINUS', 'AFIB', 'SVT', 'VT', 'AVB2', 'AVB3']
+LEGACY_TO_CLASS = [0, 1, 2, 3, 4, 4]          # legacy label index -> CLASS_NAMES index
 SINUS = CLASS_NAMES.index('SINUS')
 IGNORE = 255                    # stored label of a second nobody vouched for (loss weight 0)
 
@@ -61,6 +67,36 @@ LEAD_NOISE = 0
 #            CLEAN_MIN_LEADS leads at >= CLEAN_SNR_DB (augment.clean_seconds, the definition
 #            that already sets the rhythm loss weight) - so CLEAN means the whole 2 s can be read.
 # and emits 'rhythm' at 20 ms: (500, NUM_CLASSES), the label of each 5-sample block's centre.
+# Beat decoder (the 'b' families, rhythm_unet1250b_*): 'beat' (BEAT_STEPS, 4) softmax per 8 ms
+# step - none / N / S / V (AAMI: L, R, B, e, j, n -> N; A, a, J, S -> S; V, E -> V). Labels
+# come from the record's .atr (portal strips, ltafdb, nsrdb, svdb, incartdb); PTB-XL and
+# Challenge 2020 have none and are IGNORE for this output. A beat labels the steps within
+# BEAT_TARGET_HALFWIDTH_STEPS of its R sample; fusion / paced / unclassifiable beats (F, Q, /, f,
+# !) and their BEAT_IGNORE_RADIUS_SECONDS neighbourhood are IGNORE. The rhythm decoder is
+# conditioned on this output (stop-gradient): where the beats are and what they are is the
+# evidence RR-regularity and ">= 3 V beats = VT" rest on.
+BEAT_CLASSES = ['none', 'N', 'S', 'V']
+BEAT_STEPS = SEGMENT_SAMPLES // 2
+BEAT_SYMBOL_TO_CLASS = {'N': 1, 'L': 1, 'R': 1, 'B': 1, 'e': 1, 'j': 1, 'n': 1,
+                        'A': 2, 'a': 2, 'J': 2, 'S': 2, 'V': 3, 'E': 3}
+BEAT_IGNORE_SYMBOLS = ('F', 'Q', '/', 'f', '!', 'r', '?')
+BEAT_TARGET_HALFWIDTH_STEPS = 1                   # (kept for the old one-hot tests / docs)
+BEAT_IGNORE_RADIUS_SECONDS = 0.1
+# 2026-10-06: the beat target separates WHERE from WHAT. Channel 0 is a Gaussian heatmap of
+# the R positions (sigma BEAT_HEAT_SIGMA_STEPS), trained with a BCE on p(beat) = 1 - p(none);
+# channels 1-3 are the N/S/V one-hot inside +-BEAT_TYPE_RADIUS_STEPS of each beat, trained
+# with a CE on the renormalised N/S/V probabilities on those steps only. The old target (one
+# hot none/N/S/V 3 steps wide) made the loss and val_beat_f1 fight over 8 ms alignment while
+# bxb tolerates 150 ms: the picked beats were already 100 % Se / +P when the step F1 said 0.55.
+BEAT_HEAT_SIGMA_STEPS = 2.5                       # 20 ms at 125 steps / s
+BEAT_TYPE_RADIUS_STEPS = 5                        # 40 ms
+BEAT_HEAT_POS_WEIGHT = 3.0                        # positives are ~6 % of the steps
+BEAT_TYPE_LOSS_WEIGHT = 1.0
+BEAT_LOSS_WEIGHT = 1.0
+BEAT_CLASS_WEIGHTS = (0.15, 1.0, 4.0, 3.0)          # none (unused), N, S, V
+BEAT_MATCH_TOLERANCE_SECONDS = 0.15               # bxb's window, for the beat-level metric
+BEAT_MATCH_WINDOWS = 2048                         # eval windows the per-epoch beat matcher sees
+
 NOISE_CLASSES = ['CLEAN', 'NOISE']
 NOISE_SEGMENTS = 5
 NOISE_SEGMENT_SECONDS = 2
@@ -84,8 +120,8 @@ EVENT_TYPE_TO_CLASS = {
     'AFIB': 'AFIB',
     'SVT': 'SVT', 'SVE_RUN': 'SVT',
     'VT': 'VT', 'VE_RUN': 'VT',
-    'AVB2': 'AVB2',
-    'AVB3': 'AVB3',
+    'AVB2': 'AVB',
+    'AVB3': 'AVB',
 }
 
 # Classes whose extent is recovered from the beat annotations when the inventory gives no
@@ -105,7 +141,7 @@ RUN_PAD_SECONDS = 0.15          # the run starts at the onset of its first QRS, 
 #              the reviewer's caliper happens to end, so "outside = SINUS" is a label that is
 #              wrong precisely where the model is least sure.
 OUTSIDE_SPAN = {'SINUS': 'sinus', 'SVT': 'sinus', 'VT': 'sinus',
-                'AFIB': 'ignore', 'AVB2': 'ignore', 'AVB3': 'ignore'}
+                'AFIB': 'ignore', 'AVB': 'ignore'}
 
 # A second takes a rhythm class when that class's spans cover at least this fraction of it.
 MIN_SECOND_COVER = 0.5
@@ -194,7 +230,7 @@ SOURCES = {
 PTBXL_DIR = os.environ.get("ECGR_PTBXL_DIR", "/media/MegaDataSet/ECG/physionet_org/ptb-xl/1.0.3")
 PTBXL_SOURCE = 'ptbxl'
 PTBXL_CODE_TO_CLASS = {'AFIB': 'AFIB', 'AFLT': 'AFIB', 'SVTAC': 'SVT', 'PSVT': 'SVT',
-                       '2AVB': 'AVB2', '3AVB': 'AVB3'}
+                       '2AVB': 'AVB', '3AVB': 'AVB'}
 PTBXL_SKIP_CODES = ('SVARR',)
 PTBXL_HARD_NEGATIVE_CODES = ('PACE', 'CLBBB', 'CRBBB', 'IVCD', 'ILBBB', 'IRBBB', 'WPW', 'STACH',
                              'SBRAD', 'SARRH', 'PVC', 'PAC', 'BIGU', 'TRIGU', '1AVB')
@@ -232,7 +268,7 @@ PHYSIONET_TRAIN_DBS = {
                      labels='sinus', twelve_lead=True),
 }
 PHYSIONET_TRAIN_CODE_TO_CLASS = {'(AFIB': 'AFIB', '(AFL': 'AFIB', '(SVTA': 'SVT', '(VT': 'VT',
-                                 '(BII': 'AVB2', '(B3': 'AVB3'}
+                                 '(BII': 'AVB', '(B3': 'AVB'}
 PHYSIONET_TRAIN_SINUS_CODES = ('(N', '(SBR', '(AB', '(B', '(T', '(PREX', '(SAB', '(BI')
 PHYSIONET_TRAIN_EVAL_FRACTION = 0.15
 PHYSIONET_TRAIN_STUDY_OFFSET = 2 * 10 ** 9
@@ -255,8 +291,8 @@ CHALLENGE2020_DIR = os.environ.get(
 CHALLENGE2020_SOURCE = 'challenge2020'
 CHALLENGE2020_SUBSETS = ('cpsc_2018', 'cpsc_2018_extra', 'georgia')
 CHALLENGE2020_CODE_TO_CLASS = {'164889003': 'AFIB', '164890007': 'AFIB',     # AF, AFL
-                               '195042002': 'AVB2', '54016002': 'AVB2',      # 2nd deg., Mobitz I
-                               '28189009': 'AVB2', '27885002': 'AVB3'}       # Mobitz II, complete
+                               '195042002': 'AVB', '54016002': 'AVB',        # 2nd deg., Mobitz I
+                               '28189009': 'AVB', '27885002': 'AVB'}         # Mobitz II, complete
 # paroxysmal classes a record label cannot place, and rhythms of no class of ours
 CHALLENGE2020_SKIP_CODES = ('426761007', '713422000', '67198005', '164895002', '111288001',
                             '164896001', '10370003', '251170000', '233917008')
@@ -278,8 +314,8 @@ TRAIN_SOURCES = list(SOURCES) + [PTBXL_SOURCE] + PHYSIONET_TRAIN_SOURCES + [CHAL
 # ltafdb (24 h, rhythm marks) carries the real prevalence of AF / SVTA / VT runs; nsrdb and
 # incartdb have no reference episodes of these classes and only count false positives.
 VALIDATION_CLASS_DBS = {'ltafdb': ['AFIB', 'SVT', 'VT'],
-                        'nsrdb': ['AFIB', 'SVT', 'VT', 'AVB2'],
-                        'incartdb': ['AFIB', 'SVT', 'VT', 'AVB2']}
+                        'nsrdb': ['AFIB', 'SVT', 'VT', 'AVB'],
+                        'incartdb': ['AFIB', 'SVT', 'VT', 'AVB']}
 VALIDATION_TARGET_CELLS = [('ltafdb', 'AFIB'), ('ltafdb', 'SVT'), ('ltafdb', 'VT')]
 
 # The SINUS group outnumbers every arrhythmia by two orders of magnitude in dataset-1/4
@@ -374,6 +410,27 @@ LEAD_SNR_CAP_DB = 30.0
 BATCH_SIZE = 64
 EPOCHS = 40
 LEARNING_RATE = 1e-3
+# Stratified batches (pipeline.make_dataset(sampler='stratified'), 2026-10-06). Uniform
+# sampling gives a 64-window batch 0.7 VT and 0.3 AVB3 windows on average (train seconds:
+# SINUS 77 %, AFIB 15.6 %, SVT 4.5 %, VT / AVB2 1 %, AVB3 0.5 %): most batches carry no
+# gradient for the rare classes and their +P swings between epochs and seeds. A window's
+# category is the rarest arrhythmia with >= STRAT_MIN_SECONDS in it (priority order below),
+# else SINUS; each batch takes STRAT_BATCH_QUOTA[category] windows (scaled to the batch size),
+# every category cycling its own shuffled permutation. A category that would be repeated more
+# than STRAT_MAX_REPEAT times per epoch gives the surplus quota to SINUS. The class weights are
+# divided by sqrt(oversampling ratio) (train.class_weights) so the prior is not corrected
+# twice, and the decode prior scale follows the EFFECTIVE weights (train_config.json).
+SAMPLER = os.environ.get("ECGR_RHYTHM_SAMPLER", "stratified")      # 'uniform' | 'stratified'
+STRAT_PRIORITY = ['VT', 'AVB', 'SVT', 'AFIB']
+STRAT_MIN_SECONDS = 2.0
+STRAT_BATCH_QUOTA = {'SINUS': 24, 'AFIB': 12, 'SVT': 10, 'VT': 7, 'AVB': 11}   # AVB = 6 + 5
+STRAT_MAX_REPEAT = 4.0
+# Learning-rate schedule: 'plateau' (ReduceLROnPlateau, the runs before 2026-10-06) or
+# 'cosine' (1 warm-up epoch, cosine to LR_FLOOR_FRACTION x lr, deterministic).
+LR_SCHEDULE = os.environ.get("ECGR_RHYTHM_LR_SCHEDULE", "cosine")
+LR_WARMUP_EPOCHS = 1
+LR_FLOOR_FRACTION = 0.02
+WEIGHT_DECAY = 1e-4
 PATIENCE = 8
 MONITOR = 'val_rhythm_f1'        # macro F1 over the six classes, per second
 # First epoch (1-indexed) allowed to write a checkpoint - best_model.keras and epochs/*.keras.
@@ -392,6 +449,7 @@ BACKBONE_STEPS = 250
 NOISY_SECOND_WEIGHT = 0.25
 LEAD_LOSS_WEIGHT = 0.5
 NOISE_LOSS_WEIGHT = 0.5          # 'noise' output of the 20 ms family
+CHANNEL_LOSS_WEIGHT = 0.5        # 'channel' output of the dual U-Net (NOISE / CH1..3 per 2 s)
 # Per-class weights for the rhythm CE. None = computed from the train split's label counts
 # ((median / count) ** 0.5, clipped to [0.2, 5]) and stored in the run's manifest.
 CLASS_WEIGHTS = None
@@ -434,9 +492,9 @@ LABEL_SMOOTHING = 0.05
 # picked on mitdb/afdb themselves - i.e. on the test set; kept in ec57.MIN_SETS / SMOOTH_SETS.
 DECODE_SMOOTH_SECONDS = 1
 DECODE_NOISE_THRESHOLD = 0.5     # p(NOISE) of the 'lead'/'noise' output above which = noise
-DECODE_PRIORITY = ['VT', 'SVT', 'AFIB', 'AVB3', 'AVB2']
-DECODE_MERGE_GAP_SECONDS = {'AFIB': 3, 'SVT': 0, 'VT': 0, 'AVB2': 0, 'AVB3': 0}
-DECODE_MIN_EPISODE_SECONDS = {'AFIB': 3, 'SVT': 1, 'VT': 1, 'AVB2': 2, 'AVB3': 3}
+DECODE_PRIORITY = ['VT', 'SVT', 'AFIB', 'AVB']
+DECODE_MERGE_GAP_SECONDS = {'AFIB': 3, 'SVT': 0, 'VT': 0, 'AVB': 0}
+DECODE_MIN_EPISODE_SECONDS = {'AFIB': 3, 'SVT': 1, 'VT': 1, 'AVB': 2}     # AVB2's old value
 # Per-class multipliers on the probabilities before smoothing/argmax, renormalised (prior
 # correction). The rhythm CE is class-weighted (manifest class_weights, SINUS 0.22 .. AVB3 2.5),
 # which multiplies a class's posterior odds by w_c / w_SINUS - up to x11 for the rare classes -
@@ -444,8 +502,13 @@ DECODE_MIN_EPISODE_SECONDS = {'AFIB': 3, 'SVT': 1, 'VT': 1, 'AVB2': 2, 'AVB3': 3
 # w_c ** -alpha undoes it (alpha = 1 exactly). These are alpha = 0.5 for the class weights of
 # the 2026-10-01 build (+ challenge-2020; ec57.prior_scale(0.5)) - RECOMPUTE after a rebuild
 # changes the weights.
-DECODE_CLASS_SCALE = {'SINUS': 2.24, 'AFIB': 1.54, 'SVT': 1.13, 'VT': 0.78, 'AVB2': 0.77,
-                      'AVB3': 0.64}
+DECODE_CLASS_SCALE = {'SINUS': 2.24, 'AFIB': 1.75, 'SVT': 1.49, 'VT': 1.21, 'AVB': 1.22}
+# ^ 2026-10-07: AVB takes AVB2's value; a 5-class model must re-derive the whole row from its
+# own effective class weights (ec57.prior_scale) on the validation sweep.
+# ^ 2026-10-06: alpha 0.5 of the EFFECTIVE class weights of rhythm_unet1250b_1mw
+# (061026_rhythm_u1250b_v2, stratified sampler lowered the rare-class weights). For the
+# uniform-sampler checkpoints (rhythm_unet1250_1m) the old values were
+# {'SINUS': 2.24, 'AFIB': 1.54, 'SVT': 1.13, 'VT': 0.78, 'AVB2': 0.77, 'AVB3': 0.64}.
 # Minimum mean probability (of the episode's own class, after the prior correction) for an
 # episode to survive; below it the episode is folded like a too-short one. {} = off.
 # AFIB floor with a 5 s AFIB gap bridge: chosen on the validation records with a false-episode
@@ -461,6 +524,41 @@ DECODE_CLASS_SCALE = {'SINUS': 2.24, 'AFIB': 1.54, 'SVT': 1.13, 'VT': 0.78, 'AVB
 # hour, well inside the 0.4 budget.
 DECODE_MIN_EPISODE_PROB = {'AFIB': 0.6}
 
+# Beat-level rhythm post-processing (rhythm/beats.py) - the production pipeline's second stage
+# (docs/rhythm-post-process-analysis.md of the Bioflux library) re-done on this model's own
+# beat decoder, with its listed defects fixed: minimum beat counts enforced (A), neighbour
+# windows closed on both sides (B), gaps tested on the rhythm not the valid mask (C),
+# non-matching beats inside VT/SVT take the surrounding rhythm instead of SINUS (D), an
+# explicit merge priority (E), an absolute long-invalid threshold instead of 1/4 record (H),
+# VT / SVT need a fast rate so slow idioventricular runs are not VT (J). Applied when the stored
+# npz carries beats (models with a 'beat' output) and DECODE_BEAT_POSTPROCESS is on.
+DECODE_BEAT_POSTPROCESS = os.environ.get("ECGR_RHYTHM_BEAT_PP", "1") != "0"
+BEAT_PICK_THRESHOLD = 0.5            # p(beat) = 1 - p(none) a local maximum must reach
+BEAT_REFRACTORY_SECONDS = 0.2        # two beats cannot be closer than this (300 bpm)
+BEAT_PP_CRITERIA = {
+    # duration = (n - 1) R-R intervals in seconds, as the production code counts it
+    'AFIB': dict(duration=3.0),
+    'VT': dict(num_beat=3, run=3, min_hr=100.0),          # run = consecutive V beats
+    'SVT': dict(num_beat=3, run=3, min_hr=100.0, min_frac=0.3, onset_ratio=1.25),
+    'AVB': dict(duration=2.5, max_hr=60.0),          # AVB2 and AVB3 had the same rule
+    'SINUS': dict(duration=8.0),     # shorter sinus islands get merged (validation grid 2026-10-06: 8 > 5 > 3)
+}
+BEAT_PP_LONG_INVALID_SECONDS = 10.0  # an invalid stretch at least this long becomes SINUS
+BEAT_PP_FAST_RR_SECONDS = 0.6        # an N beat inside SVT may stay if its R-R is this short
+BEAT_PP_AFIB_SVT_MERGE = False       # the production AFib/SVT window arbitration (off: tuned on validation)
+BEAT_PP_SVT_RATIO = 2.0              # ... SVT keeps the window when SVT time >= ratio x AF time
+BEAT_PP_PRIORITY = ['AFIB', 'SINUS', 'NOISE']   # merge target among the non-spec classes
+# A run of V (S) beats that meets the VT (SVT) criteria on its own becomes VT (SVT) even where
+# the step track said nothing - the production VES_RUN / SVES_RUN beat events, which its EC57
+# export counts as VT (SVES_RUN is commented out there). Chosen on validation (tune.py).
+BEAT_PP_RUNS_TO_RHYTHM = {'VT': False, 'SVT': False}
+# Beat symbols for bxb: S inside AFIB -> N (the reference databases label no S in AF), and an
+# S beat outside SVT is kept only when its R-R is shorter than this fraction of the median of
+# the preceding intervals (0 = no prematurity gate). Chosen on validation (tune.py).
+BEAT_PP_S_IN_AFIB_TO_N = True
+BEAT_PP_S_PREMATURITY = 0.0
+RHYTHM_BEAT_AI_EXTENSION = 'bti'     # hypothesis beat annotation (N/S/V at R) for bxb
+
 # Whole-record inference (predict.predict_signal): window hop (10 = back-to-back windows; 5 =
 # every step voted by two windows) and test-time variants averaged ('id', 'flip', 'swap').
 # The model input stays one 10 s window either way. Env overrides for the validation sweep.
@@ -470,6 +568,13 @@ DECODE_MIN_EPISODE_PROB = {'AFIB': 0.6}
 # duration F1 -4. Costs 6x the inference of the plain setting.
 PREDICT_HOP_SECONDS = float(os.environ.get("ECGR_RHYTHM_PREDICT_HOP", 5))
 PREDICT_TTA = tuple(os.environ.get("ECGR_RHYTHM_PREDICT_TTA", "id,flip,swap").split(','))
+# Where windows overlap, each window's rows are weighted by their position before averaging:
+# weight = floor + (1 - floor) * sin(pi * (row + 0.5) / rows) (a Hann-like taper, 1 at the
+# centre). 0 = off (plain mean, every table before 2026-10-08). XAI on the dual U-Net
+# (2026-10-08): per-second macro F1 92.9 at the window centre vs 86 at either edge (SVT/VT
+# -13..-20 pts), so a second near a window edge should defer to a window where it is central.
+# Combine with a smaller ECGR_RHYTHM_PREDICT_HOP so every second has a central window.
+PREDICT_TAPER_FLOOR = float(os.environ.get("ECGR_RHYTHM_PREDICT_TAPER", 0))
 
 # Per-sample models ('rhythm' output (SEGMENT_SAMPLES, NUM_CLASSES), the UNet family): whole-
 # record probabilities are kept, and decoded, at SAMPLE_PROBS_HZ steps per second - the mean of
@@ -493,7 +598,7 @@ EC57_GRID_HZ = int(os.environ.get("ECGR_RHYTHM_EC57_GRID_HZ", 1))
 RHYTHM_REF_EXTENSION = 'rhy'     # rhythm_eval: all classes in one file (human-readable)
 RHYTHM_AI_EXTENSION = 'rhi'      # prediction, all classes in one file (human-readable)
 RHYTHM_PROBS_EXTENSION = 'npz'   # raw per-second probabilities, so decoding can be re-run
-_EXTENSION_STEM = {'AVB2': 'avbii', 'AVB3': 'avbiii'}
+_EXTENSION_STEM = {'AVB2': 'avbii', 'AVB3': 'avbiii'}    # legacy names; 'AVB' -> ravb / aavb
 
 
 def class_extensions(name):
@@ -505,17 +610,19 @@ def class_extensions(name):
 # flutter, epicmp handles it in the reference), SVT is '(SVTA' only ('(NOD', '(J', '(PREX'
 # are not SVT), VT is '(VT' only ('(VFL', '(IVR' are not), AVB2 is '(BII', AVB3 is escdb's
 # '(B3' (mitdb has no third-degree block). Any other code, '(N' included, is SINUS.
-PHYSIONET_AUX_TO_CLASS = {'(AFIB': 'AFIB', '(SVTA': 'SVT', '(VT': 'VT', '(BII': 'AVB2',
-                          '(B3': 'AVB3'}
+PHYSIONET_AUX_TO_CLASS = {'(AFIB': 'AFIB', '(SVTA': 'SVT', '(VT': 'VT', '(BII': 'AVB',
+                          '(B3': 'AVB'}
 
 # Which (class, database) pairs are scored by default. mitdb/afdb for AFIB and mitdb for
 # SVT/VT/AVB2 are the reference product's table; escdb is a free extra (191 (VT, 22 (SVTA
 # episodes). nstdb/ahadb carry no scorable rhythm and are off by default (--dbs adds them).
 # The rhythm_eval holdout is scored on every class. A database with zero reference episodes
 # of a class reports '-' for Se, not an error.
-EC57_CLASSES = ['AFIB', 'SVT', 'VT', 'AVB2', 'AVB3']
+# AVB is scored against '(BII' + '(B3' together; on mitdb (no third-degree block) that is
+# exactly the old AVB2 cell, so the product's AVB2 target still applies.
+EC57_CLASSES = ['AFIB', 'SVT', 'VT', 'AVB']
 EC57_CLASS_DBS = {'AFIB': ['mitdb', 'afdb'], 'SVT': ['mitdb', 'escdb'],
-                  'VT': ['mitdb', 'escdb'], 'AVB2': ['mitdb'], 'AVB3': []}
+                  'VT': ['mitdb', 'escdb'], 'AVB': ['mitdb']}
 EC57_DEFAULT_DBS = ['mitdb', 'afdb', 'escdb']
 # Records left out of the rhythm scoring by default (`ec57 --include-paced` keeps them): the
 # four paced mitdb records, which EC57 itself excludes from beat scoring. Their rhythm is
@@ -530,7 +637,7 @@ EC57_EXCLUDE_RECORDS = {'mitdb': ['102', '104', '107', '217']}
 EC57_AFL_AS_AF = os.environ.get("ECGR_RHYTHM_EC57_AFL_AS_AF", "1") != "0"
 # The cells the decoding sweep optimises (mean F1 over Duration + Episode of each).
 EC57_TARGET_CELLS = [('mitdb', 'AFIB'), ('afdb', 'AFIB'), ('mitdb', 'SVT'), ('mitdb', 'VT'),
-                     ('mitdb', 'AVB2')]
+                     ('mitdb', 'AVB')]
 
 WORKERS = base.WORKERS
 

@@ -9,6 +9,8 @@
     python -m ecgr.rhythm predict  --checkpoint best_model.keras --record path/to/rec [...]
     python -m ecgr.rhythm ec57     --checkpoint best_model.keras --tag mytag [...]
     python -m ecgr.rhythm ec57     --tag mytag --decode-only [--sweep]   # from the stored npz
+    python -m ecgr.rhythm xai      --checkpoint best_model.keras [--explain rec:second[:CLASS]]
+    python -m ecgr.rhythm xai-web  --checkpoint best_model.keras [--port 8777] [--ec57-out DIR]
 """
 import argparse
 import sys
@@ -45,6 +47,18 @@ def build_parser():
     t.add_argument('--backbone-from', default=None,
                    help='backbone from a BEAT checkpoint (.keras) or ssl_backbone.weights.h5 '
                         'of the same size')
+    t.add_argument('--init-matching', default=None,
+                   help='warm start: every layer with the same name and shapes in this '
+                        'rhythm checkpoint takes its weights (e.g. rhythm_unet1250_1m -> '
+                        'rhythm_unet1250b_1m: encoder, rhythm decoder, noise head)')
+    t.add_argument('--freeze-epochs', type=int, default=0,
+                   help='with --init-matching: epochs training only the new layers at --lr '
+                        'before everything trains at --lr2')
+    t.add_argument('--lr2', type=float, default=None, help='phase-2 learning rate (lr / 5)')
+    t.add_argument('--sampler', choices=['uniform', 'stratified'], default=None,
+                   help=f'batch composition (default rc.SAMPLER = {rc.SAMPLER})')
+    t.add_argument('--schedule', choices=['plateau', 'cosine'], default=None,
+                   help=f'learning-rate schedule (default rc.LR_SCHEDULE = {rc.LR_SCHEDULE})')
 
     e = sub.add_parser('eval', help='score a checkpoint (default: the rhythm test set)')
     e.add_argument('--checkpoint', required=True)
@@ -85,7 +99,40 @@ def build_parser():
                    help="cells the sweep optimises: the EC57 target table, or the held-out "
                         "non-EC57 records (rc.VALIDATION_TARGET_CELLS; use with "
                         "--dbs ltafdb nsrdb incartdb --skip-rhythm-eval)")
+    x.add_argument('--no-beat-pp', dest='beat_pp', action='store_false', default=None,
+                   help='decode from the step track only, skipping the beat-level rhythm '
+                        'post-processing (rhythm/beats.py) even when beats are stored - '
+                        'for the A/B against the model with a beat decoder')
     x.add_argument('--skip-physionet', action='store_true')
+
+    z = sub.add_parser('xai', help='explain a dual U-Net checkpoint: layer probes, layer '
+                                   'statistics, inference-time sweeps, per-second attributions')
+    z.add_argument('--checkpoint', required=True)
+    z.add_argument('--out', default=None, help='report folder (default <run>/xai/<checkpoint stem>)')
+    z.add_argument('--parts', nargs='*', default=['probe', 'layers', 'experiment', 'explain'],
+                   choices=['probe', 'layers', 'experiment', 'explain'])
+    z.add_argument('--split', default='eval', choices=['train', 'eval', 'test'])
+    z.add_argument('--per-class', type=int, default=300, help='windows per class category')
+    z.add_argument('--explain', nargs='*', default=[],
+                   help="record paths with a second and optional class: "
+                        "'/path/mitdb/223:1200' or '/path/mitdb/223:1200:VT'")
+    z.add_argument('--explain-ec57', default=None,
+                   help='an EC57 output folder (<run>/ec57/<tag>): explain the longest false '
+                        'positive / negative stretch of every class on mitdb')
+    z.add_argument('--explain-top', type=int, default=2)
+
+    w = sub.add_parser('xai-web', help='interactive XAI web service: edit the input, apply layer '
+                                       'interventions, see layer heatmaps and the output')
+    w.add_argument('--checkpoint', required=True)
+    w.add_argument('--host', default='0.0.0.0')
+    w.add_argument('--port', type=int, default=8777)
+    w.add_argument('--ec57-out', default=None,
+                   help='an EC57 output folder (<run>/ec57/<tag>): whole-record prediction '
+                        'strip and the EC57 error-source finding')
+    w.add_argument('--xai-report', default=None,
+                   help='xai_report.json of `xai` (error sources without re-reading EC57)')
+    w.add_argument('--gpu', action='store_true', help='use the GPU (default CPU: it is shared '
+                                                      'with training)')
     x.add_argument('--skip-rhythm-eval', action='store_true')
     return p
 
@@ -98,6 +145,9 @@ def list_ec57_dbs():
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
+    if args.stage == 'xai-web' and not args.gpu:
+        import os
+        os.environ['CUDA_VISIBLE_DEVICES'] = ''          # before TensorFlow initialises the GPU
     from . import config as rc
 
     if args.stage == 'config':
@@ -121,6 +171,8 @@ def main(argv=None):
         train(args.model, epochs=args.epochs, batch_size=args.batch_size, lr=args.lr,
               patience=args.patience, steps_per_epoch=args.steps_per_epoch,
               max_windows=args.max_windows, init_from=args.init_from,
+              init_matching_from=args.init_matching, freeze_epochs=args.freeze_epochs,
+              lr2=args.lr2, sampler=args.sampler, schedule=args.schedule,
               backbone_from=args.backbone_from)
     elif args.stage == 'eval':
         from .evaluate import DEFAULT_SNRS, evaluate
@@ -137,19 +189,39 @@ def main(argv=None):
             print(f"{path}: {windows[-1]['stop'] if windows else 0} s")
             print("  windows: " + ' '.join(
                 f"{w['start']}-{w['stop']}:" + (w['lead'] if 'lead' in w else
+                                                 '/'.join(w['channel']) if 'channel' in w else
                                                  'p_noise=' + '/'.join(f"{v:.2f}"
                                                                        for v in w['noise']))
                 for w in windows))
             for ep in episodes:
                 print(f"  {ep['start']:>7g}-{ep['stop']:<7g} {ep['rhythm']:6s} "
                       f"p={ep['prob']:.2f}")
+    elif args.stage == 'xai':
+        import os
+        from .xai import run_all
+        items = []
+        for e in args.explain:
+            parts = e.split(':')
+            cls = rc.CLASS_NAMES.index(parts[2]) if len(parts) > 2 else None
+            items.append((parts[0], int(parts[1]), cls))
+        if args.explain_ec57:
+            from .xai import ec57_error_seconds
+            items += ec57_error_seconds(args.explain_ec57, top=args.explain_top)
+        out = args.out or os.path.join(rc.RUN_DIR, 'xai')
+        run_all(args.checkpoint, out, parts=tuple(args.parts), split=args.split,
+                per_class=args.per_class, explain_items=items, ec57_out=args.explain_ec57)
+    elif args.stage == 'xai-web':
+        from .xai_web import serve
+        serve(args.checkpoint, host=args.host, port=args.port, ec57_out=args.ec57_out,
+              xai_report=args.xai_report)
     elif args.stage == 'ec57':
         from .ec57 import run
         run(args.checkpoint, args.tag or rc.RUN_TAG, dbs=args.dbs, classes=args.classes,
             max_records=args.max_records, decode_only=args.decode_only,
             skip_physionet=args.skip_physionet, skip_rhythm_eval=args.skip_rhythm_eval,
             sweep=args.sweep, include_excluded=args.include_excluded,
-            sweep_on=args.sweep_on)
+            sweep_on=args.sweep_on,
+            decode=None if args.beat_pp is None else {'beat_pp': args.beat_pp})
     return 0
 
 

@@ -4,6 +4,8 @@
           | loss weight of that second (augment.targets); prediction (batch, 10, NUM_CLASSES)
 'lead'    target (batch, NUM_LEAD_CLASSES) one-hot; prediction the same shape
 'noise'   target (batch, NOISE_SEGMENTS, 2) one-hot CLEAN / NOISE; prediction the same shape
+'channel' target (batch, NOISE_SEGMENTS, NUM_LEAD_CLASSES) one-hot NOISE / CH1..CH3 per 2 s
+          segment (the dual U-Net); loss lead_loss, metric LeadConfusion
 
 The weight rides inside the rhythm target rather than as a Keras sample_weight because it is
 per SECOND: 0 on an IGNORE second, NOISY_SECOND_WEIGHT on a noisy one, 1 otherwise.
@@ -36,6 +38,35 @@ def rhythm_loss(class_weights=None, label_smoothing=None):
 def lead_loss(label_smoothing=None):
     ls = rc.LABEL_SMOOTHING if label_smoothing is None else label_smoothing
     return keras.losses.CategoricalCrossentropy(label_smoothing=ls, name='lead_loss')
+
+
+def beat_loss(class_weights=None, label_smoothing=None):
+    """'beat' target (batch, BEAT_STEPS, 6) = [heat | N S V | w_heat | w_type]; prediction
+    (batch, BEAT_STEPS, 4) softmax none/N/S/V. Per step:
+      w_heat * BCE(heat, p(beat) = 1 - p(none))  (positives x BEAT_HEAT_POS_WEIGHT)
+    + w_type * BEAT_TYPE_LOSS_WEIGHT * class_weight * CE(N/S/V one-hot, p(N/S/V) renormalised)
+    Where and what are learnt by different terms, so neither fights the other over 8 ms."""
+    nb = len(rc.BEAT_CLASSES)
+    cw = class_weights if class_weights is not None else [1.0] * nb
+    w = tf.constant(list(cw)[1:], tf.float32)                            # N, S, V
+    ls = rc.LABEL_SMOOTHING if label_smoothing is None else label_smoothing
+    pos_w = float(rc.BEAT_HEAT_POS_WEIGHT)
+    type_w = float(rc.BEAT_TYPE_LOSS_WEIGHT)
+
+    def loss(y_true, y_pred):
+        heat, onehot = y_true[..., 0], y_true[..., 1:nb]
+        w_heat, w_type = y_true[..., nb], y_true[..., nb + 1]
+        p = tf.clip_by_value(y_pred, 1e-6, 1.0)
+        p_none = p[..., 0]
+        p_beat = tf.clip_by_value(1.0 - p_none, 1e-6, 1.0)
+        bce = -(pos_w * heat * tf.math.log(p_beat) + (1.0 - heat) * tf.math.log(p_none))
+        q = p[..., 1:] / tf.reduce_sum(p[..., 1:], axis=-1, keepdims=True)
+        q = tf.clip_by_value(q, 1e-6, 1.0)
+        target = onehot * (1.0 - ls) + ls / (nb - 1)
+        ce = -tf.reduce_sum(target * tf.math.log(q), axis=-1) * tf.reduce_sum(onehot * w, axis=-1)
+        return w_heat * bce + type_w * w_type * ce
+    loss.__name__ = 'beat_loss'
+    return loss
 
 
 def noise_loss(label_smoothing=None):
@@ -87,7 +118,8 @@ class RhythmF1(keras.metrics.Metric):
 
 @keras.saving.register_keras_serializable(package=PKG)
 class LeadConfusion(keras.metrics.Metric):
-    """Window-level confusion of the 'lead' output. result(): F1 of NOISE, or the accuracy."""
+    """Confusion of the 'lead' output (per window) or the 'channel' output (per 2 s segment:
+    every segment is one count). result(): F1 of NOISE, or the accuracy."""
 
     def __init__(self, name='noise_f1', mode='noise_f1', **kw):
         super().__init__(name=name, **kw)
@@ -97,7 +129,8 @@ class LeadConfusion(keras.metrics.Metric):
 
     def update_state(self, y_true, y_pred, sample_weight=None):
         self.cm.assign_add(tf.math.confusion_matrix(
-            tf.argmax(y_true, axis=-1), tf.argmax(y_pred, axis=-1),
+            tf.reshape(tf.argmax(y_true, axis=-1), [-1]),
+            tf.reshape(tf.argmax(y_pred, axis=-1), [-1]),
             num_classes=rc.NUM_LEAD_CLASSES, dtype='int64'))
 
     def result(self):
@@ -117,6 +150,38 @@ class LeadConfusion(keras.metrics.Metric):
 
     def get_config(self):
         return {**super().get_config(), 'mode': self.mode}
+
+
+@keras.saving.register_keras_serializable(package=PKG)
+class BeatF1(keras.metrics.Metric):
+    """Type confusion of the 'beat' output on the TYPED steps (w_type > 0, +-40 ms around each
+    annotated beat): reference N/S/V against the argmax of the N/S/V probabilities. result() is
+    the macro F1 over N, S, V (the classes present) - what the beat is, not where to 8 ms;
+    the beat-level Se / +P at 150 ms come from train.BeatMatchLog. Row / column 0 stay 0."""
+
+    def __init__(self, name='f1', **kw):
+        super().__init__(name=name, **kw)
+        nb = len(rc.BEAT_CLASSES)
+        self.cm = self.add_weight(shape=(nb, nb), initializer='zeros', name='cm', dtype='int64')
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        nb = len(rc.BEAT_CLASSES)
+        valid = y_true[..., nb + 1] > 0
+        truth = tf.boolean_mask(tf.argmax(y_true[..., 1:nb], axis=-1), valid) + 1
+        pred = tf.boolean_mask(tf.argmax(y_pred[..., 1:], axis=-1), valid) + 1
+        self.cm.assign_add(tf.math.confusion_matrix(truth, pred, num_classes=nb, dtype='int64'))
+
+    def result(self):
+        f1 = _f1(self.cm)[1:]
+        support = tf.reduce_sum(self.cm, axis=1)[1:] > 0
+        return tf.math.divide_no_nan(tf.reduce_sum(tf.boolean_mask(f1, support)),
+                                     tf.reduce_sum(tf.cast(support, tf.float32)))
+
+    def matrix(self):
+        return self.cm.numpy()
+
+    def reset_state(self):
+        self.cm.assign(tf.zeros_like(self.cm))
 
 
 @keras.saving.register_keras_serializable(package=PKG)

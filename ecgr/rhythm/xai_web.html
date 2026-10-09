@@ -1,0 +1,1031 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rhythm XAI Lab</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #1d2330; --muted: #667085; --line: #d9dde5;
+  --accent: #2a6fdb; --accent-ink: #ffffff; --grid: #eef0f4; --ecg: #222733; --ecg2: #9aa3b2;
+  --ok: #1f8a4c; --warn: #b7791f; --bad: #c0392b; --chip: #eef2f8; --hl: rgba(255, 196, 0, .22);
+  --c0: #3b8a5a; --c1: #e07b00; --c2: #2a6fdb; --c3: #d1343b; --c4: #8e5bd6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12151b; --panel: #1a1e26; --ink: #e6e9ef; --muted: #98a2b3; --line: #2c323d;
+    --accent: #5b93f0; --accent-ink: #0b0d11; --grid: #232833; --ecg: #e6e9ef; --ecg2: #6b7385;
+    --chip: #232a36; --hl: rgba(255, 196, 0, .16);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12151b; --panel: #1a1e26; --ink: #e6e9ef; --muted: #98a2b3; --line: #2c323d;
+  --accent: #5b93f0; --accent-ink: #0b0d11; --grid: #232833; --ecg: #e6e9ef; --ecg2: #6b7385;
+  --chip: #232a36; --hl: rgba(255, 196, 0, .16);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 13px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { display: flex; align-items: center; gap: 12px; padding: 8px 16px; border-bottom: 1px solid var(--line);
+  background: var(--panel); position: sticky; top: 0; z-index: 20; }
+header h1 { font-size: 15px; margin: 0; font-weight: 650; }
+header .ck { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+#status { font-size: 12px; color: var(--muted); white-space: nowrap; }
+#status.busy::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 50%;
+  border: 2px solid var(--accent); border-right-color: transparent; animation: spin .8s linear infinite; vertical-align: -1px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.layout { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 12px; padding: 12px 16px; }
+@media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } aside { position: static !important; max-height: none !important; } }
+aside { position: sticky; top: 52px; align-self: start; max-height: calc(100vh - 64px); overflow: auto; padding-right: 4px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+.card h2 { font-size: 13px; margin: 0 0 8px; font-weight: 650; display: flex; align-items: center; gap: 8px; }
+.card h2 .sub { font-weight: 400; color: var(--muted); font-size: 12px; }
+.row { display: flex; align-items: center; gap: 6px; margin: 4px 0; flex-wrap: wrap; }
+.row label { color: var(--muted); }
+input[type=number] { width: 70px; }
+input, select, button { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 5px; padding: 3px 6px; }
+input[type=range] { padding: 0; flex: 1; min-width: 80px; accent-color: var(--accent); }
+input[type=checkbox] { accent-color: var(--accent); }
+button { cursor: pointer; background: var(--chip); }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+button.small { padding: 1px 6px; font-size: 12px; }
+.tabs { display: flex; gap: 4px; margin-bottom: 6px; }
+.tabs button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.edit { border-top: 1px dashed var(--line); padding: 5px 0; }
+.edit > .row:first-child label { color: var(--ink); }
+.leads { display: inline-flex; gap: 2px; }
+.leads label { font-size: 11px; color: var(--muted); }
+.hint { color: var(--muted); font-size: 11.5px; }
+.chips { display: flex; gap: 3px; flex-wrap: wrap; }
+.chips button { min-width: 26px; padding: 1px 4px; font-size: 12px; }
+.chips button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.plot { position: relative; width: 100%; }
+.plot canvas { display: block; width: 100%; }
+.cursor { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--accent); pointer-events: none; display: none; }
+.tip { position: fixed; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  padding: 6px 8px; font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.15); display: none; z-index: 50; max-width: 360px; }
+.toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; font-size: 12px; }
+.toolbar label { color: var(--muted); }
+table { border-collapse: collapse; width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; }
+th, td { padding: 3px 6px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--muted); font-weight: 600; }
+.tbl { overflow-x: auto; }
+.badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11.5px; font-weight: 650; color: #fff; }
+.b-ok { background: var(--ok); } .b-part { background: var(--warn); } .b-bad { background: var(--bad); } .b-na { background: var(--muted); }
+.legend { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; background: var(--c); vertical-align: -1px; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-bottom: 8px; }
+.kpi { border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+.kpi .v { font-size: 18px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.kpi .l { color: var(--muted); font-size: 11.5px; }
+.finding { border-top: 1px solid var(--line); padding: 6px 0; }
+.finding .claim { font-size: 12px; }
+.finding .res { font-size: 12px; color: var(--muted); margin-top: 3px; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 1200px) { .two { grid-template-columns: 1fr; } }
+.empty { color: var(--muted); padding: 30px; text-align: center; }
+details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+pre { font-size: 11px; overflow: auto; max-height: 260px; background: var(--bg); padding: 6px; border-radius: 5px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Rhythm XAI Lab</h1>
+  <div class="ck" id="ckpt">dual U-Net</div>
+  <button class="small" id="themeBtn" title="Đổi giao diện sáng/tối">◐</button>
+  <div id="status">sẵn sàng</div>
+</header>
+
+<div class="layout">
+<aside>
+  <!-- SOURCE ------------------------------------------------------------------------------>
+  <div class="card">
+    <h2>1. Input <span class="sub">window 10 s · 250 Hz · 3 lead</span></h2>
+    <div class="tabs" id="srcTabs">
+      <button data-k="record" class="on">Record</button>
+      <button data-k="eval">Eval split</button>
+      <button data-k="array">Upload</button>
+    </div>
+    <div id="src-record">
+      <div class="row"><label>DB</label><select id="db"></select>
+        <label>Record</label><select id="rec" style="flex:1"></select></div>
+      <div class="row"><label>Bắt đầu (s)</label><input type="number" id="start" value="0" min="0">
+        <button class="small" data-step="-10">−10</button><button class="small" data-step="-1">−1</button>
+        <button class="small" data-step="1">+1</button><button class="small" data-step="10">+10</button></div>
+      <div class="row"><input type="range" id="startRange" min="0" max="100" value="0"></div>
+      <div class="row"><select id="bookmarks" style="width:100%"><option value="">— Ví dụ từ md_xai.md —</option></select></div>
+    </div>
+    <div id="src-eval" hidden>
+      <div class="row"><label>Lớp</label><select id="evCat"></select>
+        <button class="small" id="evList">Lấy mẫu</button></div>
+      <div class="row"><label>Window</label><select id="evIdx" style="flex:1"></select>
+        <button class="small" id="evPrev">◀</button><button class="small" id="evNext">▶</button></div>
+    </div>
+    <div id="src-array" hidden>
+      <div class="row"><input type="file" id="upFile" accept=".csv,.txt,.tsv"></div>
+      <div class="row"><label>fs</label><input type="number" id="upFs" value="250">
+        <label><input type="checkbox" id="upTime"> cột đầu là thời gian</label></div>
+      <div class="hint">CSV: mỗi cột 1 lead (tối đa 3), mỗi dòng 1 mẫu; lấy 10 s đầu, thiếu thì đệm 0.</div>
+    </div>
+  </div>
+
+  <!-- EDITS -------------------------------------------------------------------------------->
+  <div class="card">
+    <h2>2. Chỉnh sửa input <span class="sub">trước z-score</span></h2>
+    <div class="edit" data-edit="f_wave">
+      <div class="row"><label><input type="checkbox" class="on"> Sóng f 4–8 Hz</label></div>
+      <div class="row"><label>biên độ</label><input type="range" class="p" data-p="amp" min="0" max="0.4" step="0.01" value="0.1"><span class="val"></span><span class="hint">× QRS</span></div>
+      <div class="row"><span class="leads" data-def="012"></span></div>
+    </div>
+    <div class="edit" data-edit="white">
+      <div class="row"><label><input type="checkbox" class="on"> Nhiễu trắng</label></div>
+      <div class="row"><label>SNR</label><input type="range" class="p" data-p="snr_db" min="-12" max="30" step="1" value="0"><span class="val"></span><span class="hint">dB</span></div>
+      <div class="row"><span class="leads" data-def="0"></span></div>
+    </div>
+    <div class="edit" data-edit="band">
+      <div class="row"><label><input type="checkbox" class="on"> Nhiễu dải (giống sóng f)</label></div>
+      <div class="row"><label>SNR</label><input type="range" class="p" data-p="snr_db" min="-12" max="30" step="1" value="6"><span class="val"></span><span class="hint">dB</span></div>
+      <div class="row"><label>dải</label><input type="number" class="p" data-p="lo" value="4" step="0.5" style="width:52px">–<input type="number" class="p" data-p="hi" value="9" step="0.5" style="width:52px"><span class="hint">Hz</span></div>
+      <div class="row"><span class="leads" data-def="012"></span></div>
+    </div>
+    <div class="edit" data-edit="wander">
+      <div class="row"><label><input type="checkbox" class="on"> Trôi đường nền</label></div>
+      <div class="row"><label>biên độ</label><input type="range" class="p" data-p="amp" min="0" max="2" step="0.05" value="0.5"><span class="val"></span>
+        <label>Hz</label><input type="number" class="p" data-p="hz" value="0.25" step="0.05" style="width:56px"></div>
+      <div class="row"><span class="leads" data-def="012"></span></div>
+    </div>
+    <div class="edit" data-edit="mains">
+      <div class="row"><label><input type="checkbox" class="on"> Nhiễu điện lưới</label></div>
+      <div class="row"><label>biên độ</label><input type="range" class="p" data-p="amp" min="0" max="0.5" step="0.01" value="0.1"><span class="val"></span>
+        <select class="p" data-p="hz"><option>50</option><option>60</option></select></div>
+      <div class="row"><span class="leads" data-def="012"></span></div>
+    </div>
+    <div class="edit" data-edit="flat">
+      <div class="row"><label><input type="checkbox" class="on"> Làm phẳng đoạn (mất tín hiệu)</label></div>
+      <div class="row"><label>từ</label><input type="number" class="p" data-p="from" value="4" step="0.5" style="width:56px">
+        <label>đến</label><input type="number" class="p" data-p="to" value="6" step="0.5" style="width:56px"><span class="hint">s</span></div>
+      <div class="row"><span class="leads" data-def="012"></span></div>
+    </div>
+    <div class="edit">
+      <div class="row"><label>Gain lead</label>
+        <input type="number" id="g0" value="1" step="0.25" style="width:54px">
+        <input type="number" id="g1" value="1" step="0.25" style="width:54px">
+        <input type="number" id="g2" value="1" step="0.25" style="width:54px"></div>
+      <div class="hint">0 = mất lead, âm = đảo dấu (TTA 'flip' của eval_rhythm là đảo dấu)</div>
+      <div class="row"><label>Thứ tự lead</label><select id="order">
+        <option value="0,1,2">1-2-3 (gốc)</option><option value="1,0,2">2-1-3 (TTA swap)</option>
+        <option value="2,1,0">3-2-1</option><option value="0,2,1">1-3-2</option><option value="1,2,0">2-3-1</option><option value="2,0,1">3-1-2</option></select></div>
+      <div class="row"><label><input type="checkbox" id="flip"> Đảo ngược thời gian</label></div>
+      <div class="row"><label>Seed</label><input type="number" id="seed" value="0"></div>
+    </div>
+  </div>
+
+  <!-- INTERVENTIONS ------------------------------------------------------------------------>
+  <div class="card">
+    <h2>3. Can thiệp layer <span class="sub">phản thực tế</span></h2>
+    <div class="row"><label><input type="checkbox" id="iv_atrial_off"> Nhánh A mù (residual QRST = 0)</label></div>
+    <div class="row"><label><input type="checkbox" id="iv_beat_cond_off"> Tắt điều kiện beat</label></div>
+    <div class="row"><label><input type="checkbox" id="iv_rr_mean"> RR descriptor = trung bình</label></div>
+    <div class="row"><label>SSM → identity:</label></div>
+    <div class="row" id="ssmBoxes"></div>
+    <div class="row"><label><input type="checkbox" id="iv_v_lead_uniform"> Lead weight V đều</label>
+      <label><input type="checkbox" id="iv_a_lead_uniform"> A đều</label></div>
+    <div class="row"><label>Tắt lead ở V</label><span class="leads" id="vOff" data-def=""></span>
+      <label>ở A</label><span class="leads" id="aOff" data-def=""></span></div>
+    <div class="row"><label>Nhiệt độ lead w</label><input type="range" id="iv_temp" min="0.25" max="4" step="0.25" value="1"><span id="iv_temp_v"></span></div>
+    <div class="row"><label>Cắt kernel SSM</label><input type="range" id="iv_frac" min="0.1" max="1" step="0.05" value="1"><span id="iv_frac_v"></span></div>
+    <div class="row"><label>QRST pre</label><input type="number" id="iv_qpre" step="0.02" placeholder="0.10" style="width:58px">
+      <label>post</label><input type="number" id="iv_qpost" step="0.05" placeholder="0.45" style="width:58px">
+      <label>p≥</label><input type="number" id="iv_qmin" step="0.05" placeholder="0.3" style="width:52px"></div>
+    <div class="row"><label><input type="checkbox" id="iv_atrial_donor"> residual nhĩ</label>
+      <label><input type="checkbox" id="iv_rr_donor"> RR</label><label>lấy từ eval #</label>
+      <input type="number" id="iv_donor" placeholder="index" style="width:76px"><button class="small" id="donorRnd" title="window eval ngẫu nhiên của lớp đang chọn ở tab Eval">🎲</button></div>
+    <div class="hint" id="donorHint">Donor: thay residual nhĩ / RR descriptor của window này bằng của window khác (probe 'swap').</div>
+  </div>
+
+  <!-- TARGET + RUN ------------------------------------------------------------------------->
+  <div class="card">
+    <h2>4. Mục tiêu giải thích</h2>
+    <div class="row"><label>Lớp</label><select id="tgtCls"><option value="auto">auto (argmax)</option></select>
+      <label><input type="checkbox" id="igOn" checked> IG input</label>
+      <input type="number" id="igSteps" value="16" min="4" max="64" style="width:52px"></div>
+    <div class="row"><label>Giây</label><div class="chips" id="secChips"></div></div>
+    <div class="hint">Heatmap = gradient × activation của Σ<sub>giây chọn</sub> log p(lớp). Không chọn giây = cả 10 s.</div>
+    <div class="row" style="margin-top:8px"><button class="primary" id="runBtn">Phân tích (Ctrl+Enter)</button>
+      <label><input type="checkbox" id="autoRun" checked> tự chạy khi đổi</label></div>
+  </div>
+
+  <!-- BATCH -------------------------------------------------------------------------------->
+  <div class="card">
+    <h2>5. Kiểm chứng trên nhiều window <span class="sub">eval split</span></h2>
+    <div class="row"><label>Lớp</label><select id="bCat"></select><label>n</label><input type="number" id="bN" value="100" min="5" max="600"></div>
+    <div class="row"><button id="batchBtn">Chạy cùng chỉnh sửa + can thiệp</button></div>
+    <div class="hint">Cùng mục 2 + 3, áp lên n window; so recall / F1 theo giây trước và sau.</div>
+  </div>
+
+  <!-- FINDINGS ----------------------------------------------------------------------------->
+  <div class="card">
+    <h2>6. Đánh giá các phát hiện <span class="sub">md_xai.md</span></h2>
+    <div class="row"><label>n / lớp</label><input type="number" id="fN" value="60" min="10" max="300">
+      <button class="small" id="fAll">Đo lại tất cả</button></div>
+    <div id="findings"></div>
+  </div>
+</aside>
+
+<main>
+  <div class="card" id="ovCard" hidden>
+    <h2>Toàn record <span class="sub" id="ovSub">tham chiếu (trên) · argmax đã lưu từ EC57 (dưới) · nhấp để nhảy tới giây</span></h2>
+    <div class="plot" data-kind="overview"><canvas id="cvOv" height="46"></canvas></div>
+  </div>
+
+  <div class="card">
+    <h2 id="ecgTitle">ECG <span class="sub">chọn input rồi bấm Phân tích</span></h2>
+    <div class="toolbar">
+      <label>Hiển thị</label><select id="ecgView"><option value="mod">đã sửa</option><option value="orig">gốc</option><option value="both">chồng</option></select>
+      <label>Tô màu IG</label><select id="igView"><option value="mod">đã sửa</option><option value="orig">gốc</option><option value="off">tắt</option></select>
+      <label><input type="checkbox" id="showBeats" checked> beat model</label>
+      <label><input type="checkbox" id="showRefBeats" checked> beat tham chiếu</label>
+      <div class="legend" id="clsLegend"></div>
+    </div>
+    <div class="plot" data-kind="time"><canvas id="cvEcg" height="330"></canvas><div class="cursor"></div></div>
+  </div>
+
+  <div class="card">
+    <h2>Output: p(rhythm) <span class="sub">liền = đã sửa · đứt = gốc · dải vàng = giây mục tiêu</span></h2>
+    <div class="kpis" id="kpis"></div>
+    <div class="plot" data-kind="time"><canvas id="cvProb" height="170"></canvas><div class="cursor"></div></div>
+    <div class="tbl" id="secTable"></div>
+  </div>
+
+  <div class="card">
+    <h2>Heatmap các layer theo thời gian <span class="sub">nhấp một hàng để xem kênh × thời gian</span></h2>
+    <div class="toolbar">
+      <label>Giá trị</label><select id="hmMode"><option value="rel">|grad × act|</option><option value="signed">grad × act (dấu)</option><option value="act">activation RMS</option></select>
+      <label>Lần chạy</label><select id="hmRun"><option value="mod">đã sửa</option><option value="orig">gốc</option><option value="diff">đã sửa − gốc</option></select>
+      <label>Chuẩn hoá</label><select id="hmNorm"><option value="row">theo hàng</option><option value="global">toàn bảng (log)</option></select>
+    </div>
+    <div class="plot" data-kind="time"><canvas id="cvHm" height="520"></canvas><div class="cursor"></div></div>
+    <div class="hint">Cột phải: tổng |grad×act| của layer (độ dài thanh). Layer beat head có gradient 0 vì stop_gradient giữa beat và rhythm (hàng xám).</div>
+  </div>
+
+  <div class="card" id="detailCard" hidden>
+    <h2 id="detailTitle">Layer</h2>
+    <div class="toolbar"><label>Lần chạy</label><select id="dtRun"><option value="mod">đã sửa</option><option value="orig">gốc</option></select></div>
+    <div class="two">
+      <div><div class="hint">Activation (kênh × thời gian, chuẩn hoá p1–p99)</div>
+        <div class="plot" data-kind="time"><canvas id="cvDetA" height="260"></canvas><div class="cursor"></div></div></div>
+      <div><div class="hint">grad × activation (đỏ = đẩy lên p(lớp), xanh = kéo xuống)</div>
+        <div class="plot" data-kind="time"><canvas id="cvDetR" height="260"></canvas><div class="cursor"></div></div></div>
+    </div>
+    <div class="tbl" id="topCh"></div>
+  </div>
+
+  <div class="two">
+    <div class="card">
+      <h2>Lead weight <span class="sub">liền = V stem · đứt = A stem · nhạt = gốc</span></h2>
+      <div class="plot" data-kind="time"><canvas id="cvLw" height="160"></canvas><div class="cursor"></div></div>
+    </div>
+    <div class="card">
+      <h2>Residual nhĩ (sau QRST cancel) <span class="sub">vùng xám = mặt nạ QRS</span></h2>
+      <div class="plot" data-kind="time"><canvas id="cvRes" height="160"></canvas><div class="cursor"></div></div>
+    </div>
+  </div>
+  <div class="two">
+    <div class="card">
+      <h2>Head nhiễu / kênh sạch <span class="sub">mỗi đoạn 2 s</span></h2>
+      <div class="tbl" id="chanTable"></div>
+    </div>
+    <div class="card">
+      <h2>Layer không có trục thời gian <span class="sub">RR descriptor, FiLM</span></h2>
+      <div class="plot"><canvas id="cvVec" height="150"></canvas></div>
+    </div>
+  </div>
+
+  <div class="card" id="scanCard">
+    <h2>Hiệu ứng mép window <span class="sub">trượt window qua một giây của record</span></h2>
+    <div class="row"><label>Giây của record</label><input type="number" id="scanSec" value="0">
+      <button id="scanBtn">Quét 10 vị trí</button><span class="hint">dùng can thiệp ở mục 3, không dùng chỉnh sửa tín hiệu</span></div>
+    <div class="plot"><canvas id="cvScan" height="170"></canvas></div>
+  </div>
+
+  <div class="card" id="batchCard" hidden>
+    <h2>Kết quả nhiều window <span class="sub" id="batchSub"></span></h2>
+    <div class="tbl" id="batchTable"></div>
+  </div>
+</main>
+</div>
+<div class="tip" id="tip"></div>
+
+<script>
+'use strict';
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+const S = { meta: null, src: 'record', res: null, layerSel: null, detail: null, overview: null,
+            evIdx: [], scan: null, secSel: new Set(), busy: 0, uploaded: null, records: {} };
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const clsColor = k => css('--c' + k);
+const fmt = (v, d = 2) => v == null || !isFinite(v) ? '–' : Number(v).toFixed(d);
+const pct = v => v == null || !isFinite(v) ? '–' : (100 * v).toFixed(1);
+
+// ---------------------------------------------------------------------------------- api
+async function api(path, body) {
+  setBusy(+1);
+  try {
+    const r = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.statusText);
+    return j;
+  } finally { setBusy(-1); }
+}
+function setBusy(d) {
+  S.busy += d;
+  const st = $('#status');
+  st.classList.toggle('busy', S.busy > 0);
+  if (S.busy > 0) st.textContent = 'đang tính…';
+}
+function status(t) { $('#status').textContent = t; }
+
+// ---------------------------------------------------------------------------------- canvas
+const LM = 175, RM = 70;   // left label margin, right margin (bars) - shared by every time plot
+function prep(cv) {
+  const w = cv.clientWidth, h = +cv.getAttribute('height');
+  const dpr = window.devicePixelRatio || 1;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  cv.style.height = h + 'px';
+  const g = cv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  g.font = '11px system-ui, sans-serif';
+  return { g, w, h, x0: LM, x1: w - RM, tx: t => LM + (w - RM - LM) * t / 10 };
+}
+function timeGrid(c, y0, y1) {
+  const { g, tx } = c;
+  g.strokeStyle = css('--grid'); g.lineWidth = 1;
+  for (let s = 0; s <= 10; s++) { const x = Math.round(tx(s)) + .5; g.beginPath(); g.moveTo(x, y0); g.lineTo(x, y1); g.stroke(); }
+}
+function highlightTargets(c, y0, y1) {
+  if (!S.res) return;
+  c.g.fillStyle = css('--hl');
+  for (const s of S.res.target.seconds) c.g.fillRect(c.tx(s), y0, c.tx(s + 1) - c.tx(s), y1 - y0);
+}
+function lerp(a, b, t) { return a + (b - a) * t; }
+const MAGMA = [[0,0,4],[40,11,84],[101,21,110],[159,42,99],[212,72,66],[245,125,21],[250,193,39],[252,253,191]];
+function seqColor(t) {
+  t = Math.max(0, Math.min(1, t)) * (MAGMA.length - 1);
+  const i = Math.min(MAGMA.length - 2, Math.floor(t)), f = t - i, a = MAGMA[i], b = MAGMA[i + 1];
+  return [lerp(a[0], b[0], f), lerp(a[1], b[1], f), lerp(a[2], b[2], f)];
+}
+function divColor(t) {   // t in [-1, 1]
+  t = Math.max(-1, Math.min(1, t));
+  const mid = [245, 245, 245], neg = [33, 102, 172], pos = [178, 24, 43];
+  const e = t < 0 ? neg : pos, f = Math.abs(t);
+  return [lerp(mid[0], e[0], f), lerp(mid[1], e[1], f), lerp(mid[2], e[2], f)];
+}
+function drawImage(c, rows, cols, fn, x, y, w, h) {   // fn(r, col) -> [r,g,b]
+  const img = new ImageData(cols, rows);
+  for (let r = 0; r < rows; r++) for (let k = 0; k < cols; k++) {
+    const [R, G, B] = fn(r, k), o = 4 * (r * cols + k);
+    img.data[o] = R; img.data[o + 1] = G; img.data[o + 2] = B; img.data[o + 3] = 255;
+  }
+  const off = document.createElement('canvas'); off.width = cols; off.height = rows;
+  off.getContext('2d').putImageData(img, 0, 0);
+  c.g.imageSmoothingEnabled = false;
+  c.g.drawImage(off, x, y, w, h);
+}
+
+// shared cursor across time plots
+function setupCursor() {
+  const tip = $('#tip');
+  for (const p of $$('.plot[data-kind="time"]')) {
+    p.addEventListener('mousemove', ev => {
+      const cv = p.querySelector('canvas'), r = cv.getBoundingClientRect();
+      const t = (ev.clientX - r.left - LM) / (r.width - LM - RM) * 10;
+      if (t < 0 || t > 10) { hideCursor(); return; }
+      showCursor(t);
+      const html = tipFor(cv.id, t, ev.clientY - r.top);
+      if (html) { tip.innerHTML = html; tip.style.display = 'block';
+        tip.style.left = Math.min(window.innerWidth - 370, ev.clientX + 14) + 'px'; tip.style.top = (ev.clientY + 14) + 'px'; }
+      else tip.style.display = 'none';
+    });
+    p.addEventListener('mouseleave', hideCursor);
+  }
+}
+function showCursor(t) {
+  for (const p of $$('.plot[data-kind="time"]')) {
+    const cv = p.querySelector('canvas'), cur = p.querySelector('.cursor');
+    const w = cv.clientWidth;
+    cur.style.left = (LM + (w - LM - RM) * t / 10) + 'px'; cur.style.display = 'block';
+  }
+}
+function hideCursor() { $$('.cursor').forEach(c => c.style.display = 'none'); $('#tip').style.display = 'none'; }
+function tipFor(id, t, y) {
+  const R = S.res; if (!R) return '';
+  const s = Math.min(9, Math.floor(t)), names = S.meta.classes;
+  const row = run => R.runs[run].per_second[s].map((v, k) => `<span style="color:${clsColor(k)}">${names[k]} ${fmt(v)}</span>`).join(' ');
+  let h = `<b>t = ${t.toFixed(2)} s</b> (giây ${s})`;
+  if (R.info.ref && R.info.ref[s] >= 0) h += ` · tham chiếu <b>${names[R.info.ref[s]]}</b>${R.info.ref_codes[s] ? ' ' + R.info.ref_codes[s] : ''}`;
+  h += `<br>gốc: ${row('orig')}<br>đã sửa: ${row('mod')}`;
+  if (id === 'cvHm') {
+    const L = hmRows()[Math.floor((y - 4) / hmRowH())];
+    if (L) { const i = Math.min(249, Math.floor(t * 25)); h += `<br><b>${L.name}</b> (${L.group}) |g×a| ${L.rel_profile[i].toExponential(2)} · act ${fmt(L.act_profile[i], 3)}`; }
+  }
+  return h;
+}
+
+// ---------------------------------------------------------------------------------- state -> request
+function leadsBox(el) {
+  const def = el.dataset.def || '';
+  el.innerHTML = [0, 1, 2].map(c => `<label><input type="checkbox" value="${c}" ${def.includes(String(c)) ? 'checked' : ''}>L${c + 1}</label>`).join('');
+}
+function readLeads(el) { return $$('input', el).filter(i => i.checked).map(i => +i.value); }
+function gatherEdits() {
+  const e = {};
+  for (const box of $$('.edit[data-edit]')) {
+    const k = box.dataset.edit, o = { on: $('.on', box).checked };
+    for (const p of $$('.p', box)) o[p.dataset.p] = +p.value;
+    const L = $('.leads', box); if (L) o.leads = readLeads(L);
+    e[k] = o;
+  }
+  e.gain = [+$('#g0').value, +$('#g1').value, +$('#g2').value];
+  e.order = $('#order').value.split(',').map(Number);
+  e.flip = $('#flip').checked;
+  return e;
+}
+function gatherIv() {
+  const iv = {
+    atrial_off: $('#iv_atrial_off').checked, beat_cond_off: $('#iv_beat_cond_off').checked,
+    rr_mean: $('#iv_rr_mean').checked, v_lead_uniform: $('#iv_v_lead_uniform').checked,
+    a_lead_uniform: $('#iv_a_lead_uniform').checked,
+    ssm_identity: $$('#ssmBoxes input').filter(i => i.checked).map(i => i.value),
+    lead_temperature: +$('#iv_temp').value, ssm_kernel_frac: +$('#iv_frac').value,
+  };
+  const vo = readLeads($('#vOff')), ao = readLeads($('#aOff'));
+  if (vo.length) iv.v_lead_off = vo; if (ao.length) iv.a_lead_off = ao;
+  if ($('#iv_qpre').value !== '') iv.qrst_pre = +$('#iv_qpre').value;
+  if ($('#iv_qpost').value !== '') iv.qrst_post = +$('#iv_qpost').value;
+  if ($('#iv_qmin').value !== '') iv.qrst_min_prob = +$('#iv_qmin').value;
+  const dn = $('#iv_donor').value;
+  if (dn !== '' && ($('#iv_atrial_donor').checked || $('#iv_rr_donor').checked)) {
+    iv.atrial_donor = $('#iv_atrial_donor').checked; iv.rr_donor = $('#iv_rr_donor').checked;
+    iv.donor = { kind: 'eval', index: +dn };
+  }
+  return iv;
+}
+function gatherSource() {
+  if (S.src === 'record') return { kind: 'record', db: $('#db').value, record: $('#rec').value, start: +$('#start').value };
+  if (S.src === 'eval') return { kind: 'eval', index: +$('#evIdx').value };
+  if (!S.uploaded) throw new Error('chưa tải file CSV');
+  return { kind: 'array', data: S.uploaded.data, fs: +$('#upFs').value, name: S.uploaded.name };
+}
+
+// ---------------------------------------------------------------------------------- run
+let runSeq = 0;
+async function analyze() {
+  let src;
+  try { src = gatherSource(); } catch (e) { status(e.message); return; }
+  const tc = $('#tgtCls').value;
+  const req = { source: src, edits: gatherEdits(), interventions: gatherIv(), seed: +$('#seed').value,
+    target: { cls: tc === 'auto' ? 'auto' : +tc, seconds: [...S.secSel].sort((a, b) => a - b) },
+    ig: $('#igOn').checked, ig_steps: +$('#igSteps').value };
+  const my = ++runSeq;
+  try {
+    const r = await api('/api/analyze', req);
+    if (my !== runSeq) return;
+    S.res = r;
+    status(`xong trong ${r.elapsed} s · lớp mục tiêu ${r.target.name}`);
+    if (S.layerSel && !r.runs.mod.layers.find(l => l.name === S.layerSel)) S.layerSel = null;
+    drawAll();
+    if (S.layerSel) loadDetail();
+    if (src.kind === 'record') { $('#scanSec').value = src.start + (S.res.target.seconds[0] ?? 5); drawOverview(); }
+  } catch (e) { status('lỗi: ' + e.message); }
+}
+let autoT = null;
+function autoRun() { if (!$('#autoRun').checked) return; clearTimeout(autoT); autoT = setTimeout(analyze, 450); }
+
+// ---------------------------------------------------------------------------------- drawing
+function drawAll() {
+  if (!S.res) return;
+  drawEcg(); drawProb(); drawKpis(); drawSecTable(); drawHeatmap(); drawLeadW(); drawResidual(); drawChannel(); drawVectors();
+  const I = S.res.info;
+  $('#ecgTitle').innerHTML = `ECG <span class="sub">${I.title}${S.res.flip ? ' · đã đảo thời gian (hiển thị theo thời gian thật)' : ''}</span>`;
+}
+
+function drawEcg() {
+  const cv = $('#cvEcg'), c = prep(cv), R = S.res, view = $('#ecgView').value, igv = $('#igView').value;
+  const H = c.h, band = 18, laneH = (H - band - 16) / 3;
+  timeGrid(c, 0, H - 14);
+  highlightTargets(c, 0, band);
+  // reference bar + model argmax bars
+  const names = S.meta.classes;
+  for (let s = 0; s < 10; s++) {
+    const ref = R.info.ref[s];
+    if (ref >= 0) { c.g.fillStyle = clsColor(ref); c.g.fillRect(c.tx(s) + 1, 2, c.tx(s + 1) - c.tx(s) - 2, 6); }
+    const am = R.runs.mod.argmax[s];
+    c.g.fillStyle = clsColor(am); c.g.fillRect(c.tx(s) + 1, 10, c.tx(s + 1) - c.tx(s) - 2, 6);
+  }
+  c.g.fillStyle = css('--muted'); c.g.textAlign = 'right';
+  c.g.fillText('tham chiếu', LM - 6, 9); c.g.fillText('model (sửa)', LM - 6, 18);
+  const n = 2500, ig = igv !== 'off' && R.runs[igv].ig ? R.runs[igv].ig : null;
+  let igMax = 1e-12;
+  const igSm = ig ? ig.map(a => smoothAbs(a, 9)) : null;
+  if (igSm) for (const a of igSm) for (const v of a) igMax = Math.max(igMax, v);
+  for (let L = 0; L < 3; L++) {
+    const y0 = band + 2 + L * laneH, ym = y0 + laneH / 2;
+    if (igSm) {   // IG as background shading
+      const cols = 500;
+      for (let k = 0; k < cols; k++) {
+        let m = 0; for (let i = k * 5; i < k * 5 + 5; i++) m = Math.max(m, igSm[L][i]);
+        const a = Math.pow(m / igMax, 0.7);
+        if (a < 0.03) continue;
+        c.g.fillStyle = `rgba(214, 39, 40, ${0.55 * a})`;
+        c.g.fillRect(c.tx(k / 50), y0, c.tx((k + 1) / 50) - c.tx(k / 50) + 0.5, laneH);
+      }
+    }
+    c.g.fillStyle = css('--muted'); c.g.textAlign = 'right'; c.g.fillText('lead ' + (L + 1), LM - 6, ym + 4);
+    const sigs = view === 'both' ? [['orig', css('--ecg2')], ['mod', css('--ecg')]] : [[view, css('--ecg')]];
+    for (const [k, col] of sigs) {
+      const y = R.signal[k][L];
+      let lo = Infinity, hi = -Infinity; for (const v of R.signal.mod[L]) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+      for (const v of R.signal.orig[L]) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+      const sc = (laneH - 6) / Math.max(hi - lo, 1e-6);
+      c.g.strokeStyle = col; c.g.lineWidth = 1; c.g.beginPath();
+      for (let i = 0; i < n; i++) { const X = c.tx(i / 250), Y = y0 + 3 + (hi - y[i]) * sc; i ? c.g.lineTo(X, Y) : c.g.moveTo(X, Y); }
+      c.g.stroke();
+    }
+  }
+  const bcol = { N: css('--c0'), S: css('--c2'), V: css('--c3'), Q: css('--muted') };
+  if ($('#showBeats').checked && R.runs.mod.beats) for (const b of R.runs.mod.beats) {
+    c.g.fillStyle = bcol[b.cls]; c.g.textAlign = 'center'; c.g.fillText(b.cls, c.tx(b.t), H - 3);
+  }
+  if ($('#showRefBeats').checked) for (const b of R.info.ref_beats || []) {
+    c.g.fillStyle = bcol[b.cls] || css('--muted'); c.g.textAlign = 'center';
+    c.g.beginPath(); c.g.arc(c.tx(b.t), band + 4, 2.2, 0, 7); c.g.fill();
+  }
+  c.g.fillStyle = css('--muted'); c.g.textAlign = 'left';
+  c.g.fillText('beat model ↓', c.x1 + 4, H - 3);
+}
+function smoothAbs(a, k) {
+  const out = new Float32Array(a.length), h = k >> 1; let s = 0;
+  const abs = a.map(Math.abs);
+  for (let i = 0; i < a.length; i++) { s += abs[i]; if (i - k >= 0) s -= abs[i - k]; out[Math.max(0, i - h)] = s / k; }
+  return out;
+}
+
+function drawProb() {
+  const c = prep($('#cvProb')), R = S.res, H = c.h - 14;
+  timeGrid(c, 0, H); highlightTargets(c, 0, H);
+  c.g.fillStyle = css('--muted'); c.g.textAlign = 'right';
+  for (const v of [0, .5, 1]) c.g.fillText(v.toFixed(1), LM - 6, 4 + (H - 8) * (1 - v) + 4);
+  for (const [run, dash] of [['orig', [4, 3]], ['mod', []]]) {
+    const r = R.runs[run].rhythm;
+    for (let k = 0; k < S.meta.classes.length; k++) {
+      c.g.strokeStyle = clsColor(k); c.g.lineWidth = run === 'mod' ? 1.8 : 1.2; c.g.setLineDash(dash);
+      c.g.globalAlpha = run === 'mod' ? 1 : 0.7;
+      c.g.beginPath();
+      for (let i = 0; i < r.length; i++) { const X = c.tx((i + .5) / 25), Y = 4 + (H - 8) * (1 - r[i][k]); i ? c.g.lineTo(X, Y) : c.g.moveTo(X, Y); }
+      c.g.stroke();
+    }
+  }
+  c.g.setLineDash([]); c.g.globalAlpha = 1;
+  c.g.textAlign = 'center';
+  for (let s = 0; s < 10; s++) { c.g.fillStyle = css('--muted'); c.g.fillText(s, c.tx(s + .5), c.h - 2); }
+}
+function drawKpis() {
+  const R = S.res, ps0 = R.runs.orig.per_second, ps1 = R.runs.mod.per_second, k = R.target.cls, secs = R.target.seconds;
+  let maxd = 0, changed = 0, p0 = 0, p1 = 0;
+  for (let s = 0; s < 10; s++) { for (let j = 0; j < ps0[s].length; j++) maxd = Math.max(maxd, Math.abs(ps1[s][j] - ps0[s][j]));
+    if (R.runs.orig.argmax[s] !== R.runs.mod.argmax[s]) changed++; }
+  for (const s of secs) { p0 += ps0[s][k]; p1 += ps1[s][k]; }
+  p0 /= secs.length; p1 /= secs.length;
+  let agree0 = 0, agree1 = 0, nref = 0;
+  for (let s = 0; s < 10; s++) if (R.info.ref[s] >= 0) { nref++; agree0 += R.runs.orig.argmax[s] === R.info.ref[s]; agree1 += R.runs.mod.argmax[s] === R.info.ref[s]; }
+  const kp = (v, l) => `<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`;
+  $('#kpis').innerHTML =
+    kp(`${fmt(p0)} → ${fmt(p1)}`, `p(${R.target.name}) trung bình giây mục tiêu`) +
+    kp(fmt(maxd, 3), 'max |Δp| mọi giây, mọi lớp') +
+    kp(`${changed}/10`, 'giây đổi argmax') +
+    (nref ? kp(`${agree0} → ${agree1}/${nref}`, 'giây đúng tham chiếu') : '') +
+    kp(`${fmt(R.runs.orig.objective)} → ${fmt(R.runs.mod.objective)}`, 'mục tiêu Σ log p') +
+    kp(`${R.edits_active ? 'có' : 'không'} / ${R.interventions_active ? 'có' : 'không'}`, 'chỉnh sửa / can thiệp');
+}
+function drawSecTable() {
+  const R = S.res, N = S.meta.classes;
+  const cell = (run, s) => { const k = R.runs[run].argmax[s]; return `<span style="color:${clsColor(k)};font-weight:600">${N[k]}</span> ${fmt(R.runs[run].per_second[s][k])}`; };
+  let h = '<table><tr><th>giây</th>' + [...Array(10).keys()].map(s => `<th>${s}</th>`).join('') + '</tr>';
+  h += '<tr><td>tham chiếu</td>' + R.info.ref.map(v => `<td>${v >= 0 ? `<span style="color:${clsColor(v)}">${N[v]}</span>` : '–'}</td>`).join('') + '</tr>';
+  h += '<tr><td>gốc</td>' + [...Array(10).keys()].map(s => `<td>${cell('orig', s)}</td>`).join('') + '</tr>';
+  h += '<tr><td>đã sửa</td>' + [...Array(10).keys()].map(s => `<td>${cell('mod', s)}</td>`).join('') + '</tr>';
+  h += `<tr><td>Δp(${R.target.name})</td>` + [...Array(10).keys()].map(s => {
+    const d = R.runs.mod.per_second[s][R.target.cls] - R.runs.orig.per_second[s][R.target.cls];
+    return `<td style="color:${Math.abs(d) < .05 ? css('--muted') : d > 0 ? css('--ok') : css('--bad')}">${d >= 0 ? '+' : ''}${fmt(d)}</td>`; }).join('') + '</tr></table>';
+  $('#secTable').innerHTML = h;
+}
+
+// layer x time heatmap
+function hmRows() { return S.res ? S.res.runs.mod.layers.filter(l => !l.vector) : []; }
+function hmRowH() { return 14; }
+function drawHeatmap() {
+  const cv = $('#cvHm'), rows = hmRows(), rh = hmRowH();
+  cv.setAttribute('height', 8 + rows.length * rh + 18);
+  const c = prep(cv), mode = $('#hmMode').value, run = $('#hmRun').value, norm = $('#hmNorm').value;
+  const get = (rn, i) => { const L = S.res.runs[rn].layers.find(l => l.name === rows[i].name);
+    return mode === 'rel' ? L.rel_profile : mode === 'signed' ? L.rel_signed : L.act_profile; };
+  const data = rows.map((_, i) => run === 'diff' ? get('mod', i).map((v, j) => v - get('orig', i)[j]) : get(run, i));
+  const diverging = run === 'diff' || mode === 'signed';
+  let gmax = 1e-12; for (const r of data) for (const v of r) gmax = Math.max(gmax, Math.abs(v));
+  const totals = rows.map(r => r.rel_total), tmax = Math.max(...totals, 1e-12);
+  const y0 = 4, W = c.x1 - c.x0;
+  drawImage(c, rows.length, 250, (r, k) => {
+    const L = rows[r];
+    if (L.grad_zero && mode !== 'act') return [128, 128, 128].map(v => v + 40);
+    let m = 1e-12; if (norm === 'row') for (const v of data[r]) m = Math.max(m, Math.abs(v)); else m = gmax;
+    const v = data[r][k];
+    if (diverging) return divColor(norm === 'row' ? v / m : Math.sign(v) * Math.log1p(Math.abs(v) / gmax * 1000) / Math.log1p(1000));
+    return seqColor(norm === 'row' ? v / m : Math.log1p(v / gmax * 1000) / Math.log1p(1000));
+  }, c.x0, y0, W, rows.length * rh);
+  // group separators + labels
+  c.g.textAlign = 'right';
+  let prev = '';
+  rows.forEach((L, i) => {
+    const y = y0 + i * rh;
+    if (L.group !== prev) { c.g.strokeStyle = css('--ink'); c.g.lineWidth = 1; c.g.beginPath(); c.g.moveTo(4, y + .5); c.g.lineTo(c.x1, y + .5); c.g.stroke(); prev = L.group; }
+    c.g.fillStyle = L.name === S.layerSel ? css('--accent') : css('--ink');
+    c.g.fillText(L.name, LM - 6, y + rh - 3);
+    c.g.fillStyle = css('--accent'); c.g.globalAlpha = .7;
+    c.g.fillRect(c.x1 + 4, y + 3, (RM - 8) * L.rel_total / tmax, rh - 6); c.g.globalAlpha = 1;
+  });
+  // group names on the left edge
+  c.g.save(); c.g.fillStyle = css('--muted'); c.g.textAlign = 'left'; c.g.font = '10px system-ui, sans-serif';
+  let start = 0;
+  for (let i = 1; i <= rows.length; i++) if (i === rows.length || rows[i].group !== rows[start].group) {
+    c.g.fillText(rows[start].group, 4, y0 + start * rh + 10); start = i; }
+  c.g.restore();
+  c.g.strokeStyle = css('--accent'); c.g.lineWidth = 1;
+  const sel = rows.findIndex(l => l.name === S.layerSel);
+  if (sel >= 0) c.g.strokeRect(c.x0 + .5, y0 + sel * rh + .5, W - 1, rh - 1);
+  c.g.fillStyle = css('--muted'); c.g.textAlign = 'center';
+  for (let s = 0; s <= 10; s++) c.g.fillText(s + ' s', c.tx(s), c.h - 4);
+  // target seconds markers
+  c.g.fillStyle = '#f5b700';
+  for (const s of S.res.target.seconds) c.g.fillRect(c.tx(s), c.h - 16, c.tx(s + 1) - c.tx(s), 3);
+}
+$('#cvHm').addEventListener('click', ev => {
+  const r = ev.target.getBoundingClientRect(), i = Math.floor((ev.clientY - r.top - 4) / hmRowH()), L = hmRows()[i];
+  if (L) { S.layerSel = L.name; drawHeatmap(); loadDetail(); }
+});
+async function loadDetail() {
+  if (!S.res || !S.layerSel) return;
+  try {
+    const d = await api(`/api/layer?id=${S.res.id}&name=${encodeURIComponent(S.layerSel)}&run=${$('#dtRun').value}`);
+    S.detail = d; drawDetail();
+  } catch (e) { status('lỗi: ' + e.message); }
+}
+function b64u8(s) { const b = atob(s), a = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a; }
+function drawDetail() {
+  const d = S.detail; if (!d) return;
+  $('#detailCard').hidden = false;
+  const L = S.res.runs.mod.layers.find(l => l.name === d.name);
+  $('#detailTitle').innerHTML = `${d.name} <span class="sub">${L ? L.group + ' · output ' + JSON.stringify(L.shape) : ''} · ${d.C} kênh × ${d.T} bước (${(10 / d.T * 1000).toFixed(0)} ms)</span>`;
+  const A = b64u8(d.act), Rr = b64u8(d.rel);
+  for (const [id, arr, fn] of [['#cvDetA', A, v => seqColor(v / 255)], ['#cvDetR', Rr, v => divColor((v - 127.5) / 127.5)]]) {
+    const cv = $(id); cv.setAttribute('height', Math.max(120, Math.min(420, d.C * 4 + 20)));
+    const c = prep(cv), H = c.h - 16;
+    drawImage(c, d.C, d.T, (r, k) => fn(arr[r * d.T + k]), c.x0, 2, c.x1 - c.x0, H);
+    c.g.fillStyle = css('--muted'); c.g.textAlign = 'right';
+    c.g.fillText('kênh 0', LM - 6, 12); c.g.fillText('kênh ' + (d.C - 1), LM - 6, H);
+    c.g.textAlign = 'center'; for (let s = 0; s <= 10; s += 2) c.g.fillText(s + ' s', c.tx(s), c.h - 3);
+    if (/stem|astem/.test(d.name) && !/pool/.test(d.name)) {
+      const per = d.C / 3; c.g.strokeStyle = css('--accent');
+      for (let l = 1; l < 3; l++) { const y = 2 + H * l / 3; c.g.beginPath(); c.g.moveTo(c.x0, y); c.g.lineTo(c.x1, y); c.g.stroke(); }
+      c.g.textAlign = 'right'; for (let l = 0; l < 3; l++) c.g.fillText('lead ' + (l + 1), LM - 6, 2 + H * (l + .5) / 3);
+      void per;
+    }
+  }
+  $('#topCh').innerHTML = '<table><tr><th>kênh có |grad×act| lớn nhất</th>' + d.top_channels.map(t => `<th>#${t.ch}</th>`).join('') +
+    '</tr><tr><td>Σ|g×a|</td>' + d.top_channels.map(t => `<td>${t.rel.toExponential(1)}</td>`).join('') +
+    '</tr><tr><td>Σ g×a (dấu)</td>' + d.top_channels.map(t => `<td style="color:${t.signed > 0 ? css('--bad') : '#2166ac'}">${t.signed.toExponential(1)}</td>`).join('') + '</tr></table>';
+}
+
+function drawLeadW() {
+  const c = prep($('#cvLw')), R = S.res, H = c.h - 14;
+  timeGrid(c, 0, H);
+  const cols = ['#d1343b', '#2a6fdb', '#3b8a5a'];
+  c.g.fillStyle = css('--muted'); c.g.textAlign = 'right';
+  for (const v of [0, .5, 1]) c.g.fillText(v.toFixed(1), LM - 6, 4 + (H - 8) * (1 - v) + 4);
+  for (const [run, alpha] of [['orig', .35], ['mod', 1]]) for (const [key, dash] of [['lead_w_v', []], ['lead_w_a', [5, 3]]]) {
+    const w = R.runs[run][key]; if (!w) continue;
+    for (let l = 0; l < 3; l++) {
+      c.g.strokeStyle = cols[l]; c.g.globalAlpha = alpha; c.g.setLineDash(dash); c.g.lineWidth = 1.6; c.g.beginPath();
+      for (let i = 0; i < w[l].length; i++) { const X = c.tx((i + .5) / 5), Y = 4 + (H - 8) * (1 - w[l][i]); i ? c.g.lineTo(X, Y) : c.g.moveTo(X, Y); }
+      c.g.stroke();
+    }
+  }
+  c.g.setLineDash([]); c.g.globalAlpha = 1; c.g.textAlign = 'left';
+  ['L1', 'L2', 'L3'].forEach((t, l) => { c.g.fillStyle = cols[l]; c.g.fillText(t, c.x1 + 6 + l * 20, 12); });
+}
+function drawResidual() {
+  const c = prep($('#cvRes')), R = S.res, H = c.h - 14, run = R.runs.mod;
+  timeGrid(c, 0, H);
+  if (!run.residual) return;
+  if (run.qrs_mask) { c.g.fillStyle = css('--grid');
+    for (let i = 0; i < run.qrs_mask.length; i++) if (run.qrs_mask[i] > .5) c.g.fillRect(c.tx(i / 125), 0, c.tx(1 / 125) - c.tx(0) + .5, H); }
+  const lane = H / 3;
+  for (let l = 0; l < 3; l++) {
+    const y = run.residual[l]; let m = 1e-6; for (const v of y) m = Math.max(m, Math.abs(v));
+    for (const [arr, col] of [[R.runs.orig.residual[l], css('--ecg2')], [y, css('--ecg')]]) {
+      c.g.strokeStyle = col; c.g.lineWidth = 1; c.g.beginPath();
+      for (let i = 0; i < arr.length; i++) { const X = c.tx(i / 125), Y = lane * (l + .5) - arr[i] / m * lane * .45; i ? c.g.lineTo(X, Y) : c.g.moveTo(X, Y); }
+      c.g.stroke();
+    }
+    c.g.fillStyle = css('--muted'); c.g.textAlign = 'right'; c.g.fillText('lead ' + (l + 1), LM - 6, lane * (l + .5) + 4);
+  }
+}
+function drawChannel() {
+  const R = S.res;
+  if (!R.runs.mod.channel) { $('#chanTable').innerHTML = '<div class="hint">model không có head channel</div>'; return; }
+  const lab = ['NHIỄU', 'L1 sạch nhất', 'L2 sạch nhất', 'L3 sạch nhất'];
+  let h = '<table><tr><th>đoạn</th>' + [0, 1, 2, 3, 4].map(i => `<th>${2 * i}–${2 * i + 2} s</th>`).join('') + '</tr>';
+  for (const run of ['orig', 'mod']) {
+    h += `<tr><td>${run === 'orig' ? 'gốc' : 'đã sửa'}</td>` + R.runs[run].channel.map(p => {
+      const k = p.indexOf(Math.max(...p)); return `<td style="${k === 0 ? 'color:' + css('--bad') + ';font-weight:600' : ''}">${lab[k]} ${fmt(p[k])}</td>`; }).join('') + '</tr>';
+  }
+  $('#chanTable').innerHTML = h + '</table>';
+}
+function drawVectors() {
+  const c = prep($('#cvVec')), R = S.res, vecs = R.runs.mod.layers.filter(l => l.vector);
+  if (!vecs.length) return;
+  const lane = (c.h - 6) / vecs.length;
+  vecs.forEach((L, i) => {
+    const O = R.runs.orig.layers.find(l => l.name === L.name), y0 = 3 + i * lane, ym = y0 + lane / 2;
+    let m = 1e-9; for (const v of L.value.concat(O.value)) m = Math.max(m, Math.abs(v));
+    const W = c.w - LM - 10, bw = W / L.n;
+    for (const [arr, col, off] of [[O.value, css('--ecg2'), 0], [L.value, css('--accent'), .5]]) {
+      c.g.fillStyle = col;
+      for (let k = 0; k < arr.length; k++) { const h = arr[k] / m * (lane / 2 - 2); c.g.fillRect(LM + k * bw + off * bw * .5, ym - Math.max(h, 0), Math.max(bw * .5, 1), Math.abs(h)); }
+    }
+    c.g.fillStyle = css('--ink'); c.g.textAlign = 'right'; c.g.fillText(L.name, LM - 6, ym);
+    c.g.fillStyle = css('--muted'); c.g.fillText(`Σ|g×a| ${O.rel_total.toExponential(1)}→${L.rel_total.toExponential(1)}`, LM - 6, ym + 12);
+  });
+}
+
+// ---------------------------------------------------------------------------------- overview / scan / batch
+async function loadOverview() {
+  if (S.src !== 'record') { $('#ovCard').hidden = true; return; }
+  const key = $('#db').value + '/' + $('#rec').value;
+  try {
+    const o = await api(`/api/overview?db=${$('#db').value}&record=${$('#rec').value}`);
+    if (key !== $('#db').value + '/' + $('#rec').value) return;   // a newer record was picked meanwhile
+    S.overview = o; drawOverview();
+  }
+  catch (e) { S.overview = null; $('#ovCard').hidden = true; }
+}
+function drawOverview() {
+  const o = S.overview; if (!o || S.src !== 'record') return;
+  $('#ovCard').hidden = false;
+  $('#ovSub').textContent = `${o.seconds} s · tham chiếu (trên) · argmax lưu từ EC57 (dưới)${o.pred ? '' : ' — không có (--ec57-out)'} · đỏ = sai · nhấp để nhảy`;
+  const cv = $('#cvOv'), c = prep(cv), W = c.w - 8, n = o.seconds;
+  const px = s => 4 + W * s / n;
+  for (let s = 0; s < n; s++) {
+    const x = px(s), w = Math.max(1, px(s + 1) - x);
+    if (o.ref[s] >= 0) { c.g.fillStyle = clsColor(o.ref[s]); c.g.fillRect(x, 2, w, 12); }
+    if (o.pred) { c.g.fillStyle = clsColor(o.pred[s]); c.g.fillRect(x, 16, w, 12);
+      if (o.ref[s] >= 0 && o.pred[s] !== o.ref[s]) { c.g.fillStyle = css('--bad'); c.g.fillRect(x, 30, w, 5); } }
+  }
+  const st = +$('#start').value; c.g.strokeStyle = css('--ink'); c.g.lineWidth = 2;
+  c.g.strokeRect(px(st), 1, Math.max(3, px(st + 10) - px(st)), 36);
+}
+$('#cvOv').addEventListener('click', ev => {
+  const o = S.overview; if (!o) return;
+  const r = ev.target.getBoundingClientRect(), s = Math.floor((ev.clientX - r.left - 4) / (r.width - 8) * o.seconds);
+  setStart(s - 5); analyze();
+});
+async function runScan() {
+  if (S.src !== 'record') { status('quét mép chỉ dùng cho Record'); return; }
+  try {
+    const r = await api('/api/scan', { source: { db: $('#db').value, record: $('#rec').value }, second: +$('#scanSec').value, interventions: gatherIv() });
+    S.scan = r; drawScan();
+  } catch (e) { status('lỗi: ' + e.message); }
+}
+function drawScan() {
+  const r = S.scan, cv = $('#cvScan'), c = prep(cv); if (!r) return;
+  const H = c.h - 18, X = p => LM + (c.w - LM - RM) * (p + .5) / 10;
+  c.g.fillStyle = css('--muted'); c.g.textAlign = 'right';
+  for (const v of [0, .5, 1]) c.g.fillText(v.toFixed(1), LM - 6, 4 + (H - 8) * (1 - v) + 4);
+  c.g.fillText(`giây ${r.second}`, LM - 6, H + 14);
+  for (let k = 0; k < S.meta.classes.length; k++) {
+    c.g.strokeStyle = clsColor(k); c.g.lineWidth = 2; c.g.beginPath();
+    r.rows.forEach((row, i) => { const x = X(row.position), y = 4 + (H - 8) * (1 - row.p[k]); i ? c.g.lineTo(x, y) : c.g.moveTo(x, y); });
+    c.g.stroke();
+    for (const row of r.rows) { c.g.fillStyle = clsColor(k); c.g.beginPath(); c.g.arc(X(row.position), 4 + (H - 8) * (1 - row.p[k]), 2.5, 0, 7); c.g.fill(); }
+  }
+  c.g.textAlign = 'center';
+  for (const row of r.rows) { c.g.fillStyle = clsColor(row.argmax); c.g.fillText(`vị trí ${row.position}`, X(row.position), H + 14); }
+  const ref = r.rows.length ? r.rows[0].ref : -1;
+  if (ref >= 0) { c.g.fillStyle = css('--muted'); c.g.textAlign = 'left'; c.g.fillText('tham chiếu: ' + S.meta.classes[ref], c.w - RM + 4, 14); }
+}
+async function runBatch() {
+  try {
+    const r = await api('/api/batch', { category: $('#bCat').value, n: +$('#bN').value, edits: gatherEdits(), interventions: gatherIv(), seed: +$('#seed').value });
+    $('#batchCard').hidden = false;
+    $('#batchSub').textContent = `${r.n} window lớp ${r.category} · ${r.elapsed} s · max |Δp| ${fmt(r.max_abs_dp, 3)}`;
+    const N = S.meta.classes;
+    let h = '<table><tr><th></th><th>macro F1</th>' + N.map(n => `<th>Se ${n}</th><th>F1 ${n}</th>`).join('') + '<th>argmax AFIB %</th></tr>';
+    for (const [k, lab] of [['orig', 'gốc'], ['mod', 'sửa + can thiệp']]) {
+      const s = r[k].scores;
+      h += `<tr><td>${lab}</td><td>${pct(s.macro_f1)}</td>` + N.map(n => `<td>${s[n].n ? pct(s[n].se) : '–'}</td><td>${s[n].n || s[n].f1 ? pct(s[n].f1) : '–'}</td>`).join('') + `<td>${pct(r[k].argmax_share.AFIB)}</td></tr>`;
+    }
+    const d = r.mod.scores.macro_f1 - r.orig.scores.macro_f1;
+    h += `<tr><td>Δ</td><td style="color:${d < 0 ? css('--bad') : css('--ok')}">${d >= 0 ? '+' : ''}${(100 * d).toFixed(1)}</td>` + N.map(n => {
+      const a = r.mod.scores[n].se - r.orig.scores[n].se; return `<td>${r.orig.scores[n].n ? (a >= 0 ? '+' : '') + (100 * a).toFixed(1) : '–'}</td><td></td>`; }).join('') +
+      `<td>${(100 * (r.mod.argmax_share.AFIB - r.orig.argmax_share.AFIB)).toFixed(1)}</td></tr></table>`;
+    h += '<div class="hint">Phân bố argmax theo giây (%): ' + ['orig', 'mod'].map(k => (k === 'orig' ? 'gốc ' : 'sửa ') + N.map(n => `${n} ${pct(r[k].argmax_share[n])}`).join(', ')).join(' · ') + '</div>';
+    $('#batchTable').innerHTML = h;
+    $('#batchCard').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } catch (e) { status('lỗi: ' + e.message); }
+}
+
+// ---------------------------------------------------------------------------------- findings
+const DEMOS = {
+  edge: async () => { await gotoBookmark(0); $('#scanSec').value = 1041; await runScan(); },
+  swap: async () => { resetControls(); $('#order').value = '1,0,2'; await analyze(); },
+  v_ssm: async () => { resetControls(); $$('#ssmBoxes input').forEach(i => i.checked = true); await analyze(); },
+  donor: async () => { resetControls(); await pickDonor('SINUS'); $('#iv_atrial_donor').checked = true; $('#iv_rr_donor').checked = true; await analyze(); },
+  f_wave: async () => { resetControls(); await useEval('SINUS'); const b = $('.edit[data-edit="f_wave"]'); $('.on', b).checked = true; await analyze(); },
+  lead_noise: async () => { resetControls(); const b = $('.edit[data-edit="white"]'); $('.on', b).checked = true; await analyze(); },
+  ec57_errors: async () => { await gotoBookmark(2); },
+};
+function verdictBadge(v) {
+  const cls = v === 'xác nhận' ? 'b-ok' : v === 'một phần' ? 'b-part' : v === 'bác bỏ' ? 'b-bad' : 'b-na';
+  return `<span class="badge ${cls}">${v}</span>`;
+}
+function renderFindings() {
+  const box = $('#findings'); box.innerHTML = '';
+  for (const [id, claim] of Object.entries(S.findings)) {
+    const d = document.createElement('div'); d.className = 'finding'; d.id = 'f-' + id;
+    d.innerHTML = `<div class="claim">${claim}</div><div class="row"><button class="small" data-act="measure">Đo lại</button>
+      <button class="small" data-act="demo">Xem ví dụ</button><span class="verdict"></span></div><div class="res"></div>`;
+    d.querySelector('[data-act=measure]').onclick = () => measure(id);
+    d.querySelector('[data-act=demo]').onclick = () => DEMOS[id] && DEMOS[id]();
+    box.appendChild(d);
+  }
+}
+async function measure(id) {
+  const d = $('#f-' + id);
+  d.querySelector('.verdict').innerHTML = '<span class="hint">đang đo…</span>';
+  try {
+    const r = await api('/api/finding', { id, n: +$('#fN').value });
+    d.querySelector('.verdict').innerHTML = verdictBadge(r.verdict) + ` <span class="hint">${r.elapsed ?? ''} s</span>`;
+    d.querySelector('.res').innerHTML = `${r.reason || ''}${findingTable(r)}<details><summary>số liệu</summary><pre>${JSON.stringify(r, null, 1).slice(0, 6000)}</pre></details>`;
+  } catch (e) { d.querySelector('.verdict').innerHTML = verdictBadge('lỗi') + ' ' + e.message; }
+}
+function findingTable(r) {
+  const N = S.meta.classes;
+  if (r.id === 'edge' && r.rows) return '<table><tr><th>vị trí</th>' + r.rows.map(x => `<th>${x.position}</th>`).join('') + '</tr><tr><td>macro F1</td>' + r.rows.map(x => `<td>${pct(x.macro_f1)}</td>`).join('') + '</tr></table>';
+  if (r.id === 'v_ssm' && r.macro_f1) return '<table><tr><th>probe</th><th>mF1</th>' + N.map(n => `<th>Se ${n}</th>`).join('') + '</tr>' +
+    Object.keys(r.macro_f1).map(k => `<tr><td>${k}</td><td>${pct(r.macro_f1[k])}</td>` + N.map(n => `<td>${pct(r.se[k][n])}</td>`).join('') + '</tr>').join('') + '</table>';
+  if (r.id === 'donor' && r.rows) return '<table><tr><th>lớp</th><th>p trước</th><th>residual SINUS</th><th>RR SINUS</th></tr>' + r.rows.map(x => `<tr><td>${x.cls}</td><td>${fmt(x.p_before, 3)}</td><td>${fmt(x.p_atrial_from_sinus, 3)}</td><td>${fmt(x.p_rr_from_sinus, 3)}</td></tr>`).join('') + '</table>';
+  if (r.id === 'f_wave' && r.rows) return '<table><tr><th>biên độ</th><th>AFIB %</th><th>A mù</th></tr>' + r.rows.map(x => `<tr><td>${pct(x.amp)} %</td><td>${pct(x.afib_seconds)}</td><td>${pct(x.afib_seconds_atrial_off)}</td></tr>`).join('') + '</table>';
+  if (r.id === 'ec57_errors' && r.rows) return '<table><tr><th>lớp</th><th>FP m/pp</th><th>FN m/pp</th><th>model %</th></tr>' + r.rows.map(x => `<tr><td>${x.cls}</td><td>${x.fp_model}/${x.fp_pp}</td><td>${x.fn_model}/${x.fn_pp}</td><td>${pct(x.model_share)}</td></tr>`).join('') + '</table>';
+  return '';
+}
+
+// ---------------------------------------------------------------------------------- controls
+function resetControls() {
+  for (const box of $$('.edit[data-edit]')) $('.on', box).checked = false;
+  ['#g0', '#g1', '#g2'].forEach(s => $(s).value = 1);
+  $('#order').value = '0,1,2'; $('#flip').checked = false;
+  for (const id of ['atrial_off', 'beat_cond_off', 'rr_mean', 'v_lead_uniform', 'a_lead_uniform', 'atrial_donor', 'rr_donor']) $('#iv_' + id).checked = false;
+  $$('#ssmBoxes input, #vOff input, #aOff input').forEach(i => i.checked = false);
+  $('#iv_temp').value = 1; $('#iv_frac').value = 1; ['#iv_qpre', '#iv_qpost', '#iv_qmin'].forEach(s => $(s).value = '');
+  syncVals();
+}
+function syncVals() {
+  for (const r of $$('.edit input[type=range]')) r.parentElement.querySelector('.val').textContent = r.value;
+  $('#iv_temp_v').textContent = $('#iv_temp').value; $('#iv_frac_v').textContent = $('#iv_frac').value;
+}
+function setSrc(k) {
+  S.src = k;
+  $$('#srcTabs button').forEach(b => b.classList.toggle('on', b.dataset.k === k));
+  for (const n of ['record', 'eval', 'array']) $('#src-' + n).hidden = n !== k;
+  if (k !== 'record') $('#ovCard').hidden = true; else drawOverview();
+}
+async function loadRecords() {
+  const db = $('#db').value;
+  if (!S.records[db]) S.records[db] = await api('/api/records?db=' + db);
+  const recs = S.records[db];
+  $('#rec').innerHTML = recs.map(r => `<option value="${r.name}">${r.name} · ${Math.round(r.seconds / 60)} ph${r.atr ? '' : ' (không .atr)'}</option>`).join('');
+  onRecord();
+}
+function onRecord() {
+  const r = (S.records[$('#db').value] || []).find(x => x.name === $('#rec').value);
+  $('#startRange').max = r ? Math.max(0, r.seconds - 10) : 0;
+  setStart(+$('#start').value);
+  loadOverview();
+}
+function setStart(v) {
+  const max = +$('#startRange').max;
+  v = Math.max(0, Math.min(max, Math.round(v)));
+  $('#start').value = v; $('#startRange').value = v; drawOverview();
+}
+async function gotoBookmark(i) {
+  const b = S.meta.bookmarks[i]; if (!b) return;
+  setSrc('record'); $('#db').value = b.db; await loadRecords(); $('#rec').value = b.record; onRecord();
+  setStart(b.second - 5); S.secSel = new Set([5]); renderSecChips(); $('#scanSec').value = b.second;
+  await analyze();
+}
+async function useEval(cat) {
+  setSrc('eval'); $('#evCat').value = cat; await evList();
+}
+async function evList() {
+  const r = await api(`/api/eval_list?category=${$('#evCat').value}&n=60&seed=${+$('#seed').value}`);
+  S.evIdx = r.indices;
+  $('#evIdx').innerHTML = r.indices.map(i => `<option>${i}</option>`).join('');
+}
+async function pickDonor(cat) {
+  const r = await api(`/api/eval_list?category=${cat}&n=1&seed=${Math.floor(Math.random() * 1e6)}`);
+  if (r.indices.length) $('#iv_donor').value = r.indices[0];
+  $('#donorHint').textContent = `Donor = eval #${$('#iv_donor').value} (${cat}).`;
+}
+function renderSecChips() {
+  $('#secChips').innerHTML = [...Array(10).keys()].map(s => `<button class="${S.secSel.has(s) ? 'on' : ''}" data-s="${s}">${s}</button>`).join('') +
+    '<button data-s="all">tất cả</button>';
+  $$('#secChips button').forEach(b => b.onclick = () => {
+    if (b.dataset.s === 'all') S.secSel.clear(); else { const s = +b.dataset.s; S.secSel.has(s) ? S.secSel.delete(s) : S.secSel.add(s); }
+    renderSecChips(); autoRun();
+  });
+}
+function parseCsv(text) {
+  const rows = [];
+  for (const line of text.split(/\r?\n/)) {
+    const parts = line.trim().split(/[,;\t ]+/).filter(Boolean).map(Number);
+    if (parts.length && parts.every(isFinite)) rows.push(parts);
+  }
+  let data = rows;
+  if ($('#upTime').checked) data = rows.map(r => r.slice(1));
+  return data.map(r => r.slice(0, 3));
+}
+
+async function init() {
+  try { S.meta = await api('/api/meta'); S.findings = await api('/api/findings'); }
+  catch (e) { status('không kết nối được server: ' + e.message); return; }
+  $('#ckpt').textContent = S.meta.checkpoint + (S.meta.ec57_out ? '  ·  EC57: ' + S.meta.ec57_out : '');
+  const N = S.meta.classes;
+  $('#clsLegend').innerHTML = N.map((n, k) => `<span style="--c:${clsColor(k)}">${n}</span>`).join('');
+  $('#tgtCls').innerHTML += N.map((n, k) => `<option value="${k}">${n}</option>`).join('');
+  const cats = ['ALL'].concat(N).map(n => `<option>${n}</option>`).join('');
+  $('#evCat').innerHTML = N.map(n => `<option>${n}</option>`).join(''); $('#bCat').innerHTML = cats;
+  $('#db').innerHTML = S.meta.dbs.map(d => `<option ${d === 'mitdb' ? 'selected' : ''}>${d}</option>`).join('');
+  $('#ssmBoxes').innerHTML = S.meta.ssm_layers.map(n => `<label><input type="checkbox" value="${n}">${n.replace('_ssm', '').replace('_ssm', '')}</label>`).join('');
+  $('#bookmarks').innerHTML += S.meta.bookmarks.map((b, i) => `<option value="${i}">${b.label}</option>`).join('');
+  if (!S.meta.eval_available) { $('[data-k=eval]').disabled = true; $('#batchBtn').disabled = true; }
+  $$('.leads').forEach(leadsBox);
+  renderSecChips(); syncVals(); renderFindings();
+  // events
+  $$('#srcTabs button').forEach(b => b.onclick = () => { setSrc(b.dataset.k); });
+  $('#db').onchange = loadRecords; $('#rec').onchange = () => { onRecord(); autoRun(); };
+  $('#start').onchange = () => { setStart(+$('#start').value); autoRun(); };
+  $('#startRange').oninput = () => { setStart(+$('#startRange').value); };
+  $('#startRange').onchange = autoRun;
+  $$('[data-step]').forEach(b => b.onclick = () => { setStart(+$('#start').value + +b.dataset.step); autoRun(); });
+  $('#bookmarks').onchange = () => { if ($('#bookmarks').value !== '') gotoBookmark(+$('#bookmarks').value); };
+  $('#evList').onclick = evList; $('#evCat').onchange = evList;
+  $('#evIdx').onchange = autoRun;
+  $('#evPrev').onclick = () => { $('#evIdx').selectedIndex = Math.max(0, $('#evIdx').selectedIndex - 1); autoRun(); };
+  $('#evNext').onclick = () => { $('#evIdx').selectedIndex = Math.min(S.evIdx.length - 1, $('#evIdx').selectedIndex + 1); autoRun(); };
+  $('#upFile').onchange = async () => {
+    const f = $('#upFile').files[0]; if (!f) return;
+    const data = parseCsv(await f.text());
+    if (!data.length) { status('CSV không có dòng số nào'); return; }
+    S.uploaded = { name: f.name, data }; status(`đã tải ${f.name}: ${data.length} mẫu × ${data[0].length} lead`); autoRun();
+  };
+  $('#donorRnd').onclick = () => pickDonor($('#evCat').value || 'SINUS');
+  for (const el of $$('aside input, aside select')) {
+    if (el.closest('#src-record') || el.closest('#src-eval') || el.closest('#src-array') || ['fN', 'bN', 'bCat', 'autoRun'].includes(el.id)) continue;
+    el.addEventListener('change', () => { syncVals(); autoRun(); });
+    if (el.type === 'range') el.addEventListener('input', syncVals);
+  }
+  $('#runBtn').onclick = analyze; $('#batchBtn').onclick = runBatch; $('#scanBtn').onclick = runScan;
+  $('#fAll').onclick = async () => { for (const id of Object.keys(S.findings)) await measure(id); };
+  for (const id of ['#ecgView', '#igView', '#showBeats', '#showRefBeats']) $(id).addEventListener('change', drawEcg);
+  for (const id of ['#hmMode', '#hmRun', '#hmNorm']) $(id).addEventListener('change', drawHeatmap);
+  $('#dtRun').onchange = loadDetail;
+  document.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) analyze(); });
+  $('#themeBtn').onclick = () => {
+    const cur = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    document.documentElement.dataset.theme = cur === 'dark' ? 'light' : 'dark';
+    try { localStorage.setItem('xai-theme', document.documentElement.dataset.theme); } catch (e) {}
+    drawAll(); drawDetail(); drawOverview(); drawScan();
+  };
+  try { const t = localStorage.getItem('xai-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+  window.addEventListener('resize', () => { drawAll(); drawDetail(); drawOverview(); drawScan(); });
+  setupCursor();
+  if (S.meta.eval_available) { $('#evCat').value = 'SINUS'; evList().catch(() => {}); }
+  await loadRecords();
+  if (S.meta.bookmarks.length && S.meta.dbs.includes('mitdb')) await gotoBookmark(0);
+}
+init();
+</script>
+</body>
+</html>

@@ -1,7 +1,7 @@
 """ecgr.rhythm - per-second rhythm classification on 3-lead strips, ResUMamba backbone.
 
 Contract: in (2500, 3) = 10 s at 250 Hz over three leads; two outputs:
-    'rhythm' (10, 6) - per second, SINUS / AFIB / SVT / VT / AVB2 / AVB3, softmax
+    'rhythm' (10, 5) - per second, SINUS / AFIB / SVT / VT / AVB (2nd or 3rd degree), softmax
     'lead'   (4,)    - per window, NOISE (no readable lead) / CH1 / CH2 / CH3 = the lead with
                        the best signal, softmax
 

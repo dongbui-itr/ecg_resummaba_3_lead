@@ -21,6 +21,45 @@ def class_index(name):
     return rc.CLASS_NAMES.index(name)
 
 
+def to_current_classes(probs):
+    """(..., LEGACY classes) probabilities of a 6-output checkpoint (AVB2 and AVB3 apart) ->
+    (..., NUM_CLASSES): the two block columns summed into AVB. Anything already at
+    NUM_CLASSES columns is returned as it is."""
+    probs = np.asarray(probs)
+    k = probs.shape[-1]
+    if k == rc.NUM_CLASSES:
+        return probs
+    if k != len(rc.LEGACY_CLASS_NAMES):
+        raise ValueError(f"{k} rhythm columns: neither {rc.NUM_CLASSES} nor the legacy "
+                         f"{len(rc.LEGACY_CLASS_NAMES)}")
+    out = np.zeros(probs.shape[:-1] + (rc.NUM_CLASSES,), dtype=probs.dtype)
+    for i, j in enumerate(rc.LEGACY_TO_CLASS):
+        out[..., j] += probs[..., i]
+    return out
+
+
+def to_current_labels(labels):
+    """uint8 labels in LEGACY_CLASS_NAMES indices -> CLASS_NAMES indices (IGNORE kept)."""
+    lut = np.arange(256, dtype=np.uint8)
+    lut[:len(rc.LEGACY_TO_CLASS)] = rc.LEGACY_TO_CLASS
+    return lut[np.asarray(labels, dtype=np.uint8)]
+
+
+def to_current_weights(weights):
+    """Per-class weights of a 6-class build / train_config -> NUM_CLASSES: a merged class
+    takes the weight of its first legacy member (AVB2 for AVB - the more frequent one)."""
+    weights = list(weights)
+    if len(weights) == rc.NUM_CLASSES:
+        return [float(w) for w in weights]
+    if len(weights) != len(rc.LEGACY_CLASS_NAMES):
+        raise ValueError(f"{len(weights)} class weights for {rc.NUM_CLASSES} classes")
+    out = [None] * rc.NUM_CLASSES
+    for i, j in enumerate(rc.LEGACY_TO_CLASS):
+        if out[j] is None:
+            out[j] = float(weights[i])
+    return out
+
+
 def merge_intervals(intervals):
     """Union of [a, b) intervals, sorted and non-overlapping."""
     out = []
@@ -132,6 +171,31 @@ def sample_labels(window_start, spans, known, n_samples=rc.SEGMENT_SAMPLES):
     for c, a, b in sorted(arrhythmia, key=lambda s: -rank.get(s[0], len(rank))):
         paint(a, b, c)
     return labels
+
+
+def beat_labels(window_start, samples, symbols, n_samples=rc.SEGMENT_SAMPLES,
+                fs=rc.SAMPLING_RATE):
+    """(n_samples,) uint8 beat labels of the window starting at `window_start`: 0 = no beat,
+    1/2/3 = N/S/V at the R sample (config.BEAT_SYMBOL_TO_CLASS), IGNORE around beats of no
+    class (fusion, paced, unclassifiable) and, when `samples` is None, everywhere - the record
+    carries no beat annotation."""
+    out = np.zeros(n_samples, dtype=np.uint8)
+    if samples is None:
+        out[:] = rc.IGNORE
+        return out
+    w0 = int(window_start)
+    radius = int(round(rc.BEAT_IGNORE_RADIUS_SECONDS * fs))
+    samples = np.asarray(samples, dtype=np.int64) - w0
+    symbols = np.asarray(symbols)
+    inside = (samples >= -radius) & (samples < n_samples + radius)
+    for s, sym in zip(samples[inside], symbols[inside]):
+        if sym in rc.BEAT_IGNORE_SYMBOLS:
+            out[max(0, s - radius):min(n_samples, s + radius + 1)] = rc.IGNORE
+    for s, sym in zip(samples[inside], symbols[inside]):
+        c = rc.BEAT_SYMBOL_TO_CLASS.get(str(sym))
+        if c is not None and 0 <= s < n_samples:
+            out[s] = c
+    return out
 
 
 def spans_to_seconds_table(labels):
@@ -272,16 +336,26 @@ def decode_episodes(rhythm, p_noise=None, min_seconds=None, noise_threshold=None
     with prob the mean UNSMOOTHED probability of the episode's class.
     """
     rhythm = np.asarray(rhythm, dtype=np.float32)
+    if len(rhythm) == 0:
+        return []
+    cls, _probs = decode_track(rhythm, p_noise, min_seconds, noise_threshold, smooth_seconds,
+                               merge_gap, priority, step_hz, class_scale, min_prob)
+    return episodes_from_track(cls, rhythm, p_noise, step_hz, start_second)
+
+
+def decode_track(rhythm, p_noise=None, min_seconds=None, noise_threshold=None,
+                 smooth_seconds=None, merge_gap=None, priority=None, step_hz=1,
+                 class_scale=None, min_prob=None):
+    """decode_episodes up to the class track: (cls (T,) int incl. NOISE, probs the argmax
+    saw). The beat-level post-processing (beats.py) works on this track."""
+    rhythm = np.asarray(rhythm, dtype=np.float32)
     min_seconds = rc.DECODE_MIN_EPISODE_SECONDS if min_seconds is None else min_seconds
     thr = rc.DECODE_NOISE_THRESHOLD if noise_threshold is None else noise_threshold
     smooth = rc.DECODE_SMOOTH_SECONDS if smooth_seconds is None else smooth_seconds
     merge_gap = rc.DECODE_MERGE_GAP_SECONDS if merge_gap is None else merge_gap
     priority = rc.DECODE_PRIORITY if priority is None else priority
-    names, noise = DECODE_NAMES, NOISE
+    noise = NOISE
     p_noise = np.zeros(len(rhythm)) if p_noise is None else np.asarray(p_noise, np.float32)
-    if len(rhythm) == 0:
-        return []
-
     if step_hz != 1:
         smooth = ({k: _to_steps(v, step_hz, odd=True) for k, v in smooth.items()}
                   if isinstance(smooth, dict) else _to_steps(smooth, step_hz, odd=True))
@@ -300,7 +374,15 @@ def decode_episodes(rhythm, p_noise=None, min_seconds=None, noise_threshold=None
     cls = enforce_min_duration(cls, min_seconds)
     cls = enforce_min_confidence(cls, probs, min_prob)
     cls = bridge_gaps(cls, merge_gap, priority)
+    return cls, probs
 
+
+def episodes_from_track(cls, rhythm, p_noise=None, step_hz=1, start_second=0):
+    """Class track (T,) -> [{rhythm, start, stop, prob}]; prob = mean of the UNSMOOTHED
+    probability of the episode's class (p_noise for NOISE)."""
+    names, noise = DECODE_NAMES, NOISE
+    rhythm = np.asarray(rhythm, dtype=np.float32)
+    p_noise = np.zeros(len(rhythm)) if p_noise is None else np.asarray(p_noise, np.float32)
     at = (lambda i: int(start_second + i)) if step_hz == 1 else \
         (lambda i: float(start_second + i / step_hz))
     episodes = []

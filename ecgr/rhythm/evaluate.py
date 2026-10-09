@@ -2,9 +2,9 @@
 
 Three views of the same predictions:
 
-  * per second - the confusion over the six classes on labelled, clean seconds, with Se, +P
+  * per second - the confusion over the five classes on labelled, clean seconds, with Se, +P
     and F1 per class. What the model is trained to do.
-  * per strip  - does a 10 s window that holds an AF / SVT / VT / AVB2 / AVB3 episode get at
+  * per strip  - does a 10 s window that holds an AF / SVT / VT / AVB episode get at
     least one second of that class (raw argmax, NOISE-gated), and does a called class have
     one in the reference? What a report reviewer sees. No DECODE_* post-processing here: that
     runs once over a WHOLE record (ec57.py, predict.py), never on a 10 s window.
@@ -58,6 +58,12 @@ def summarize(y_true, y_pred):
 
     if 'noise' in y_true:
         lead, window_noise = _noise_summary(y_true['noise'], y_pred['noise'])
+    elif 'channel' in y_true:
+        # per 2 s segment: the lead summary over segments; a window's p(NOISE) is the mean
+        ct, cp = y_true['channel'], y_pred['channel']
+        lead, _ = _lead_summary(ct.reshape(-1, ct.shape[-1]), cp.reshape(-1, cp.shape[-1]))
+        lead['unit'] = '2 s segments'
+        window_noise = cp[..., rc.LEAD_NOISE].mean(-1)
     else:
         lead, window_noise = _lead_summary(y_true['lead'], y_pred['lead'])
 
@@ -136,10 +142,12 @@ def format_summary(s, title):
                   f"of {z['segments']:,} segments, Se {100 * z['noise_se']:.2f} +P "
                   f"{100 * z['noise_ppv']:.2f}"]
         return '\n'.join(lines)
-    lines += ['', format_confusion(np.asarray(z['confusion']), 'lead output (per window)',
-                                   names=rc.LEAD_CLASSES, unit='windows'),
+    unit = z.get('unit', 'windows')
+    title = 'channel output (per 2 s)' if unit != 'windows' else 'lead output (per window)'
+    lines += ['', format_confusion(np.asarray(z['confusion']), title,
+                                   names=rc.LEAD_CLASSES, unit=unit),
               f"lead accuracy {100 * z['accuracy']:.2f} | NOISE: {z['noise_windows']:,} of "
-              f"{z['windows']:,} windows, Se {100 * z['noise_se']:.2f} +P "
+              f"{z['windows']:,} {unit}, Se {100 * z['noise_se']:.2f} +P "
               f"{100 * z['noise_ppv']:.2f} | same lead when both readable "
               f"{100 * z['lead_agreement']:.2f}"]
     return '\n'.join(lines)
@@ -149,9 +157,11 @@ def evaluate(checkpoint, split='test', snrs=DEFAULT_SNRS, batch_size=None, max_w
              out_dir=None):
     setup_gpus()
     model = tf.keras.models.load_model(checkpoint, compile=False)
-    segs, labs, _ = pipeline.load_arrays(split, max_windows=max_windows,
-                                         label_steps=rhythm_steps(model))
     outputs = output_names(model)
+    arrays = pipeline.load_arrays(split, max_windows=max_windows,
+                                  label_steps=rhythm_steps(model), beats='beat' in outputs)
+    segs, labs = arrays[0], arrays[1]
+    bts = arrays[3] if 'beat' in outputs else None
     print(f"{split}: {len(labs):,} windows, checkpoint {checkpoint}")
     out_dir = out_dir or os.path.join(rc.REPORT_DIR, model.name)
     os.makedirs(out_dir, exist_ok=True)
@@ -161,13 +171,13 @@ def evaluate(checkpoint, split='test', snrs=DEFAULT_SNRS, batch_size=None, max_w
     for snr in snrs:
         if snr is None:
             ds = pipeline.make_dataset(segs, labs, batch_size or rc.BATCH_SIZE, mode='clean',
-                                       outputs=outputs)
+                                       outputs=outputs, beats=bts)
             tag = 'as recorded'
         else:
             ds = pipeline.make_dataset(segs, labs, batch_size or rc.BATCH_SIZE, mode='noisy',
                                        augment_kw=dict(noise_prob=1.0, permute_prob=0.0,
                                                        snr_range=(snr, snr), wreck_prob=0.0),
-                                       outputs=outputs)
+                                       outputs=outputs, beats=bts)
             tag = f"noise at {snr:g} dB SNR"
         y_true, y_pred = predict_arrays(model, ds)
         s = summarize(y_true, y_pred)

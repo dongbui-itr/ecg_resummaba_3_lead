@@ -237,6 +237,30 @@ def ssm_block(x, filters, state_dim, kernel_len, bidirectional=True, name=None):
 
 
 @keras.saving.register_keras_serializable(package=PKG)
+class StopGradient(layers.Layer):
+    """Identity forward, no gradient back - a decoder can read another head's output without
+    the second loss re-shaping that head."""
+
+    def call(self, x):
+        return tf.stop_gradient(x)
+
+    def compute_output_shape(self, input_shape):
+        return input_shape
+
+
+@keras.saving.register_keras_serializable(package=PKG)
+class BeatProbability(layers.Layer):
+    """(B, T, classes) softmax with 'none' first -> (B, T, 1) probability that a step is a
+    beat: 1 - p(none). A registered layer rather than a Lambda so the model reloads."""
+
+    def call(self, x):
+        return 1.0 - x[..., :1]
+
+    def compute_output_shape(self, input_shape):
+        return tuple(input_shape[:-1]) + (1,)
+
+
+@keras.saving.register_keras_serializable(package=PKG)
 class AdaIN(layers.Layer):
     """Adaptive instance normalisation: normalise over time, then re-scale from the context.
 

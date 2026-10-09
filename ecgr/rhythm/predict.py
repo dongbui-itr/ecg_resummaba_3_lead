@@ -10,6 +10,8 @@ is z-scored per lead.
             windows gets the mean of both
     lead    per window: NOISE / CH1 / CH2 / CH3, and each second inherits p(NOISE) of the
             windows covering it, which is what marks NOISE episodes
+    channel (dual U-Net) the same four classes per 2 s segment: p(NOISE) per segment, and
+            the cleanest lead of each segment in the window records
 """
 import csv
 import json
@@ -21,7 +23,7 @@ import tensorflow as tf
 from ..signal_ops import normalize_window
 from . import config as rc
 from .build import read_leads
-from .labels import decode_episodes
+from .labels import decode_episodes, to_current_classes
 from .model import rhythm_steps
 
 
@@ -65,11 +67,30 @@ def predict_tta(model, x, batch_size, variants=None):
     return {k: np.mean([np.asarray(o[k]) for o in outs], axis=0) for k in outs[0]}
 
 
-def predict_signal(model, leads, batch_size=64):
+def position_weights(rows, floor=None):
+    """Weight of each output row of one window when overlapping windows are averaged:
+    floor + (1 - floor) * sin(pi * (i + 0.5) / rows), or all ones when the taper is off
+    (rc.PREDICT_TAPER_FLOOR = 0). A row covered by a single window gets that window's value
+    either way (weighted mean of one)."""
+    floor = rc.PREDICT_TAPER_FLOOR if floor is None else floor
+    if not floor:
+        return np.ones(rows)
+    i = np.arange(rows)
+    return floor + (1.0 - floor) * np.sin(np.pi * (i + 0.5) / rows)
+
+
+def beat_step_hz():
+    """Rows per second of the 'beat' output (BEAT_STEPS per 10 s window)."""
+    return rc.BEAT_STEPS // rc.OUTPUT_SECONDS
+
+
+def predict_signal(model, leads, batch_size=64, with_beats=False):
     """(n, 3) preprocessed leads -> (rhythm (steps, NUM_CLASSES), p_noise (steps,),
     windows [{start, stop, lead, probs} or {start, stop, noise}]), probs_step_hz(model) steps
     per second. Window start/stop are in seconds. p_noise is the 'lead' output's p(NOISE) of
-    the window, or the 'noise' output's p(NOISE) of the 2 s segment the step falls in."""
+    the window, or the 'noise' output's p(NOISE) of the 2 s segment the step falls in.
+    with_beats adds a 4th value: the beats picked (beats.pick_beats) from the 'beat' output
+    averaged over the overlapping windows, or None for a model without that output."""
     n = len(leads)
     if n < rc.SEGMENT_SAMPLES:
         leads = np.concatenate([leads, np.zeros((rc.SEGMENT_SAMPLES - n, leads.shape[1]),
@@ -79,7 +100,7 @@ def predict_signal(model, leads, batch_size=64):
     y = predict_tta(model, x.astype(np.float32), batch_size)
 
     step_hz = probs_step_hz(model)
-    rhythm_windows = np.asarray(y['rhythm'])
+    rhythm_windows = to_current_classes(y['rhythm'])        # a 6-class checkpoint -> 5
     if rhythm_windows.shape[1] != rc.OUTPUT_SECONDS * step_hz:   # (w, 500|2500, K) -> 25 Hz
         rhythm_windows = rhythm_windows.reshape(
             len(starts), rc.OUTPUT_SECONDS * step_hz, -1, rc.NUM_CLASSES).mean(axis=2)
@@ -87,33 +108,59 @@ def predict_signal(model, leads, batch_size=64):
     if 'noise' in y:                            # (w, 5, 2) -> p(NOISE) per step
         seg = np.asarray(y['noise'])[..., 1]
         noise_windows = np.repeat(seg, per_window // rc.NOISE_SEGMENTS, axis=1)
+    elif 'channel' in y:                        # (w, 5, 4) -> p(NOISE) per step
+        seg = np.asarray(y['channel'])[..., rc.LEAD_NOISE]
+        noise_windows = np.repeat(seg, per_window // rc.NOISE_SEGMENTS, axis=1)
     else:
         noise_windows = np.repeat(np.asarray(y['lead'])[:, rc.LEAD_NOISE:rc.LEAD_NOISE + 1],
                                   per_window, axis=1)
     step = rc.SECOND_SAMPLES // step_hz          # samples per step
 
     seconds = max(1, n // rc.SECOND_SAMPLES)
+    row_w = position_weights(per_window)                 # (per_window,), 1s when the taper is off
     total = np.zeros((len(leads) // step, rc.NUM_CLASSES))
     noise = np.zeros(len(total))
     count = np.zeros(len(total))
     windows = []
     for i, (s, r, pn) in enumerate(zip(starts, rhythm_windows, noise_windows)):
         a = s // step
-        total[a:a + per_window] += r
-        noise[a:a + per_window] += pn
-        count[a:a + per_window] += 1
+        total[a:a + per_window] += r * row_w[:, None]
+        noise[a:a + per_window] += pn * row_w
+        count[a:a + per_window] += row_w
         sec = s // rc.SECOND_SAMPLES
         win = {'start': int(sec), 'stop': int(min(sec + rc.OUTPUT_SECONDS, seconds))}
         if 'noise' in y:
             win['noise'] = [round(float(v), 4) for v in np.asarray(y['noise'])[i, :, 1]]
+        elif 'channel' in y:
+            q = np.asarray(y['channel'])[i]                                  # (5, 4)
+            win['noise'] = [round(float(v), 4) for v in q[:, rc.LEAD_NOISE]]
+            win['channel'] = [rc.LEAD_CLASSES[int(j)] for j in np.argmax(q, axis=-1)]
         else:
             q = y['lead'][i]
             win.update(lead=rc.LEAD_CLASSES[int(np.argmax(q))],
                        probs={k: float(v) for k, v in zip(rc.LEAD_CLASSES, q)})
         windows.append(win)
-    count = np.maximum(count, 1)
+    count = np.maximum(count, 1e-6)
     keep = seconds * step_hz
-    return (total / count[:, None])[:keep], (noise / count)[:keep], windows
+    out = ((total / count[:, None])[:keep], (noise / count)[:keep], windows)
+    if not with_beats:
+        return out
+    picked = None
+    if 'beat' in y:
+        from .beats import pick_beats
+        bhz = beat_step_hz()
+        bw = np.asarray(y['beat'])                       # (w, BEAT_STEPS, 4)
+        bstep = rc.SECOND_SAMPLES // bhz
+        btotal = np.zeros((len(leads) // bstep, bw.shape[-1]))
+        bcount = np.zeros(len(btotal))
+        bw_rows = position_weights(rc.BEAT_STEPS)
+        for s, b in zip(starts, bw):
+            a = s // bstep
+            btotal[a:a + rc.BEAT_STEPS] += b * bw_rows[:, None]
+            bcount[a:a + rc.BEAT_STEPS] += bw_rows
+        bprobs = (btotal / np.maximum(bcount, 1e-6)[:, None])[:seconds * bhz]
+        picked = pick_beats(bprobs, bhz)
+    return out + (picked,)
 
 
 def predict_record(model, path, out_dir=None):

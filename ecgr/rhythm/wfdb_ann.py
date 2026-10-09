@@ -4,8 +4,8 @@ epicmp compares two annotation files by walking their `+` (rhythm-change) annota
 string-matching `aux_note`. It has no idea what a class NAME means; it only cares that the
 reference and the hypothesis spell the same rhythm the same way. `RHYTHM_AUX` is this
 project's spelling: the MIT-BIH codes ('(AFIB', '(SVTA', '(VT', '(N' for sinus) where one
-exists, and an explicit non-standard code for the two block classes MIT-BIH has no code for
-at all (AVB2/AVB3) - consistent between reference and hypothesis is what scores correctly,
+exists, and an explicit non-standard code for the block class MIT-BIH has no code for
+(AVB = second- or third-degree block) - consistent between reference and hypothesis is what scores correctly,
 not standards conformance. That file (.rhi / .rhy) is for reading with rdann.
 
 What epicmp SCORES is another matter: `epicmp -A` only compares the episodes spelled '(AFIB'
@@ -28,8 +28,7 @@ RHYTHM_AUX = {
     'AFIB': '(AFIB',
     'SVT': '(SVTA',
     'VT': '(VT',
-    'AVB2': '(AVB2',     # not a MIT-BIH rhythm code - epicmp only string-matches ref vs. AI
-    'AVB3': '(AVB3',     # same
+    'AVB': '(AVB',       # not a MIT-BIH rhythm code - epicmp only string-matches ref vs. AI
 }
 
 
@@ -96,6 +95,27 @@ def write_class_annotations(episodes, target, record_name, out_dir, extension, f
                     symbol=['+'] * len(change), aux_note=[codes[i] + '\x00' for i in change],
                     fs=fs).wrann(write_fs=True, write_dir=out_dir)
     return len(change)
+
+
+BEAT_SYMBOL = {1: 'N', 2: 'S', 3: 'V'}
+
+
+def write_beat_annotations(times, classes, record_name, out_dir, extension, fs):
+    """Beat hypothesis for bxb: one N / S / V annotation at each R time (seconds)."""
+    times = np.asarray(times, dtype=np.float64)
+    classes = np.asarray(classes, dtype=int)
+    keep = np.isin(classes, list(BEAT_SYMBOL))
+    samples = np.round(times[keep] * fs).astype(np.int64)
+    order = np.argsort(samples, kind='stable')
+    os.makedirs(out_dir, exist_ok=True)
+    if len(samples) == 0:
+        samples, symbols = np.array([0], dtype=np.int64), ['Q']   # bxb wants a file
+    else:
+        samples = samples[order]
+        symbols = [BEAT_SYMBOL[int(c)] for c in classes[keep][order]]
+    wfdb.Annotation(record_name=record_name, extension=extension, sample=samples,
+                    symbol=symbols, fs=fs).wrann(write_fs=True, write_dir=out_dir)
+    return int(keep.sum())
 
 
 def atr_reference_episodes(record_path, aux_to_class=None):

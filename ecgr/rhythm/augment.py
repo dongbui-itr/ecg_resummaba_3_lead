@@ -14,7 +14,8 @@ Per sample, in this order:
      burst of random position and length, so a window mixes clean and noisy seconds - and,
      with NOISE_WINDOW_PROB, a window wrecked on every lead (the NOISE class of 'lead');
   4. the targets, from the noise actually added: which seconds are clean (`clean_seconds`,
-     sets the rhythm loss weight) and which lead is best over the window (`lead_scores`);
+     sets the rhythm loss weight), which lead is best over the window (`lead_scores`) and
+     in each 2 s segment (`channel_scores`, the dual U-Net's 'channel' output);
   5. a random permutation of the lead order - rhythm labels belong to time, not to a lead,
      and the lead target is permuted with the leads;
   6. the per-lead z-score again, because inference z-scores the strip as it arrives, noise
@@ -146,6 +147,31 @@ def lead_scores(clean_x, sig_rms, noise, live):
     return tf.where(alive, key, -1.0), tf.where(alive, n_read, 0.0)
 
 
+def channel_scores(clean_x, sig_rms, noise, live):
+    """(batch, NOISE_SEGMENTS, c) ranking key of each lead in each 2 s segment - lead_scores'
+    lexicographic key (readable seconds, then SNR, then QRS peakedness) measured per segment
+    instead of per window. Kurtosis stays a window property (a 2 s stretch holds too few
+    beats for it). A flat lead gets -1."""
+    c = noise.shape[-1] or rc.IN_CHANNELS
+    k, per = rc.NOISE_SEGMENTS, rc.NOISE_SEGMENT_SECONDS
+    readable = tf.cast(_readable(sig_rms, noise, live), tf.float32)            # (b, 10, c)
+    n_read = tf.reduce_sum(tf.reshape(readable, [-1, k, per, c]), axis=2)      # (b, 5, c)
+    seg = tf.reshape(noise, [-1, k, rc.SEGMENT_SAMPLES // k, c])
+    noise_rms = tf.sqrt(tf.reduce_mean(tf.square(seg), axis=2))                # (b, 5, c)
+    snr = 20.0 * tf.math.log(sig_rms / (noise_rms + 1e-9) + 1e-9) / np.log(10.0)
+    snr = tf.clip_by_value(snr, 0.0, rc.LEAD_SNR_CAP_DB)
+    kurt = tf.reduce_mean(tf.pow(_zscore(clean_x), 4), axis=1)[:, None, :]    # (b, 1, c)
+    key = n_read * 100.0 + snr * 3.0 + tf.tanh(kurt / 20.0)
+    return tf.where(live, key, -1.0)
+
+
+def channel_label(key, segment_clean):
+    """(batch, NOISE_SEGMENTS) int: LEAD_NOISE where the segment is not CLEAN (the 'noise'
+    head's rule: both seconds readable on CLEAN_MIN_LEADS leads), else 1 + the best lead."""
+    best = tf.argmax(key, axis=-1, output_type=tf.int32) + 1
+    return tf.where(segment_clean > 0.5, best, rc.LEAD_NOISE)
+
+
 def lead_label(key, n_read):
     """(batch,) int: LEAD_NOISE, or 1 + index of the best lead."""
     best = tf.argmax(key, axis=-1, output_type=tf.int32)
@@ -160,9 +186,48 @@ def _zscore(x):
     return tf.where(std > 1e-6, (x - mean) / tf.maximum(std, 1e-6), tf.zeros_like(x))
 
 
-def targets(labels, clean, lead):
+def beat_targets(beats, clean):
+    """(batch, SEGMENT_SAMPLES) uint8 beat labels -> (batch, BEAT_STEPS, 6):
+    [heat | N S V | w_heat | w_type]. heat = Gaussian (sigma rc.BEAT_HEAT_SIGMA_STEPS) around
+    each R step, clipped to 1; N/S/V = the beat's one-hot inside +-rc.BEAT_TYPE_RADIUS_STEPS
+    of its R, 0 elsewhere; w_heat = the step's weight (0 in IGNORE zones, NOISY_SECOND_WEIGHT
+    in a noisy second, 1 otherwise); w_type = w_heat on the typed steps, 0 elsewhere.
+    2500 -> BEAT_STEPS by max over each block (a beat wins over 'none')."""
+    nb = len(rc.BEAT_CLASSES)
+    beats = tf.cast(beats, tf.int32)
+    ignore = tf.cast(beats == rc.IGNORE, tf.float32)
+    cls = tf.where(beats == rc.IGNORE, 0, beats)
+    block = rc.SEGMENT_SAMPLES // rc.BEAT_STEPS
+    cls = tf.reduce_max(tf.reshape(cls, [-1, rc.BEAT_STEPS, block]), axis=-1)
+    ignore = tf.reduce_max(tf.reshape(ignore, [-1, rc.BEAT_STEPS, block]), axis=-1)
+    onehot = tf.one_hot(cls, nb)[..., 1:]                                # (b, steps, 3) spikes
+    spike = tf.reduce_max(onehot, axis=-1, keepdims=True)                # (b, steps, 1)
+
+    sigma = float(rc.BEAT_HEAT_SIGMA_STEPS)
+    half = int(np.ceil(3 * sigma))
+    g = np.exp(-0.5 * (np.arange(-half, half + 1) / sigma) ** 2).astype(np.float32)
+    heat = tf.nn.conv1d(spike, g[:, None, None], 1, 'SAME')
+    heat = tf.minimum(heat, 1.0)[..., 0]
+
+    k = 2 * rc.BEAT_TYPE_RADIUS_STEPS + 1
+    typed = tf.nn.max_pool1d(onehot, k, 1, 'SAME')                      # widen N/S/V
+    is_typed = tf.reduce_max(typed, axis=-1)
+    # two beats closer than the radius: keep one class per step (the max-pool can light two)
+    typed = tf.one_hot(tf.argmax(typed, axis=-1), nb - 1) * is_typed[..., None]
+
+    k_ign = 2 * rc.BEAT_TARGET_HALFWIDTH_STEPS + 1
+    valid = 1.0 - tf.minimum(1.0, tf.nn.max_pool1d(ignore[..., None], k_ign, 1, 'SAME')[..., 0])
+    clean = tf.repeat(clean, rc.BEAT_STEPS // rc.OUTPUT_SECONDS, axis=1)
+    w_heat = valid * (clean + (1.0 - clean) * rc.NOISY_SECOND_WEIGHT)
+    w_type = w_heat * is_typed
+    return tf.concat([heat[..., None], typed, w_heat[..., None], w_type[..., None]], axis=-1)
+
+
+def targets(labels, clean, lead, beats=None, channel_key=None):
     """{'rhythm': (batch, steps, NUM_CLASSES + 1), 'lead': (batch, NUM_LEAD_CLASSES),
-        'noise': (batch, NOISE_SEGMENTS, 2)} - pipeline keeps the ones the model outputs.
+        'noise': (batch, NOISE_SEGMENTS, 2), 'beat' (when beats given): (batch, BEAT_STEPS, 6),
+        'channel' (when channel_key given): (batch, NOISE_SEGMENTS, NUM_LEAD_CLASSES)}
+    - pipeline keeps the ones the model outputs.
 
     labels are per second (steps = 10), per 20 ms (500) or per sample (2500); `clean` is per
     second - noise is measured per second - and is repeated over a second's samples.
@@ -170,6 +235,7 @@ def targets(labels, clean, lead):
     0 on IGNORE and NOISY_SECOND_WEIGHT on a noisy one - see config. lead = one-hot.
     """
     labels = tf.cast(labels, tf.int32)
+    clean_sec = clean
     # 'noise' (the 20 ms family): a 2 s segment is CLEAN only when both its seconds are
     segment_clean = tf.reduce_min(tf.reshape(
         clean, [-1, rc.NOISE_SEGMENTS, rc.NOISE_SEGMENT_SECONDS]), axis=-1)
@@ -181,22 +247,29 @@ def targets(labels, clean, lead):
     onehot = tf.one_hot(tf.where(labels == rc.IGNORE, 0, labels), rc.NUM_CLASSES) * \
         valid[..., None]
     weight = valid * (clean + (1.0 - clean) * rc.NOISY_SECOND_WEIGHT)
-    return {'rhythm': tf.concat([onehot, weight[..., None]], axis=-1),
-            'lead': tf.one_hot(lead, rc.NUM_LEAD_CLASSES), 'noise': noise}
+    out = {'rhythm': tf.concat([onehot, weight[..., None]], axis=-1),
+           'lead': tf.one_hot(lead, rc.NUM_LEAD_CLASSES), 'noise': noise}
+    if beats is not None:
+        out['beat'] = beat_targets(beats, clean_sec)
+    if channel_key is not None:
+        out['channel'] = tf.one_hot(channel_label(channel_key, segment_clean),
+                                    rc.NUM_LEAD_CLASSES)
+    return out
 
 
-def no_augment(signal, labels):
+def no_augment(signal, labels, beats=None):
     """Stored windows as they are: no noise, so the lead target comes from the signal alone."""
     x = tf.cast(signal, tf.float32)
     sig_rms = tf.sqrt(tf.reduce_mean(tf.square(x), axis=1, keepdims=True))
     live = sig_rms > 0.05
     noise = tf.zeros_like(x)
     key, n_read = lead_scores(x, sig_rms, noise, live)
-    return x, targets(labels, clean_seconds(sig_rms, noise, live), lead_label(key, n_read))
+    return x, targets(labels, clean_seconds(sig_rms, noise, live), lead_label(key, n_read),
+                      beats, channel_scores(x, sig_rms, noise, live))
 
 
 def augment(signal, labels, seed, noise_prob=None, permute_prob=None, snr_range=None,
-            wreck_prob=None, flip_prob=None, drop_prob=None):
+            wreck_prob=None, flip_prob=None, drop_prob=None, beats=None):
     """Corrupt one batch. `seed` is a [2] int tensor; the same seed gives the same batch."""
     seeds = _Seeds(seed)
     noise_prob = rc.NOISE_PROB if noise_prob is None else noise_prob
@@ -253,6 +326,7 @@ def augment(signal, labels, seed, noise_prob=None, permute_prob=None, snr_range=
     # 4. the targets, from exactly what was added
     clean = clean_seconds(sig_rms, noise, live)
     key, n_read = lead_scores(x, sig_rms, noise, live)
+    chan_key = channel_scores(x, sig_rms, noise, live)
     x = x + wander + noise
 
     # 5. lead order - the lead target is permuted WITH the leads
@@ -262,8 +336,9 @@ def augment(signal, labels, seed, noise_prob=None, permute_prob=None, snr_range=
     x = tf.gather(x, perm, axis=2, batch_dims=1)
     key = tf.gather(key, perm, axis=1, batch_dims=1)
     n_read = tf.gather(n_read, perm, axis=1, batch_dims=1)
+    chan_key = tf.gather(chan_key, perm, axis=2, batch_dims=1)
 
     # 6. what inference does to any strip
     x = _zscore(x)
     x.set_shape([None, n, c])
-    return x, targets(labels, clean, lead_label(key, n_read))
+    return x, targets(labels, clean, lead_label(key, n_read), beats, chan_key)
