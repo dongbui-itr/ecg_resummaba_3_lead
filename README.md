@@ -359,6 +359,102 @@ các tích chập dày của nhánh ResU, vốn được thay bằng tích chậ
 > trong mỗi file `.keras` và tra cứu bằng đúng chuỗi đó. Tên package là một **định dạng lưu
 > trữ**, không phải namespace.
 
+### 5c. `resucfc_*` — thay nhánh Mamba bằng CfC, để xuống được phần cứng
+
+```
+python -m ecgr distill --model resucfc_2m     # student CfC <- teacher state-space
+./run_pipeline.sh cfc                         # cả bốn size: distill -> stepeval -> ec57
+python scripts/vlsi_cost.py                   # bảng chi phí silicon
+```
+
+Cùng một đồ thị, **đổi đúng một layer mỗi block**: `DiagSSM1D` → `CfC1D`. Stem, nhánh ResU,
+các conv trong block, AdaIN, cross-attention nhịp và head đều giữ nguyên tên lẫn shape, nên
+mọi khác biệt trên bảng EC57 quy về bộ trộn thời gian chứ không về thứ gì khác đi kèm.
+
+#### Vì sao bỏ một diagonal SSM vốn đang chạy tốt
+
+`DiagSSM1D` đúng và train nhanh, nhưng **thứ nó export ra** là một FIR depthwise dài
+`kernel_len` tap. Trên FPGA/ASIC đó là hình dạng đắt nhất — và cái đắt là **bộ nhớ**, không
+phải phép nhân:
+
+| | `resumamba_2m` (SSM) | `resucfc_2m` (CfC) | tỉ lệ |
+|---|---|---|---|
+| MAC / bước | 394,240 | 28,672 | **13.8×** |
+| hệ số trong ROM | 394,240 | 25,088 | **15.7×** |
+| **bộ nhớ chạy** (delay line ↔ thanh ghi state) | 394,240 | 3,584 | **110×** |
+| tham số của mixer | 100,352 | 25,088 | 4.0× |
+| tham số cả model | 1,977,660 | 1,902,396 | 1.04× |
+
+Bảng đầy đủ bốn size: `eval_results/cfc_vlsi_cost.csv`. Rút gọn: **state giảm 70–110×, MAC
+giảm 9–14×, ROM giảm 10–16×** — trong khi tổng tham số gần như không đổi, vì nhánh thời gian
+vốn chỉ chiếm ~5% tham số nhưng gần như toàn bộ chi phí bộ nhớ runtime.
+
+Một bước CfC, mỗi kênh:
+
+```
+rate_t = softplus(a*u_t + a0)            hằng số thời gian, TÍNH TỪ ĐẦU VÀO
+A_t    = exp(-rate_t * dt)               nghiệm đóng của ODE trên một bước
+tgt_t  = tanh(b*u_t + b0)
+h_t    = A_t*h_{t-1} + (1-A_t)*tgt_t     dh/dt = rate*(tgt - h), giải chính xác
+inst_t = tanh(c*u_t + c0)
+y_t    = A_t*inst_t + (1-A_t)*h_t        nội suy CfC
+```
+
+Sáu trọng số và ~8 MAC mỗi kênh mỗi bước, **một từ nhớ** state — so với 256 tap, 256 hệ số và
+một delay line 256 từ. `A_t ∈ (0,1)` nên state co lại theo cấu trúc, không thể phân kỳ dù
+record dài bao nhiêu.
+
+Và nó **trả lại thứ diagonal SSM đã đánh mất**: tính chọn lọc của Mamba là động học phụ thuộc
+đầu vào; `DiagSSM1D` bỏ nó đi để có kernel dạng đóng (các hằng số phân rã là trọng số cố
+định, giống hệt nhau trên tín hiệu sạch và giữa một đoạn artefact). Ở đây `rate_t` tính từ
+đầu vào tại từng bước, nên cell có thể **giữ state qua đoạn nhiễu và nhả ra ở QRS** — đúng
+tính chọn lọc đó, giá sáu số thực.
+
+#### Train bằng parallel scan, không phải vòng lặp
+
+`h_t = A_t·h_{t-1} + B_t` là hồi quy tuyến tính bậc một, nên các cặp `(A,B)` **kết hợp có tính
+kết hợp** — `(A1,B1)` rồi `(A2,B2)` bằng `(A1A2, A2B1+B2)` — và cả chuỗi giải xong trong
+`ceil(log2(horizon))` vòng vector hóa thay vì `T` bước tuần tự. Chín vòng phủ 512 bước.
+
+> Đây là chỗ dễ sai nhất của cả thay đổi này, nên nó có test riêng:
+> `test_the_parallel_scan_is_the_hardware_loop` so scan với `CfC1D.step_numpy` — chính là số
+> học mà một port RTL/C sẽ chạy. Đo được **max |scan − loop| = 3.2e-7**. Nếu hai thứ đó lệch
+> nhau thì mọi con số đo lúc train là về một model không tồn tại trên thiết bị.
+
+`horizon` là giới hạn cứng state lan được bao xa, và là bản đối ứng trực tiếp của `kernel_len`
+— nhưng **miễn phí**: log2 của nó ở thời điểm train, và **không gì cả** lúc suy luận. Nên mọi
+size đều lấy 512, tức trọn dải 10 s theo cả hai chiều, trong khi SSM phải mua từng tap một
+(128–256).
+
+Đánh đổi thật, ghi ra cho rõ: một bước CfC cần `softplus`, `exp` và hai `tanh` mỗi cell —
+transcendental mà FIR không cần. Đây là **đổi multiplier và SRAM lấy diện tích LUT/CORDIC**,
+và nó đáng chỉ vì phía SSM bị chặn bởi bộ nhớ chứ không bởi số học.
+
+#### Distill thay vì train lại — [`training/distill.py`](ecgr/training/distill.py)
+
+```
+L = alpha * T^2 * KL(teacher || student) + (1 - alpha) * poly2(y, student)
+```
+
+`config.DISTILL_TEMPERATURE = 3.0`, `DISTILL_ALPHA = 0.7`. Model trong dự án này xuất
+**xác suất** chứ không phải logit, nên nhiệt độ áp dưới dạng `softmax(log p / T)` — cùng một
+thứ, sai khác đúng hằng số mà softmax chuẩn hóa mất.
+
+Hai điều làm nó rẻ:
+
+1. **98.7% trọng số kế thừa thẳng.** Chỉ mixer khác nhau; đo thực tế trên `resucfc_2m`:
+   **205 trọng số copy, 62 cold** = 1,877,820 scalar ấm / 24,576 scalar lạnh. Student khởi
+   đầu *chính là* teacher với bộ trộn thời gian được thay, và chỉ phần đó phải học.
+2. **Không cần lượt dữ liệu thứ hai.** Teacher chạy trong `tf.data` cùng batch, nên forward
+   của nó chồng lên backward của student thay vì nối tiếp.
+
+`--no-transfer` là ablation nói phần nào của kết quả đến từ việc kế thừa trọng số.
+
+Chi phí train: **132.7 ms/bước so với 69.6 ms** của bản SSM (batch 64, RTX 3090), bộ nhớ
+4.1 GB so với 2.8 GB. Scan là lý do con số đó là 1.9× chứ không phải ~50× như `tf.scan`.
+`CfC1D(recompute=True)` tính lại scan ở backward thay vì giữ 18 tensor trung gian mỗi block —
+không có nó thì size 2M không vừa một card.
+
 ## 6. Tự giám sát rồi train — [`ecgr/training/`](ecgr/training/)
 
 ### 6.0. Tổng quan: chặng nào không nhãn, chặng nào cần nhãn

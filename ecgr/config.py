@@ -304,10 +304,24 @@ AUGMENT_LEAD_NOISE_AMP = 2.5
 AUGMENT_LEAD_NOISE_PRIMARY_AMP = 0.8
 AUGMENT_LEAD_NOISE_SPAN = 0.3     # shortest burst, as a fraction of the window
 
+# --- the CfC family and its distillation (models/resumamba.CFC_SIZES, training/distill.py)
+# Where the state-space TEACHERS live. The committed checkpoints under <repo>/checkpoints/
+# are the run 260917_3lead weights, so a checkout is enough to distil from.
+ENCODER_CHECKPOINT_DIR = os.environ.get(
+    "ECGR_ENCODER_CKPT_DIR", os.path.join(_PKG_ROOT, "checkpoints"))
+# Softmax temperature and the weight on the soft term. alpha=0.7 leaves the hard labels a
+# real vote: the teacher is good but it is not the ground truth, and the student has a
+# different time mixer, so it should be allowed to disagree where the labels back it.
+DISTILL_TEMPERATURE = float(os.environ.get("ECGR_DISTILL_T", 3.0))
+DISTILL_ALPHA = float(os.environ.get("ECGR_DISTILL_ALPHA", 0.7))
+
 # Save every epoch from CKPT_START_EPOCH on (<ckpt>/epochs/epoch_NN.keras), not only the
 # step-F1 improvements: the checkpoint that scores best at beat level is chosen afterwards by
 # bxb on portal-eval, and the README's own warning is that step F1 does not pick it.
 SAVE_EVERY_EPOCH = True
+# ... and how often the periodic archive is written. It thins only that archive - the
+# best-on-monitor and BEST_F1 checkpoints are still written on the epoch that earns them.
+SAVE_EPOCH_INTERVAL = int(os.environ.get("ECGR_SAVE_EPOCH_INTERVAL", 3))
 
 WORKERS = int(os.environ.get("ECGR_WORKERS", max(1, (os.cpu_count() or 8) // 2)))
 

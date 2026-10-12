@@ -182,6 +182,29 @@ class DiagSSM1D(layers.Layer):
         y = tf.signal.irfft(spec, fft_length=n)[:, :, :steps]            # drop the tail
         return tf.transpose(y, [0, 2, 1])
 
+    def cost(self):
+        """Per-output-step hardware cost once this layer is exported as a FIR filter.
+
+        The comparison partner of CfC1D.cost(). A diagonal SSM is a *fixed* impulse response,
+        so deployment is a depthwise FIR of `kernel_len` taps per channel per direction: the
+        decay rates and oscillator frequencies vanish into the coefficients and never appear
+        in silicon. What does appear is one multiply-accumulate and one coefficient per tap,
+        and a delay line as deep as the kernel.
+
+        `state_words` counts that delay line, so the number is directly comparable with the
+        CfC figure even though one is history and the other is state.
+        """
+        channels = int(self.fwd[0].shape[0])
+        dirs = 2 if self.bidirectional else 1
+        taps = channels * self.kernel_len * dirs
+        return {'channels': channels, 'state_dim': self.state_dim,
+                'bidirectional': self.bidirectional, 'taps': taps,
+                'params': int(sum(np.prod(v.shape) for v in self.fwd) * dirs),
+                'coeff_words': taps,            # the materialised FIR, not the 4 scalars
+                'mac_per_step': taps,
+                'state_words': channels * self.kernel_len * dirs,
+                'nonlin_per_step': {}}
+
     def kernel_numpy(self):
         """The materialised impulse responses, (2, C, L) if bidirectional else (1, C, L).
 
@@ -429,3 +452,249 @@ class RhythmDescriptor(layers.Layer):
                 'channel': self.channel}
 
 
+
+
+# ---------------------------------------------------------------------------
+# CfC: the closed-form continuous-time replacement for the state-space path
+# ---------------------------------------------------------------------------
+
+@keras.saving.register_keras_serializable(package=PKG)
+class CfC1D(layers.Layer):
+    """Closed-form continuous-time recurrence, depthwise, trained by a parallel scan.
+
+    Drop-in for DiagSSM1D - same (B, T, C) in, same (B, T, C) out, same place in the block -
+    but a fundamentally different implementation, and the reason is the hardware.
+
+    **Why replace a diagonal SSM that already works.** DiagSSM1D is exact and trains fast,
+    but what it exports to is a depthwise FIR filter `kernel_len` taps long. On an FPGA or an
+    ASIC that is the expensive shape: at the 2M size (192 channels, 256 taps, both
+    directions) one block costs 98,304 MACs per output step and needs a 256-deep delay line
+    per channel - 98,304 words of coefficient ROM and 49,152 words of line buffer, before any
+    of the other three blocks. The cost is in the *memory*, and it grows with the receptive
+    field you want.
+
+    A continuous-time cell pays for the same memory with STATE instead of TAPS. One scalar
+    per channel, updated in place:
+
+        rate_t = softplus(a*u_t + a0)                 the liquid time constant, from the input
+        A_t    = exp(-rate_t * dt)                    closed form of the ODE over one step
+        tgt_t  = tanh(b*u_t + b0)                     what the state relaxes toward
+        h_t    = A_t*h_{t-1} + (1 - A_t)*tgt_t        exact solution of dh/dt = rate*(tgt - h)
+        inst_t = tanh(c*u_t + c0)                     the instantaneous branch
+        y_t    = A_t*inst_t + (1 - A_t)*h_t           the CfC interpolation
+
+    That is 6 weights and ~8 MACs per channel per step against 256, and ONE state word
+    against a 256-word line buffer. Nothing is unbounded: `A_t` lives in (0, 1), so the state
+    is contractive by construction and cannot blow up however long the record is.
+
+    **It also puts back the one thing the diagonal SSM gave away.** Mamba's selectivity is
+    input-dependent dynamics; DiagSSM1D dropped it to get a closed-form kernel (its decay
+    rates are fixed weights, the same on clean signal and inside an artefact). Here `rate_t`
+    is computed FROM the input at every step, so the cell can hold its state through a noisy
+    stretch and let it go at a QRS - selectivity, at the cost of six scalars.
+
+    **Training: a parallel scan, not a loop.** `h_t = A_t*h_{t-1} + B_t` is a first-order
+    linear recurrence, so the pairs (A, B) compose associatively - (A1,B1) then (A2,B2) is
+    (A1*A2, A2*B1 + B2) - and the whole sequence resolves in ceil(log2(horizon)) vectorised
+    rounds instead of T sequential ones. Nine rounds cover 512 steps. A tf.scan over 500
+    steps would be ~50x slower to train and would not export; this is the same recurrence,
+    evaluated in a different order, and `scan_matches_loop` in the tests proves the two agree.
+
+    `horizon` is the hard bound on how far state can propagate, and it is the direct
+    analogue of DiagSSM1D's `kernel_len`: with horizon >= T the scan is exact for the whole
+    strip. Unlike kernel_len it costs nothing - log2 of it, in rounds, and no extra weights.
+
+    `state_dim` > 1 gives each channel that many independent cells with a learned readout
+    mix, the analogue of DiagSSM1D's bank of oscillators. It multiplies the hardware state
+    and the activation memory, so it defaults low; the input-dependent rate is doing the work
+    the bank used to do.
+    """
+
+    def __init__(self, state_dim=1, horizon=512, bidirectional=True, dt=1.0,
+                 recompute=True, **kw):
+        super().__init__(**kw)
+        self.state_dim = int(state_dim)
+        self.horizon = int(horizon)
+        self.bidirectional = bool(bidirectional)
+        self.dt = float(dt)
+        # The scan writes two (B, T, C, N) tensors per round and there are log2(horizon)
+        # rounds, so keeping them all for the backward pass costs ~18x the activation of the
+        # layer's own output - at the 2M size, gigabytes per block. Recomputing the scan in
+        # the backward pass instead stores only its inputs. It is the difference between
+        # this family fitting on one card and not; turn it off only to profile.
+        self.recompute = bool(recompute)
+
+    # --- weights ------------------------------------------------------------------------
+    def _add_bank(self, channels, prefix, seed):
+        """One CfC bank: (rate, target, instant) affine maps plus the readout mix."""
+        rng = np.random.default_rng(seed)
+        n, shape = self.state_dim, (channels, self.state_dim)
+
+        # Rate bias on a log-spaced grid of time constants, 2 .. horizon steps, exactly as
+        # DiagSSM1D seeds its decay rates: a fresh layer already spans QRS width to several
+        # R-R intervals, so training starts from useful dynamics instead of finding them.
+        tau = np.exp(np.linspace(np.log(2.0), np.log(max(self.horizon, 4.0)), n))
+        rate0 = np.log(np.expm1(1.0 / tau))                 # softplus(rate0) == 1/tau
+        rate0 = np.tile(rate0[None, :], (channels, 1)) + rng.normal(0, 0.1, shape)
+
+        def const(v):
+            v = v.astype('float32')
+            return lambda s, dtype=None: tf.constant(v, dtype=dtype)
+
+        w = {}
+        w['a'] = self.add_weight(shape=shape, name=f'{prefix}_a', trainable=True,
+                                 initializer=const(rng.normal(0, 0.1, shape)))
+        w['a0'] = self.add_weight(shape=shape, name=f'{prefix}_a0', trainable=True,
+                                  initializer=const(rate0))
+        w['b'] = self.add_weight(shape=shape, name=f'{prefix}_b', trainable=True,
+                                 initializer=const(rng.normal(0, 1.0, shape)))
+        w['b0'] = self.add_weight(shape=shape, name=f'{prefix}_b0', trainable=True,
+                                  initializer='zeros')
+        w['c'] = self.add_weight(shape=shape, name=f'{prefix}_c', trainable=True,
+                                 initializer=const(rng.normal(0, 1.0, shape)))
+        w['c0'] = self.add_weight(shape=shape, name=f'{prefix}_c0', trainable=True,
+                                  initializer='zeros')
+        w['mix'] = self.add_weight(shape=shape, name=f'{prefix}_mix', trainable=True,
+                                   initializer=const(rng.normal(0, 1.0 / np.sqrt(n), shape)))
+        return w
+
+    def build(self, input_shape):
+        channels = int(input_shape[-1])
+        self.fwd = self._add_bank(channels, 'fwd', seed=0)
+        self.bwd = self._add_bank(channels, 'bwd', seed=1) if self.bidirectional else None
+        super().build(input_shape)
+
+    # --- the recurrence -----------------------------------------------------------------
+    def _coeffs(self, u, bank):
+        """(A, B, inst) of shape (B, T, C, N) from the input (B, T, C)."""
+        x = u[..., None]                                            # (B, T, C, 1)
+        rate = tf.nn.softplus(bank['a'] * x + bank['a0'])           # > 0
+        a = tf.exp(-rate * self.dt)                                 # in (0, 1)
+        tgt = tf.tanh(bank['b'] * x + bank['b0'])
+        inst = tf.tanh(bank['c'] * x + bank['c0'])
+        return a, (1.0 - a) * tgt, inst
+
+    @staticmethod
+    def _shift(x, d, fill):
+        """x[:, t] -> x[:, t-d] along time, the first d steps filled with `fill`."""
+        pad = tf.fill(tf.concat([tf.shape(x)[:1], [d], tf.shape(x)[2:]], axis=0),
+                      tf.constant(fill, x.dtype))
+        return tf.concat([pad, x[:, :-d]], axis=1)
+
+    def _scan(self, a, b):
+        """h_t = a_t*h_{t-1} + b_t, resolved by an inclusive Hillis-Steele scan.
+
+        The pair (a, b) is the affine map h -> a*h + b; composing the map at t-d with the one
+        at t gives (a_{t-d}*a_t, a_t*b_{t-d} + b_t), which is associative, so doubling the
+        stride log2(horizon) times leaves every position holding the composition of the whole
+        prefix. h_0 = 0, so the b half of that composition IS h_t.
+        """
+        rounds = max(1, int(np.ceil(np.log2(max(self.horizon, 2)))))
+        for i in range(rounds):
+            d = 1 << i
+            a_prev = self._shift(a, d, 1.0)                 # identity map outside the window
+            b_prev = self._shift(b, d, 0.0)
+            b = a * b_prev + b
+            a = a * a_prev
+        return b
+
+    def _direction(self, u, bank):
+        a, b, inst = self._coeffs(u, bank)
+        # _scan closes over no variables, only over `horizon`, so it is safe to wrap: the
+        # recomputation is a pure function of (a, b).
+        scan = tf.recompute_grad(self._scan) if self.recompute else self._scan
+        h = scan(a, b)                                              # (B, T, C, N)
+        y = a * inst + (1.0 - a) * h                                # CfC interpolation
+        return tf.reduce_sum(y * bank['mix'], axis=-1)               # (B, T, C)
+
+    def call(self, inputs):
+        y = self._direction(inputs, self.fwd)
+        if self.bidirectional:
+            rev = tf.reverse(inputs, axis=[1])
+            y += tf.reverse(self._direction(rev, self.bwd), axis=[1])
+        return y
+
+    # --- what an export / a test needs --------------------------------------------------
+    def step_numpy(self, u_t, h, direction='fwd'):
+        """One hardware step in numpy: (u_t, h) -> (y_t, h_next), both (C, N) for h.
+
+        This IS the deployed arithmetic - three multiply-adds, a softplus, an exp and two
+        tanh per cell, no history. An RTL or C port follows it line for line, and
+        `tests/test_models.py` checks the parallel scan used in training reproduces it.
+        """
+        w = self.fwd if direction == 'fwd' else self.bwd
+        g = {k: np.asarray(v) for k, v in w.items()}
+        x = np.asarray(u_t)[..., None]
+        rate = np.logaddexp(0.0, g['a'] * x + g['a0'])               # softplus
+        a = np.exp(-rate * self.dt)
+        tgt = np.tanh(g['b'] * x + g['b0'])
+        inst = np.tanh(g['c'] * x + g['c0'])
+        h_next = a * h + (1.0 - a) * tgt
+        y = a * inst + (1.0 - a) * h_next
+        return (y * g['mix']).sum(axis=-1), h_next
+
+    def cost(self):
+        """Per-output-step hardware cost of this layer, for the VLSI comparison.
+
+        `state_words` is the whole runtime memory: a CfC keeps one word per cell and no
+        history at all, which is the point of the swap.
+        """
+        channels = int(self.fwd['a'].shape[0])
+        dirs = 2 if self.bidirectional else 1
+        cells = channels * self.state_dim * dirs
+        params = int(sum(np.prod(v.shape) for v in self.fwd.values()) * dirs)
+        return {'channels': channels, 'state_dim': self.state_dim,
+                'bidirectional': self.bidirectional, 'cells': cells,
+                'params': params,
+                # Every trained weight has to sit in ROM here too - there is no FIR to bake
+                # them into, so coeff_words IS the parameter count. Reporting 0 would make
+                # the comparison against the SSM's materialised kernel look free when it is
+                # only small.
+                'coeff_words': params,
+                'mac_per_step': 8 * cells,      # 3 affine + 2 interp + mix, per cell
+                'state_words': cells,
+                'nonlin_per_step': {'softplus': cells, 'exp': cells, 'tanh': 2 * cells}}
+
+    def compute_output_shape(self, input_shape):
+        return input_shape
+
+    def get_config(self):
+        return {**super().get_config(), 'state_dim': self.state_dim, 'horizon': self.horizon,
+                'bidirectional': self.bidirectional, 'dt': self.dt,
+                'recompute': self.recompute}
+
+
+def cfc_block(x, filters, state_dim, horizon, bidirectional=True, dt=1.0,
+              recompute=True, name=None):
+    """The ssm_block layout with CfC1D in place of DiagSSM1D.
+
+    Deliberately the same block around it - 1x1 in, depthwise 3, SiLU, the time mixer, a SiLU
+    gate from the input, 1x1 out, residual - so a `cfc` model differs from the `ssm` model it
+    is distilled from in exactly one layer per block and nothing else. Any difference in the
+    EC57 tables is then attributable to the time mixer rather than to a second change riding
+    along with it.
+    """
+    tag = (lambda s: None if name is None else f'{name}_{s}')
+    u = layers.Conv1D(filters, 1, use_bias=False, name=tag('in_proj'))(x)
+    u = layers.DepthwiseConv1D(3, padding='same', use_bias=False, name=tag('dw'))(u)
+    u = layers.BatchNormalization(name=tag('bn'))(u)
+    u = layers.Activation('silu', name=tag('silu'))(u)
+    u = CfC1D(state_dim=state_dim, horizon=horizon, bidirectional=bidirectional, dt=dt,
+              recompute=recompute, name=tag('cfc'))(u)
+
+    g = layers.Conv1D(filters, 1, use_bias=False, name=tag('gate_proj'))(x)
+    g = layers.Activation('silu', name=tag('gate'))(g)
+
+    y = layers.Multiply(name=tag('mul'))([u, g])
+    y = layers.Conv1D(filters, 1, use_bias=False, name=tag('out_proj'))(y)
+    y = layers.BatchNormalization(name=tag('out_bn'))(y)
+    if x.shape[-1] == filters:
+        y = layers.Add(name=tag('res'))([x, y])
+    return layers.Activation('relu', name=tag('out_relu'))(y)
+
+
+# Time mixers the model family can be built with. `ssm` is the original diagonal state space
+# (a long FIR once exported); `cfc` is the closed-form continuous-time cell above (a scalar
+# state). The signature is shared - (x, filters, state_dim, memory, bidirectional, name) -
+# so build_backbone picks one by name and nothing else in the graph changes.
+TIME_MIXERS = {'ssm': ssm_block, 'cfc': cfc_block}

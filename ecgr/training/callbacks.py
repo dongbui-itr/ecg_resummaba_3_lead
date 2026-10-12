@@ -102,12 +102,18 @@ class DelayedModelCheckpoint(tf.keras.callbacks.ModelCheckpoint):
     its initial infinity, which is what makes `start_epoch` the true first candidate.
     """
 
-    def __init__(self, *args, start_epoch=1, **kwargs):
+    def __init__(self, *args, start_epoch=1, interval=1, **kwargs):
         super().__init__(*args, **kwargs)
         self.start_epoch = start_epoch
+        # interval > 1 thins the PERIODIC archive only (epoch_03, epoch_06, ...). The
+        # best-model writer is the same class with interval=1, because it has to be free to
+        # fire on whichever epoch is actually best.
+        self.interval = max(1, int(interval))
 
     def on_epoch_end(self, epoch, logs=None):
         if epoch + 1 < self.start_epoch:
+            return
+        if (epoch + 1 - self.start_epoch) % self.interval:
             return
         super().on_epoch_end(epoch, logs)
 

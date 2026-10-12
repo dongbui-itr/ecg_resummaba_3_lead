@@ -17,9 +17,12 @@ def built():
     return out
 
 
-@pytest.mark.parametrize('name', SIZES)
-def test_the_family_is_the_four_promised_sizes(name, built):
-    assert set(SIZES) == {'resumamba_2m', 'resumamba_1m', 'resumamba_100k', 'resumamba_30k'}
+def test_the_families_are_the_sizes_they_promise():
+    assert set(SIZES) == {'resumamba_2m', 'resumamba_1m', 'resumamba_100k', 'resumamba_30k',
+                          'resucfc_2m', 'resucfc_1m', 'resucfc_100k', 'resucfc_30k'}
+    # every CfC size names a teacher that exists - it is what `distill` reads
+    for student, teacher in models.TEACHER_OF.items():
+        assert teacher in models.SIZES, f"{student} points at unknown teacher {teacher}" 
 
 
 @pytest.mark.parametrize('name', SIZES)
@@ -29,7 +32,8 @@ def test_parameter_budget(name, built):
     assert total < budget, f"{name} has {total:,} params, over its {budget:,} budget"
     # and not absurdly under it either - a size that drifts far below its name is a
     # different model from the one the family claims to offer
-    assert total > 0.7 * budget, f"{name} has {total:,} params, far under its {budget:,}"
+    floor = 0.65 if name.startswith('resucfc') else 0.7
+    assert total > floor * budget, f"{name} has {total:,} params, far under its {budget:,}"
 
 
 @pytest.mark.parametrize('name', SIZES)
@@ -167,3 +171,149 @@ def test_s_only_refinement_keeps_p_none_and_p_v_exactly():
     assert np.allclose(p2[..., 1] + p2[..., 3], p_base[..., 1] + p_base[..., 3], atol=1e-6)
     assert np.abs(p2[..., 3] - p_base[..., 3]).max() > 1e-3, "S must be able to move"
     assert np.allclose(p2.sum(-1), 1.0, atol=1e-5)
+
+
+# ---------------------------------------------------------------------------
+# CfC: the closed-form continuous-time mixer that replaces the state-space path
+# ---------------------------------------------------------------------------
+
+CFC = sorted(models.CFC_SIZES)
+
+
+def test_the_parallel_scan_is_the_hardware_loop():
+    """The single most important check in this family.
+
+    Training resolves the recurrence with a log-depth associative scan; silicon runs it one
+    step at a time out of a single state register. If those two ever stop agreeing, every
+    number measured in training is about a model that does not exist on the device. The
+    sequential reference here is `step_numpy`, which IS the arithmetic an RTL port follows.
+    """
+    from ecgr.models.layers import CfC1D
+
+    rng = np.random.default_rng(0)
+    u = rng.standard_normal((1, 48, 6)).astype('float32')
+
+    for bidirectional in (False, True):
+        layer = CfC1D(state_dim=2, horizon=64, bidirectional=bidirectional)
+        scanned = np.asarray(layer(u))[0]
+
+        def loop(seq, direction):
+            h = np.zeros((u.shape[-1], layer.state_dim))
+            out = []
+            for step in seq:
+                y, h = layer.step_numpy(step, h, direction)
+                out.append(y)
+            return np.array(out)
+
+        ref = loop(u[0], 'fwd')
+        if bidirectional:
+            ref = ref + loop(u[0][::-1], 'bwd')[::-1]
+        assert np.abs(scanned - ref).max() < 1e-5, \
+            f"scan and sequential loop disagree (bidirectional={bidirectional})"
+
+
+def test_recompute_grad_does_not_change_the_function():
+    """The memory optimisation must be invisible in the output, or it is a second model."""
+    from ecgr.models.layers import CfC1D
+
+    u = np.random.default_rng(1).standard_normal((2, 32, 4)).astype('float32')
+    on, off = CfC1D(state_dim=2, horizon=32), CfC1D(state_dim=2, horizon=32, recompute=False)
+    y_on = on(u)
+    off(u)
+    off.set_weights(on.get_weights())
+    assert np.allclose(np.asarray(y_on), np.asarray(off(u)), atol=1e-6)
+
+
+@pytest.mark.parametrize('name', CFC)
+def test_cfc_keeps_the_contract_and_has_no_fir(name, built):
+    """Same tensors in and out as the size it replaces, and no long kernel anywhere."""
+    from ecgr.models.layers import CfC1D, DiagSSM1D
+
+    model = built[name]
+    assert tuple(model.input_shape[1:]) == (config.SEGMENT_SAMPLES, config.IN_CHANNELS)
+    assert tuple(model.output_shape[1:]) == (config.OUTPUT_STEPS, config.NUM_CLASSES)
+
+    found = {'cfc': 0, 'ssm': 0}
+
+    def walk(layer):
+        found['cfc'] += isinstance(layer, CfC1D)
+        found['ssm'] += isinstance(layer, DiagSSM1D)
+        for sub in getattr(layer, 'layers', []):
+            walk(sub)
+    walk(model)
+    assert found['cfc'] > 0, f"{name} has no CfC layer"
+    assert found['ssm'] == 0, f"{name} still contains {found['ssm']} DiagSSM1D layers"
+
+
+@pytest.mark.parametrize('name', CFC)
+def test_cfc_is_cheaper_in_silicon_than_the_size_it_replaces(name, built):
+    """The whole point of the swap, asserted rather than left to a script.
+
+    State is the number that decides whether a block fits: an FIR needs a delay line as deep
+    as its kernel, a CfC one register per cell.
+    """
+    import sys
+    sys.path.insert(0, str(__import__('pathlib').Path(__file__).resolve().parents[1]))
+    from scripts.vlsi_cost import totals
+
+    cfc = totals(built[name])
+    ssm = totals(built[models.teacher_of(name)])
+    assert cfc['state_words'] * 10 < ssm['state_words'], \
+        f"{name}: state {cfc['state_words']} vs {ssm['state_words']} - less than 10x"
+    assert cfc['mac_per_step'] < ssm['mac_per_step']
+    assert cfc['coeff_words'] < ssm['coeff_words']
+
+
+@pytest.mark.parametrize('name', CFC)
+def test_cfc_round_trips_through_keras(name, tmp_path, built):
+    """CfC1D has to be registered, or ec57.py's bare load_model cannot read a checkpoint."""
+    model = built[name]
+    x = np.random.default_rng(4).standard_normal(
+        (1, config.SEGMENT_SAMPLES, config.IN_CHANNELS)).astype('float32')
+    before = model.predict(x, verbose=0)
+    path = tmp_path / f"{name}.keras"
+    model.save(path)
+    reloaded = keras.models.load_model(path, compile=False)
+    assert np.allclose(before, reloaded.predict(x, verbose=0), atol=1e-5)
+
+
+def test_only_the_mixer_is_cold_after_the_teacher_transfer():
+    """Distillation's premise: the student is the teacher with one layer exchanged.
+
+    If anything outside the CfC cells fails to transfer, the two graphs have drifted apart
+    and the run is no longer measuring the time mixer.
+    """
+    from ecgr.training.distill import transfer_shared_weights
+
+    student, teacher = models.build('resucfc_30k'), models.build('resumamba_30k')
+    _, skipped = transfer_shared_weights(student, teacher, verbose=False)
+    assert skipped, "nothing was left cold - the mixer should not have transferred"
+    assert all('_cfc/' in p or p.startswith('ctx_ar/') for p in skipped), \
+        f"something outside the mixer did not transfer: {skipped}"
+
+
+def test_the_distiller_freezes_the_teacher_and_passes_the_student_through():
+    """The two invariants the distillation graph rests on.
+
+    The teacher must contribute no trainable weights - otherwise the optimiser state doubles
+    and the target the student is chasing quietly moves - and the student half of the
+    two-branch output must be bit-identical to calling the student alone, because that is
+    the model the checkpoints contain and the one EC57 will score.
+    """
+    from ecgr.training.distill import build_distiller
+
+    student, teacher = models.build('resucfc_30k'), models.build('resumamba_30k')
+    wrapper = build_distiller(student, teacher)
+
+    trainable = sum(int(np.prod(w.shape)) for w in wrapper.trainable_weights)
+    student_trainable = sum(int(np.prod(w.shape)) for w in student.trainable_weights)
+    assert trainable == student_trainable, "the teacher is contributing trainable weights"
+
+    x = np.random.default_rng(7).standard_normal(
+        (2, config.SEGMENT_SAMPLES, config.IN_CHANNELS)).astype('float32')
+    both = wrapper.predict(x, verbose=0)
+    assert both.shape[-1] == 2 * config.NUM_CLASSES
+    assert np.allclose(both[..., :config.NUM_CLASSES], student.predict(x, verbose=0),
+                       atol=1e-6)
+    assert np.allclose(both[..., config.NUM_CLASSES:], teacher.predict(x, verbose=0),
+                       atol=1e-6)

@@ -10,7 +10,14 @@
     python -m ecgr stepeval  --model resumamba_30k [--checkpoint FILE]
     python -m ecgr ec57      --model resumamba_30k [--dbs mitdb] [--bxb-only]
     python -m ecgr all       --model resumamba_30k   # ssl -> cpc -> train -> stepeval -> ec57
+    python -m ecgr distill   --model resucfc_2m      # CfC student <- state-space teacher
     python -m ecgr compare   resumamba_30k resumamba_1m   # side-by-side EC57 table
+
+Two families share every layer but one. `resumamba_*` mixes time with a diagonal state space
+that exports to a long FIR; `resucfc_*` mixes it with a closed-form continuous-time cell that
+exports to one state register per channel (scripts/vlsi_cost.py prints the difference). A
+CfC size is trained by `distill`, not `train`: 98.7% of its weights are the teacher's, and
+only the mixer has to be learned.
 
 The two self-supervised stages come first and use no labels. Both depend only on the
 architecture, so they are skipped when weights already exist - in this run, or in the run
@@ -96,6 +103,28 @@ def build_parser():
     t.add_argument('--freeze-backbone-epochs', type=int, default=None,
                    help='hold the SSL backbone frozen for this many epochs so the random '
                         'head cannot wash out the pretraining (default: config value)')
+
+    ds = sub.add_parser('distill', help='train a resucfc_* student against the trained '
+                                        'state-space teacher of the same size')
+    _add_model_arg(ds)
+    ds.add_argument('--teacher', default=None,
+                    help='teacher .keras (default: <repo>/checkpoints/<paired size>.keras)')
+    ds.add_argument('--epochs', type=int, default=None)
+    ds.add_argument('--batch-size', type=int, default=None)
+    ds.add_argument('--lr', type=float, default=None)
+    ds.add_argument('--loss', choices=['wce', 'poly', 'poly2'], default=None,
+                    help='the HARD half of the distillation loss (default: config.LOSS)')
+    ds.add_argument('--temperature', type=float, default=None,
+                    help='softmax temperature (default: config.DISTILL_TEMPERATURE)')
+    ds.add_argument('--alpha', type=float, default=None,
+                    help='weight on the soft term, 0 = pure hard labels '
+                         '(default: config.DISTILL_ALPHA)')
+    ds.add_argument('--no-transfer', action='store_true',
+                    help='do NOT warm-start the shared weights from the teacher - the '
+                         'ablation that says how much of the result is the transfer')
+    ds.add_argument('--patience', type=int, default=None)
+    ds.add_argument('--ckpt-start-epoch', type=int, default=None)
+    ds.add_argument('--save-interval', type=int, default=None)
 
     r = sub.add_parser('refine', help='train the temporal refinement head on the frozen best '
                                       'base and pick the no-regression epoch on portal-eval')
@@ -262,6 +291,17 @@ def main(argv=None):
                       freeze_ctx=not args.ctx_trainable,
                       freeze_backbone_epochs=args.freeze_backbone_epochs,
                       init_from=args.init_from)
+        return 0
+
+    if args.stage == 'distill':
+        from .training import distill as distiller
+        distiller.distill(args.model, teacher_checkpoint=args.teacher, epochs=args.epochs,
+                          batch_size=args.batch_size, lr=args.lr, loss=args.loss,
+                          patience=args.patience, ckpt_start_epoch=args.ckpt_start_epoch,
+                          temperature=(config.DISTILL_TEMPERATURE
+                                       if args.temperature is None else args.temperature),
+                          alpha=config.DISTILL_ALPHA if args.alpha is None else args.alpha,
+                          no_transfer=args.no_transfer, save_interval=args.save_interval)
         return 0
 
     if args.stage == 'refine':

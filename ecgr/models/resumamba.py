@@ -51,12 +51,25 @@ import keras
 from keras import layers
 
 from .. import config
-from .layers import (AdaIN, DiagSSM1D, Frame1D, MergeWindows, RhythmDescriptor,
-                     SplitWindows, conv_bn_act, res_u_block, ssm_block, _pool_plan)
+from .layers import (AdaIN, CfC1D, DiagSSM1D, Frame1D, MergeWindows, RhythmDescriptor,
+                     SplitWindows, TIME_MIXERS, conv_bn_act, res_u_block, ssm_block,
+                     _pool_plan)
+
+
+def _ar_layer(time_mixer, state_dim, memory, name):
+    """The context encoder's autoregressive layer, in whichever time mixer is in use.
+
+    Causal in both cases, and for the same reason: the CPC objective is to predict a future
+    latent, which is trivially solvable if the context vector may look at it.
+    """
+    if time_mixer == 'cfc':
+        return CfC1D(state_dim=state_dim, horizon=memory, bidirectional=False, name=name)
+    return DiagSSM1D(state_dim=state_dim, kernel_len=memory, bidirectional=False, name=name)
 
 
 def build_context_encoder(input_length, in_channels, dim=64, width=16, window=500, hop=250,
-                          state_dim=4, separable=False, name='context_encoder'):
+                          state_dim=4, separable=False, time_mixer='ssm',
+                          name='context_encoder'):
     """CPC-style context encoder: window -> shared embedding net -> AR model -> mean.
 
     Mirrors Fig. 3 of the paper (embedding network + autoregressive context model, the context
@@ -86,8 +99,7 @@ def build_context_encoder(input_length, in_channels, dim=64, width=16, window=50
     h = layers.Dense(dim, name='ctx_embed')(h)                           # (B*M, D)
 
     v_seq = SplitWindows(n_win, name='ctx_windows')(h)                   # (B, M, D)
-    c_seq = DiagSSM1D(state_dim=state_dim, kernel_len=min(8, n_win), bidirectional=False,
-                      name='ctx_ar')(v_seq)
+    c_seq = _ar_layer(time_mixer, state_dim, min(8, n_win), 'ctx_ar')(v_seq)
     c_seq = layers.Activation('tanh', name='ctx_ar_act')(c_seq)
     f_p = layers.GlobalAveragePooling1D(name='ctx_pool')(c_seq)          # (B, D)
 
@@ -96,7 +108,8 @@ def build_context_encoder(input_length, in_channels, dim=64, width=16, window=50
 
 def build_backbone(input_length, in_channels, output_steps, width=64, resu_mid=32,
                    resu_depths=(3, 2), ssm_channels=64, ssm_blocks=2, state_dim=8,
-                   kernel_len=128, separable=False, stem_channels=None, name='backbone'):
+                   kernel_len=128, separable=False, stem_channels=None, time_mixer='ssm',
+                   mixer_memory=None, name='backbone'):
     """Stem + the two paths + their fusion: (T, leads) -> (output_steps, width).
 
     Everything in this sub-model is label-independent, which is why it is the unit the
@@ -119,11 +132,18 @@ def build_backbone(input_length, in_channels, output_steps, width=64, resu_mid=3
     for i, depth in enumerate(resu_depths):
         y_u = res_u_block(y_u, width, resu_mid, depth, separable, name=f'resu{i}')
 
-    # --- path 2: state-space, multi-beat context -----------------------------------------
+    # --- path 2: the time mixer, multi-beat context ---------------------------------------
+    # The block keeps the name 'ssm{i}' whichever mixer is inside it, and that is load-
+    # bearing rather than lazy: every weight of the block EXCEPT the mixer itself - in_proj,
+    # the depthwise 3, both BatchNorms, gate_proj, out_proj - has the same name and the same
+    # shape in both variants, so a cfc student can be warm-started from an ssm teacher and
+    # only the mixer starts cold. See training/distill.transfer_shared_weights.
+    mixer = TIME_MIXERS[time_mixer]
+    memory = kernel_len if mixer_memory is None else mixer_memory
     y_m = layers.Conv1D(ssm_channels, 1, use_bias=False, name='ssm_in')(x) \
         if ssm_channels != width else x
     for i in range(ssm_blocks):
-        y_m = ssm_block(y_m, ssm_channels, state_dim, kernel_len, name=f'ssm{i}')
+        y_m = mixer(y_m, ssm_channels, state_dim, memory, name=f'ssm{i}')
 
     y = layers.Concatenate(name='dual_concat')([y_u, y_m])
     y = conv_bn_act(y, width, 1, name='dual_fuse')
@@ -156,6 +176,9 @@ def build_resumamba_seq2seq(
                             stem_channels=None,
                             use_rhythm=True,
                             use_context=True,
+                            time_mixer='ssm',
+                            mixer_memory=None,
+                            ctx_state_dim=4,
                             name='resumamba_seq2seq'):
     """Dual-path (ResU + state-space) seq2seq beat detector/classifier.
 
@@ -172,13 +195,15 @@ def build_resumamba_seq2seq(
                               resu_mid=resu_mid, resu_depths=resu_depths,
                               ssm_channels=ssm_channels, ssm_blocks=ssm_blocks,
                               state_dim=state_dim, kernel_len=kernel_len,
-                              separable=separable, stem_channels=stem_channels)
+                              separable=separable, stem_channels=stem_channels,
+                              time_mixer=time_mixer, mixer_memory=mixer_memory)
     y = backbone(inp)
 
     # --- strip-context conditioning (AdaIN) ----------------------------------------------
     if use_context:
         ctx_encoder = build_context_encoder(input_length, in_channels, dim=ctx_dim,
-                                            width=ctx_width, separable=separable)
+                                            width=ctx_width, separable=separable,
+                                            state_dim=ctx_state_dim, time_mixer=time_mixer)
         f_p = ctx_encoder(inp)[0]
         z = y
         for i, k in enumerate(adain_kernels):
@@ -253,6 +278,48 @@ BUDGETS = {'resumamba_2m': 2_000_000, 'resumamba_1m': 1_000_000,
            'resumamba_100k': 100_000, 'resumamba_30k': 30_000}
 
 
+# ---------------------------------------------------------------------------
+# The CfC family: the same model with the state-space path swapped for CfC1D
+# ---------------------------------------------------------------------------
+# One layer per block changes and nothing else, so the EC57 difference against the
+# resumamba size of the same name is attributable to the time mixer alone.
+#
+# Two knobs move with the swap, both because the cost model is different:
+#
+#   state_dim  DOWN, hard. An SSM state is four scalars in a kernel that is summed away
+#              before it ever becomes an activation; a CfC state is a real (B, T, C, N)
+#              tensor carried through the scan. 16 states per channel is free in one and
+#              1.5 GB of activation per block in the other. The input-dependent rate is what
+#              replaces the bank: one adaptive cell instead of sixteen fixed oscillators.
+#   memory     UP, and free. DiagSSM1D pays one tap, one coefficient and one delay-line word
+#              per step of receptive field, so the sizes bought 128-256. CfC pays log2 of it
+#              in scan rounds at training time and NOTHING at inference, so every size gets
+#              512 - the whole 10 s strip, exactly, in both directions.
+CFC_STATE_DIM = {'2m': 2, '1m': 2, '100k': 1, '30k': 1}
+CFC_HORIZON = 512
+
+CFC_SIZES = {
+    f"resucfc_{size[len('resumamba_'):]}": dict(
+        spec, state_dim=CFC_STATE_DIM[size[len('resumamba_'):]],
+        time_mixer='cfc', mixer_memory=CFC_HORIZON)
+    for size, spec in SIZES.items()
+}
+
+# The resumamba size each CfC size mirrors - the teacher its distillation reads from.
+TEACHER_OF = {f"resucfc_{s[len('resumamba_'):]}": s for s in SIZES}
+
+
+def _cfc_builder(size):
+    def build(in_channels=None, **kw):
+        kwargs = dict(CFC_SIZES[size])
+        kwargs['name'] = size
+        kwargs.update(kw)
+        return build_resumamba_seq2seq(in_channels=in_channels, **kwargs)
+    build.__name__ = f"build_{size}"
+    build.__doc__ = f"{size}: {CFC_SIZES[size]}"
+    return build
+
+
 def _builder(size):
     def build(in_channels=None, **kw):
         kwargs = dict(SIZES[size])
@@ -265,3 +332,8 @@ def _builder(size):
 
 
 BUILDERS = {size: _builder(size) for size in SIZES}
+CFC_BUILDERS = {size: _cfc_builder(size) for size in CFC_SIZES}
+# A CfC size drops the whole FIR bank and gains six scalars per cell, so it lands well under
+# the budget its name carries; the ceiling stays the same number so the two families are
+# directly comparable on the one axis the name is about.
+CFC_BUDGETS = {f"resucfc_{s[len('resumamba_'):]}": b for s, b in BUDGETS.items()}

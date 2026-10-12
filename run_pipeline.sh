@@ -44,8 +44,14 @@ GPU_WAIT_MAX="${ECGR_GPU_WAIT_MAX:-21600}"         # ... but no longer than this
 # Largest first: the big sizes are the ones worth a free card early, and a queue that dies
 # halfway has then produced the results that matter most.
 SIZES=(resumamba_2m resumamba_1m resumamba_100k resumamba_30k)
+# The CfC family: same graph, the state-space path swapped for a closed-form continuous-time
+# cell. Trained by `distill` against the resumamba size of the same name, never by `train` -
+# 98.7% of a student's weights are the teacher's and only the mixer is learned.
+CFC_SIZES=(resucfc_2m resucfc_1m resucfc_100k resucfc_30k)
 
-LOGS="$PWD/logs"
+# Per RUN_TAG: two queues may run the SAME model under different tags, and a flat tree
+# gives both the same <model>_train.log to tee into.
+LOGS="$PWD/logs/${ECGR_RUN_TAG}"
 mkdir -p "$LOGS"
 
 # Every stage waits, not just training: a step eval or an EC57 sweep that starts on a full
@@ -145,7 +151,7 @@ stage_ec57() {
         "${PY}" -m ecgr ec57 --model "$1"
 }
 
-STAGE="${1:?stage: data|sweep|refine|summary|test}"
+STAGE="${1:?stage: data|sweep|cfc|refine|summary|test}"
 shift || true
 
 echo "=== ${STAGE} ==="
@@ -169,7 +175,7 @@ case "${STAGE}" in
     failures=()
     CKPT_ROOT="$("${PY}" -c "from ecgr import config; print(config.CHECKPOINT_DIR)")"
     for m in "${list[@]}"; do
-        keras="resumamba_seq2seq_${m#resumamba_}"
+        keras="$("${PY}" -c "from ecgr import models; print(models.keras_name('${m}'))")"
         # The self-supervised stages are architecture-only, so rerunning them would just
         # spend GPU time reproducing the same weights.
         if [[ -f "$("${PY}" -c "from ecgr import config; print(config.ssl_weights_dir('${keras}'))")" ]]; then
@@ -208,6 +214,47 @@ case "${STAGE}" in
         stage_ec57_refined "$m" || failures+=("${m}:ec57_refined")
     done
     pairs=(); for m in "${list[@]}"; do pairs+=("$m" "${m}_refined"); done
+    "${PY}" -m ecgr compare "${pairs[@]}" || true
+    if [[ ${#failures[@]} -gt 0 ]]; then
+        echo "=== ${STAGE} FINISHED WITH FAILURES: ${failures[*]} ==="; exit 1
+    fi
+    echo "=== ${STAGE} complete ($(date +%H:%M:%S)) ==="
+    ;;
+
+  cfc)
+    # distill -> stepeval -> ec57 per size. No ssl and no cpc: both self-supervised stages
+    # produce weights that the teacher transfer overwrites with better ones.
+    if [[ $# -gt 0 ]]; then list=("$@"); else list=("${CFC_SIZES[@]}"); fi
+
+    failures=()
+    CKPT_ROOT="$("${PY}" -c "from ecgr import config; print(config.CHECKPOINT_DIR)")"
+    for m in "${list[@]}"; do
+        teacher="$("${PY}" -c "
+from ecgr import config, models
+import os
+t = models.teacher_of('${m}')
+print(os.path.join(config.ENCODER_CHECKPOINT_DIR, t + '.keras') if t else '')")"
+        if [[ ! -f "${teacher}" ]]; then
+            echo "[$(date +%H:%M:%S)] ${m}: no teacher at ${teacher}" >&2
+            failures+=("${m}:teacher"); continue
+        fi
+        if ls "${CKPT_ROOT}/${m}/BEST_F1/"*.keras >/dev/null 2>&1; then
+            echo "[$(date +%H:%M:%S)] ${m}: checkpoint present, skipping distill"
+        else
+            wait_gpu "${GPU_FREE_MIB}"
+            echo "[$(date +%H:%M:%S)] distill ${m} (teacher $(basename "${teacher}"))"
+            if ! run_stage "${LOGS}/${m}_distill.log" \
+                "^(Epoch [0-9]|teacher|student|transfer|distill|model +:|monitor +:|checkpoints|new best|Weighted F1|Traceback|.*Error)" \
+                "${PY}" -m ecgr distill --model "${m}"; then
+                failures+=("${m}:distill"); continue
+            fi
+        fi
+        stage_stepeval "$m" || failures+=("${m}:stepeval")
+        stage_ec57 "$m"     || failures+=("${m}:ec57")
+    done
+
+    # Each CfC size next to its teacher: the only pairing that isolates the time mixer.
+    pairs=(); for m in "${list[@]}"; do pairs+=("resumamba_${m#resucfc_}" "$m"); done
     "${PY}" -m ecgr compare "${pairs[@]}" || true
     if [[ ${#failures[@]} -gt 0 ]]; then
         echo "=== ${STAGE} FINISHED WITH FAILURES: ${failures[*]} ==="; exit 1
