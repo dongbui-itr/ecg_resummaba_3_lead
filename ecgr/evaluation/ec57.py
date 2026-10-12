@@ -585,44 +585,44 @@ def run(checkpoint, tag, dbs=None, max_records=None, s_boost=1.0, bxb_only=False
         print(f"loading {checkpoint}")
         model = load_checkpoints(checkpoint)
         model.summary()
-    #     expected = (config.SEGMENT_SAMPLES, config.IN_CHANNELS)
-    #     if tuple(model.input_shape[1:]) != expected:
-    #         raise ValueError(
-    #             f"{checkpoint} takes {model.input_shape[1:]} but this run is configured for "
-    #             f"{expected}. Set ECGR_IN_CHANNELS to match the checkpoint.")
-    #     print(f"model: {model.name}, {model.count_params():,} parameters\n")
+        expected = (config.SEGMENT_SAMPLES, config.IN_CHANNELS)
+        if tuple(model.input_shape[1:]) != expected:
+            raise ValueError(
+                f"{checkpoint} takes {model.input_shape[1:]} but this run is configured for "
+                f"{expected}. Set ECGR_IN_CHANNELS to match the checkpoint.")
+        print(f"model: {model.name}, {model.count_params():,} parameters\n")
 
-    # with open(os.path.join(ec57_out, 'checkpoint.txt'), 'w') as f:
-    #     f.write(f"{checkpoint}\n"
-    #             f"min_run_steps: {config.DECODE_MIN_RUN_STEPS}\n"
-    #             f"model: {model.name if model else '(not loaded, --bxb-only)'}\n"
-    #             f"params: {model.count_params() if model else '-'}\n"
-    #             f"s_boost: {s_boost}\n"
-    #             f"in_channels: {config.IN_CHANNELS}\n"
-    #             f"lead_mode: {lead_mode}\n"
-    #             f"fill_mode: {fill_mode}\n"
-    #             f"portal_splits: {', '.join(splits) or '-'} "
-    #             f"x {config.PORTAL_SPLIT_RECORDS if split_records is None else split_records}"
-    #             f" records\n")
+    with open(os.path.join(ec57_out, 'checkpoint.txt'), 'w') as f:
+        f.write(f"{checkpoint}\n"
+                f"min_run_steps: {config.DECODE_MIN_RUN_STEPS}\n"
+                f"model: {model.name if model else '(not loaded, --bxb-only)'}\n"
+                f"params: {model.count_params() if model else '-'}\n"
+                f"s_boost: {s_boost}\n"
+                f"in_channels: {config.IN_CHANNELS}\n"
+                f"lead_mode: {lead_mode}\n"
+                f"fill_mode: {fill_mode}\n"
+                f"portal_splits: {', '.join(splits) or '-'} "
+                f"x {config.PORTAL_SPLIT_RECORDS if split_records is None else split_records}"
+                f" records\n")
 
-    # if not skip_physionet:
-    #     for db in (dbs or config.EC57_DBS):
-    #         score_physionet_db(model, db, ec57_out, max_records=max_records,
-    #                            s_boost=s_boost, bxb_only=bxb_only, lead_mode=lead_mode,
-    #                            fill_mode=fill_mode)
-    #         print()
+    if not skip_physionet:
+        for db in (dbs or config.EC57_DBS):
+            score_physionet_db(model, db, ec57_out, max_records=max_records,
+                               s_boost=s_boost, bxb_only=bxb_only, lead_mode=lead_mode,
+                               fill_mode=fill_mode)
+            print()
 
-    # if not skip_portal:
-    #     for db_name, src_dir in sorted(config.PORTAL_EVAL_SETS.items()):
-    #         score_portal_set(model, db_name, src_dir, ec57_out, max_records=max_records,
-    #                          s_boost=s_boost, bxb_only=bxb_only, mark_window=mark_window,
-    #                          lead_mode=lead_mode, fill_mode=fill_mode)
-    #         print()
+    if not skip_portal:
+        for db_name, src_dir in sorted(config.PORTAL_EVAL_SETS.items()):
+            score_portal_set(model, db_name, src_dir, ec57_out, max_records=max_records,
+                             s_boost=s_boost, bxb_only=bxb_only, mark_window=mark_window,
+                             lead_mode=lead_mode, fill_mode=fill_mode)
+            print()
 
-    # for split in splits:
-    #     score_portal_split(model, split, ec57_out, max_records=split_records,
-    #                        s_boost=s_boost, bxb_only=bxb_only, lead_mode=lead_mode,
-    #                        fill_mode=fill_mode)
-    #     print()
+    for split in splits:
+        score_portal_split(model, split, ec57_out, max_records=split_records,
+                           s_boost=s_boost, bxb_only=bxb_only, lead_mode=lead_mode,
+                           fill_mode=fill_mode)
+        print()
 
     return report.summarize(ec57_out)
