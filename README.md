@@ -379,15 +379,23 @@ phải phép nhân:
 
 | | `resumamba_2m` (SSM) | `resucfc_2m` (CfC) | tỉ lệ |
 |---|---|---|---|
-| MAC / bước | 394,240 | 28,672 | **13.8×** |
-| hệ số trong ROM | 394,240 | 25,088 | **15.7×** |
-| **bộ nhớ chạy** (delay line ↔ thanh ghi state) | 394,240 | 3,584 | **110×** |
-| tham số của mixer | 100,352 | 25,088 | 4.0× |
-| tham số cả model | 1,977,660 | 1,902,396 | 1.04× |
+| MAC / bước | 394,240 | 16,384 | **24.1×** |
+| hệ số trong ROM | 394,240 | 14,336 | **27.5×** |
+| **bộ nhớ chạy** (delay line ↔ thanh ghi state) | 394,240 | 2,048 | **192×** |
+| tham số của mixer | 100,352 | 14,336 | 7.0× |
+| tham số cả model | 1,977,660 | 1,891,644 | 1.05× |
 
-Bảng đầy đủ bốn size: `eval_results/cfc_vlsi_cost.csv`. Rút gọn: **state giảm 70–110×, MAC
-giảm 9–14×, ROM giảm 10–16×** — trong khi tổng tham số gần như không đổi, vì nhánh thời gian
-vốn chỉ chiếm ~5% tham số nhưng gần như toàn bộ chi phí bộ nhớ runtime.
+Bốn size (`eval_results/cfc_vlsi_cost.csv`, tái tạo bằng `scripts/vlsi_cost.py`):
+
+| size | MAC/bước | ROM | bộ nhớ chạy |
+|---|---|---|---|
+| 2m | 394,240 → 16,384 (**24.1×**) | → 14,336 (27.5×) | 394,240 → 2,048 (**192×**) |
+| 1m | 148,224 → 9,216 (16.1×) | → 8,064 (18.4×) | 148,224 → 1,152 (**129×**) |
+| 100k | 31,040 → 2,816 (11.0×) | → 2,464 (12.6×) | 31,040 → 352 (**88×**) |
+| 30k | 12,448 → 1,408 (8.8×) | → 1,232 (10.1×) | 12,448 → 176 (**71×**) |
+
+Tổng tham số gần như không đổi (1.03–1.05×) — vì nhánh thời gian vốn chỉ chiếm ~5% tham số
+nhưng **gần như toàn bộ** chi phí bộ nhớ runtime. Đó chính là điều bảng này nói.
 
 Một bước CfC, mỗi kênh:
 
@@ -450,10 +458,31 @@ Hai điều làm nó rẻ:
 
 `--no-transfer` là ablation nói phần nào của kết quả đến từ việc kế thừa trọng số.
 
-Chi phí train: **132.7 ms/bước so với 69.6 ms** của bản SSM (batch 64, RTX 3090), bộ nhớ
-4.1 GB so với 2.8 GB. Scan là lý do con số đó là 1.9× chứ không phải ~50× như `tf.scan`.
-`CfC1D(recompute=True)` tính lại scan ở backward thay vì giữ 18 tensor trung gian mỗi block —
-không có nó thì size 2M không vừa một card.
+#### Chi phí train, và vì sao `state_dim = 1`
+
+Đo qua đúng đường `fit()` trên RTX 3090, `resucfc_2m` với teacher trong đồ thị:
+
+| cấu hình | ms/bước | peak | phút/epoch |
+|---|---|---|---|
+| `resumamba_2m` (SSM), batch 128 | 217 | — | 15.3 |
+| CfC, batch 128, `state_dim=2` | **OOM** | — | — |
+| CfC, batch 64, `state_dim=2` | 295.5 | 4.2 GB | 41.8 |
+| CfC, batch 128, `state_dim=1` | **OOM** | — | — |
+| **CfC, batch 64, `state_dim=1`** | **203.2** | **3.2 GB** | **28.7** |
+
+Thứ bị chặn là **activation của scan**, không phải tham số: scan mang tensor
+`(batch, steps, channels, state_dim)` qua `log2(horizon)` vòng, nên `state_dim` nhân thẳng
+vào đó. Vì vậy `config.DISTILL_BATCH_SIZE = 64` chứ không phải 128 — và muốn nâng lên thì
+cần chunked scan, không phải card to hơn.
+
+> Một lần chạy đầu tiên cho **1.47 s/bước** với GPU báo 78–100%. Đó không phải CfC chậm: nó
+> chạy ở 22.6/24 GB, sát trần, nên allocator thrash. Loại trừ được data pipeline (4.2 ms/batch)
+> và shape động (`_time_scale` đã `set_shape` lại). Hai điều vẫn chưa giải thích được: batch 64
+> peak 3.2 GB mà batch 128 lại OOM (phi tuyến), và `nvidia-smi` báo 18 GB trong khi process tự
+> báo peak 3.2 GB — có mùi phân mảnh allocator. Batch 64 chạy ổn định và đo được, nên dừng ở đó.
+
+`CfC1D(recompute=True)` tính lại scan ở backward thay vì giữ ~18 tensor trung gian mỗi block;
+không có nó thì ngay cả batch 64 cũng không vừa.
 
 ## 6. Tự giám sát rồi train — [`ecgr/training/`](ecgr/training/)
 

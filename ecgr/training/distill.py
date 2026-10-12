@@ -169,7 +169,7 @@ def distill(model_name, teacher_checkpoint=None, epochs=None, batch_size=None, l
             f"teacher checkpoint not found: {teacher_checkpoint}. Distillation needs the "
             f"trained {teacher_size}; pass --teacher to point at it.")
 
-    batch_size = batch_size or config.BATCH_SIZE
+    batch_size = batch_size or config.DISTILL_BATCH_SIZE
     epochs = epochs or config.EPOCHS
     patience = config.PATIENCE if patience is None else patience
     loss = loss or config.LOSS

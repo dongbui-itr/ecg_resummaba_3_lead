@@ -286,16 +286,21 @@ BUDGETS = {'resumamba_2m': 2_000_000, 'resumamba_1m': 1_000_000,
 #
 # Two knobs move with the swap, both because the cost model is different:
 #
-#   state_dim  DOWN, hard. An SSM state is four scalars in a kernel that is summed away
+#   state_dim  DOWN to 1. An SSM state is four scalars in a kernel that is summed away
 #              before it ever becomes an activation; a CfC state is a real (B, T, C, N)
-#              tensor carried through the scan. 16 states per channel is free in one and
-#              1.5 GB of activation per block in the other. The input-dependent rate is what
-#              replaces the bank: one adaptive cell instead of sixteen fixed oscillators.
+#              tensor carried through the scan, so N multiplies the training footprint
+#              directly. Measured on resucfc_2m through fit() at batch 64: N=2 costs
+#              295 ms/step and 4.2 GB, N=1 costs 203 ms/step and 3.2 GB - and at batch 128
+#              N=2 does not fit on a 24 GB card at all.
+#              The reason 1 is enough is not the memory, though: in an SSM `state_dim` buys
+#              a BANK of fixed time constants, because a kernel that cannot adapt needs
+#              several. CfC computes its rate from the input at every step, so one adaptive
+#              cell does what the bank was there for. It is also half the silicon state.
 #   memory     UP, and free. DiagSSM1D pays one tap, one coefficient and one delay-line word
 #              per step of receptive field, so the sizes bought 128-256. CfC pays log2 of it
 #              in scan rounds at training time and NOTHING at inference, so every size gets
 #              512 - the whole 10 s strip, exactly, in both directions.
-CFC_STATE_DIM = {'2m': 2, '1m': 2, '100k': 1, '30k': 1}
+CFC_STATE_DIM = {'2m': 1, '1m': 1, '100k': 1, '30k': 1}
 CFC_HORIZON = 512
 
 CFC_SIZES = {

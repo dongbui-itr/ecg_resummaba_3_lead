@@ -312,6 +312,12 @@ ENCODER_CHECKPOINT_DIR = os.environ.get(
 # Softmax temperature and the weight on the soft term. alpha=0.7 leaves the hard labels a
 # real vote: the teacher is good but it is not the ground truth, and the student has a
 # different time mixer, so it should be allowed to disagree where the labels back it.
+# Batch size for distillation, SMALLER than BATCH_SIZE on purpose. The CfC scan carries
+# (batch, steps, channels, state_dim) tensors through log2(horizon) rounds, and that - not
+# the parameters - is what binds: resucfc_2m at batch 128 exhausts a 24 GB card, while at
+# batch 64 it peaks at 3.2 GB and runs 203 ms/step. Raising it needs the chunked scan, not
+# a bigger card.
+DISTILL_BATCH_SIZE = int(os.environ.get("ECGR_DISTILL_BATCH", 64))
 DISTILL_TEMPERATURE = float(os.environ.get("ECGR_DISTILL_T", 3.0))
 DISTILL_ALPHA = float(os.environ.get("ECGR_DISTILL_ALPHA", 0.7))
 
