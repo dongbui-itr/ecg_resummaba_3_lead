@@ -22,6 +22,12 @@ DATA_ROOT = os.environ.get("ECGR_RHYTHM_DATA_ROOT",
 EVAL_DIR = os.environ.get("ECGR_RHYTHM_EVAL_DIR",
                           os.path.join(DATA_ROOT, "dataset-eval", "rhythm_eval"))
 WORK_DIR = os.environ.get("ECGR_RHYTHM_WORK_DIR", "/media/Project/ECG/Model_Dong/ecgr_rhythm")
+# Portal event -> study index, needed when the rhythm test set names its folders by EVENT id
+# (a 24-hex ObjectId) instead of by study. Without it those folders cannot be turned into the
+# study ids the holdout is enforced on; see inventory._studies_of_events for why resolving
+# them matters rather than comparing them directly.
+PORTAL_EVENT_INDEX = os.environ.get(
+    "ECGR_PORTAL_EVENT_INDEX", os.path.join(DATA_ROOT, "dataset_info_full_all.csv"))
 RUN_TAG = os.environ.get("ECGR_RHYTHM_RUN_TAG",
                          datetime.today().strftime("%y%m%d") + "_rhythm")
 

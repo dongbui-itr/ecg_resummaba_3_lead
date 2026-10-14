@@ -16,6 +16,7 @@ import glob
 import hashlib
 import json
 import os
+import re
 from collections import defaultdict
 from datetime import datetime
 
@@ -136,21 +137,79 @@ def outside_policy(ev):
 # Holdout
 # ---------------------------------------------------------------------------
 
+_OBJECT_ID = re.compile(r'^[0-9a-f]{24}$')
+
+
+def _studies_of_events(event_ids, portal_csv=None):
+    """Resolve portal EVENT ids to the study ids that own them.
+
+    Two export layouts of the rhythm test set exist and they key their folders differently:
+
+        <eval_dir>/<study id>/<event id>/...     numeric study per folder
+        <eval_dir>/<event id>/...                one folder per event, a Mongo ObjectId
+
+    The second is the dangerous one. An event id is a 24-character hex ObjectId while a
+    portal study id is a short decimal, so the two sets can never intersect - and a holdout
+    built from the wrong one intersects the training studies in ZERO places and reports
+    itself verified while the test set sits in the training data. Measured on the local
+    export: 4,313 event folders belong to 1,774 distinct studies across dataset-2/3/4/5,
+    every one of them a training source.
+
+    So event ids are resolved rather than trusted, and an id that cannot be resolved is an
+    error - never silently dropped.
+    """
+    portal_csv = portal_csv or rc.PORTAL_EVENT_INDEX
+    if not portal_csv or not os.path.exists(portal_csv):
+        raise FileNotFoundError(
+            f"the rhythm test set is keyed by EVENT id, which has to be resolved to study "
+            f"ids through the portal inventory, and that is not readable: {portal_csv}. "
+            f"Point ECGR_PORTAL_EVENT_INDEX at the dataset_info_full_all.csv for this data "
+            f"root. Refusing to build training data against an unresolvable holdout.")
+    index = pd.read_csv(portal_csv, low_memory=False, usecols=['study_id', 'event_id'],
+                        dtype={'study_id': str, 'event_id': str})
+    found = index[index['event_id'].isin(event_ids)]
+    missing = set(event_ids) - set(found['event_id'])
+    if missing:
+        raise ValueError(
+            f"{len(missing)} of {len(event_ids)} rhythm-test event ids are absent from "
+            f"{portal_csv} (e.g. {sorted(missing)[:3]}). Their studies cannot be held out, "
+            f"so the holdout would be incomplete - refusing to build.")
+    return {str(s).strip() for s in found['study_id']}
+
+
 def rhythm_test_studies(eval_dir=None):
-    """Study ids of the rhythm test set, from its folder names AND its JSONs."""
+    """Study ids of the rhythm test set, whichever way its folders are keyed."""
     eval_dir = eval_dir or rc.EVAL_DIR
     if not os.path.isdir(eval_dir):
         raise FileNotFoundError(
             f"rhythm test set not found: {eval_dir}. It is the holdout - refusing to build "
             f"training data without it (set ECGR_RHYTHM_EVAL_DIR).")
-    ids = {d for d in os.listdir(eval_dir)
-           if d.isdigit() and os.path.isdir(os.path.join(eval_dir, d))}
+    folders = [d for d in os.listdir(eval_dir) if os.path.isdir(os.path.join(eval_dir, d))]
+
+    # Width decides, and it has to: an ObjectId of all digits ("0000...01") satisfies
+    # isdigit() too, so "looks numeric" is not a test. A portal study id is a short decimal
+    # - six figures - and is never 24 characters wide, so 24 means event.
+    events = {d for d in folders if _OBJECT_ID.match(d)}
+    ids = {d for d in folders if d.isdigit() and d not in events}
     for path in glob.glob(os.path.join(eval_dir, '*', '*', '*.json')):
         try:
             with open(path) as f:
                 ids.add(str(json.load(f)['studyId']).strip())
         except (OSError, KeyError, ValueError):
             continue
+
+    if events:
+        resolved = _studies_of_events(events)
+        print(f"test holdout : {len(events)} event folders -> {len(resolved)} studies "
+              f"(resolved through the portal inventory)")
+        ids |= resolved
+
+    unknown = [d for d in folders if not d.isdigit() and not _OBJECT_ID.match(d)]
+    if unknown:
+        raise ValueError(
+            f"{len(unknown)} folders under {eval_dir} are neither a numeric study id nor a "
+            f"24-hex event id (e.g. {sorted(unknown)[:3]}) - cannot tell what they identify, "
+            f"and guessing is how a holdout silently stops holding anything out.")
     if not ids:
         raise ValueError(f"no study found under {eval_dir}")
     return ids

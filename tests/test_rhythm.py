@@ -963,3 +963,63 @@ def test_legacy_manifest_weights_pool_the_blocks():
     w = pipeline.manifest_class_weights(m)
     assert len(w) == rc.NUM_CLASSES
     assert w[rc.CLASS_NAMES.index('AVB')] == pytest.approx(np.sqrt(100 / 30))   # median 100
+
+
+# ---------------------------------------------------------------------------
+# The holdout: what the rhythm test folders identify
+# ---------------------------------------------------------------------------
+
+def _portal_index(tmp_path, rows):
+    path = tmp_path / 'dataset_info_full_all.csv'
+    import pandas as pd
+    pd.DataFrame(rows, columns=['study_id', 'event_id']).to_csv(path, index=False)
+    return str(path)
+
+
+def test_event_keyed_test_folders_resolve_to_studies(tmp_path, monkeypatch):
+    """A rhythm test set keyed by EVENT id must become STUDY ids before it is used.
+
+    This is the failure that cannot be caught downstream. A portal event id is a 24-hex
+    ObjectId and a study id is a short decimal, so a holdout accidentally built from event
+    ids intersects the training studies in exactly zero places - and every audit in the
+    pipeline then reports itself verified while the test set is in the training data. On the
+    local export, 4,313 event folders belong to 1,774 studies, all of them in training
+    sources.
+    """
+    from ecgr.rhythm import config as rc, inventory
+
+    events = [f"{i:024x}" for i in range(6)]
+    eval_dir = tmp_path / 'rhythm_eval'
+    for e in events:
+        (eval_dir / e).mkdir(parents=True)
+    # six events, three studies
+    rows = [(100 + i // 2, e) for i, e in enumerate(events)]
+    monkeypatch.setattr(rc, 'PORTAL_EVENT_INDEX', _portal_index(tmp_path, rows))
+
+    studies = inventory.rhythm_test_studies(str(eval_dir))
+    assert studies == {'100', '101', '102'}
+    assert not (studies & set(events)), "event ids must not survive into the holdout"
+
+
+def test_an_unresolvable_test_event_is_an_error(tmp_path, monkeypatch):
+    """An event the inventory does not know means an INCOMPLETE holdout, so it must stop."""
+    from ecgr.rhythm import config as rc, inventory
+
+    eval_dir = tmp_path / 'rhythm_eval'
+    for e in (f"{1:024x}", f"{2:024x}"):
+        (eval_dir / e).mkdir(parents=True)
+    monkeypatch.setattr(rc, 'PORTAL_EVENT_INDEX',
+                        _portal_index(tmp_path, [(100, f"{1:024x}")]))
+
+    with pytest.raises(ValueError, match='absent from'):
+        inventory.rhythm_test_studies(str(eval_dir))
+
+
+def test_folders_of_an_unknown_shape_are_an_error(tmp_path):
+    """Neither a study id nor an event id: refuse rather than guess."""
+    from ecgr.rhythm import inventory
+
+    eval_dir = tmp_path / 'rhythm_eval'
+    (eval_dir / 'patient_A').mkdir(parents=True)
+    with pytest.raises(ValueError, match='neither a numeric study id'):
+        inventory.rhythm_test_studies(str(eval_dir))
