@@ -160,3 +160,45 @@ Lỗi prior scale trong `tune.py` (tiến trình chính dùng trọng số manif
 
 **Release:** `/media/Project/ECG/Model_Dong/ecgr_rhythm/release_dualunet_1m_e26/` (checkpoint seed 1,
 code, log, EC57 reports; seed 2 ở `seed2_comparison/`).
+
+## 9. Mô hình nhỏ 100k / 30k: SSL encoder + teacher–student (09/10/2026)
+
+Code: `ecgr/rhythm/distill.py`, test `tests/test_rhythm_distill.py`, run `091026_rhythm_dual_small`.
+
+| Model | Tham số | Input / output |
+|---|---|---|
+| `rhythm_dual_100k` | 80,189 | như 1M: `(2500,3)` → beat `(1250,4)`, rhythm `(1250,5)`, channel `(5,4)` |
+| `rhythm_dual_30k` | 23,361 | như trên |
+
+Cùng kiến trúc Dual U-Net (stem theo lead, nhánh V, nhánh A sau hủy QRST, neck SSM, 3 decoder), chỉ hẹp hơn.
+
+**Giai đoạn 1 – SSL encoder** (`python3 -m ecgr.rhythm ssl --model rhythm_dual_100k`):
+- Masked reconstruction: che 35 % thời gian theo đoạn ~240 ms + che nguyên 1 lead (p = 0.3); loss MSE
+  chỉ trên phần bị che; theo dõi `nmse` (1.0 = không hơn đoán trung bình).
+- Encoder = stem + nhánh V + nhánh A + neck (đồ thị `features_only`, tên layer trùng student).
+- Hủy QRST cần vị trí beat: dùng p(beat) của **teacher frozen** trên cửa sổ chưa che (stop-gradient,
+  chỉ là input) — mục tiêu học vẫn chỉ là tái tạo tín hiệu, không dùng nhãn.
+- Head tái tạo nhỏ (1 conv k7 + 1×1) để việc học dồn vào encoder. Lưu `ssl_encoder.keras`.
+- 12 epoch × 1500 bước, AdamW 1e-3 cosine, augmentation như train.
+
+**Giai đoạn 2 – teacher → student** (`python3 -m ecgr.rhythm distill --model rhythm_dual_100k`):
+- Teacher: Dual 1M seed 1 e26 (`release_dualunet_1m_e26`), frozen, chạy trên cùng batch đã augment.
+- Student khởi tạo encoder từ SSL (`init_matching`), fine-tune toàn bộ.
+- Loss mỗi head h ∈ {rhythm, beat, channel}: `w_h·[(1−α)·loss_nhãn + α·T²·KL(teacher_T ‖ student_T)]`,
+  α = 0.5, T = 2; KL tính trên **mọi** bước (cả giây IGNORE — nơi teacher là nguồn tín hiệu duy nhất).
+- Cùng sampler stratified, class weight, early stop (val_rhythm_f1, patience 8), lưu student vào
+  `best_model.keras` → các công cụ predict / EC57 dùng như mọi checkpoint khác.
+
+**Kết quả validation (eval split, epoch best, 10/10/2026):**
+
+| | Teacher 1M (e26) | Student 100k SSL+KD (e40) | Student 30k SSL+KD (e38) |
+|---|---|---|---|
+| Tham số | 988,773 | 80,189 (8.1 %) | 23,361 (2.4 %) |
+| val_rhythm_f1 | 0.8845 | **0.8727** (−1.2) | **0.8462** (−3.8) |
+| F1 SINUS / AFIB / SVT / VT / AVB | 97.9 / 91.2 / 82.2 / 82.9 / 88.0 | 97.7 / 90.8 / 81.3 / 80.4 / 86.1 | 97.2 / 89.2 / 79.5 / 74.5 / 82.7 |
+| QRS Se / +P (150 ms) | 99.72 / 99.38 | 99.51 / 99.34 | 99.25 / 99.18 |
+| beat type F1 (N/S/V) | 0.820 | 0.865 | 0.882 |
+| channel acc / NOISE F1 | 0.845 / 0.960 | 0.824 / 0.947 | 0.806 / 0.934 |
+
+SSL: val_nmse 0.85 → ~0.83 (100k) / ~0.835 (30k), best epoch 10. Student 100k vẫn tăng ở epoch 40
+(chạm giới hạn epoch). Chưa có baseline không SSL/KD cùng cỡ để tách đóng góp; chưa chấm EC57.

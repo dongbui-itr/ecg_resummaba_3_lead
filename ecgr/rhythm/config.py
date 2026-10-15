@@ -142,6 +142,12 @@ RUN_PAD_SECONDS = 0.15          # the run starts at the onset of its first QRS, 
 #              wrong precisely where the model is least sure.
 OUTSIDE_SPAN = {'SINUS': 'sinus', 'SVT': 'sinus', 'VT': 'sinus',
                 'AFIB': 'ignore', 'AVB': 'ignore'}
+# A caliper event whose policy above is 'ignore' (AFIB / AVB in rhythm-2 / rhythm-3 / afib-2)
+# still gets a known pseudo-mark of OUTSIDE_MARK_SECONDS around each span (the span itself when
+# longer): inside it, what the caliper leaves out is SINUS - exactly how the reviewed strips of
+# rhythm_eval are scored (strip_eval: the mark is known, the span is the event, the rest of the
+# mark is SINUS). 0 = off (every build before 2026-10-13).
+OUTSIDE_MARK_SECONDS = float(os.environ.get("ECGR_RHYTHM_OUTSIDE_MARK", 0))
 
 # A second takes a rhythm class when that class's spans cover at least this fraction of it.
 MIN_SECOND_COVER = 0.5
@@ -308,6 +314,11 @@ CHALLENGE2020_STUDY_OFFSET = 3 * 10 ** 9
 EC57_DATABASES = ('mitdb', 'afdb', 'escdb', 'nstdb', 'ahadb', 'cudb')
 
 TRAIN_SOURCES = list(SOURCES) + [PTBXL_SOURCE] + PHYSIONET_TRAIN_SOURCES + [CHALLENGE2020_SOURCE]
+# Window filter at load time (pipeline.load_arrays, train AND eval splits): only the windows of
+# these sources (events_<k>.json). Empty = every window. Used to fine-tune on the portal strip
+# sources rhythm_eval is exported from (strip_eval), with checkpoint selection on the same
+# sources' eval split - never on rhythm_eval.
+WINDOW_SOURCES = tuple(x for x in os.environ.get("ECGR_RHYTHM_SOURCES", "").split(',') if x)
 # Validation for decoding / calibration choices WITHOUT touching EC57 or rhythm_eval: the
 # eval-side records (physionet_train.eval_records) of these databases, whole and continuous,
 # scored by the same epicmp pipeline (`ec57 --dbs ltafdb nsrdb incartdb --skip-rhythm-eval`).
@@ -329,6 +340,10 @@ MAX_SINUS_EVENTS_PER_STUDY = int(os.environ.get("ECGR_RHYTHM_MAX_SINUS_PER_STUDY
 HARD_SINUS_TYPES = ('SVE_BIGEMINY', 'SVE_TRIGEMINAL', 'SVE_QUADRIGEMINY', 'SVE_COUPLET',
                     'SINGLE_SVE', 'VE_BIGEMINY', 'VE_TRIGEMINAL', 'VE_COUPLET', 'BRADY', 'PAUSE')
 MAX_HARD_SINUS_EVENTS_PER_STUDY = int(os.environ.get("ECGR_RHYTHM_MAX_HARD_SINUS_PER_STUDY", 8))
+# A curated event list (csv with study_id, event_id columns - e.g. the selection written by a
+# data-quality pass): when set, `data` keeps only the listed events of the portal sources (after
+# the holdout removal and the sinus caps, so the list can never re-admit a held-out study).
+EVENT_LIST = os.environ.get("ECGR_RHYTHM_EVENT_LIST") or None
 
 # Holdout. The rhythm test set is read from the folder itself (EVAL_DIR/<study id>/...), not
 # from a list: 110 of its 1,966 studies are missing from assets/list_studies_eval_v4.json, so
@@ -425,6 +440,13 @@ STRAT_PRIORITY = ['VT', 'AVB', 'SVT', 'AFIB']
 STRAT_MIN_SECONDS = 2.0
 STRAT_BATCH_QUOTA = {'SINUS': 24, 'AFIB': 12, 'SVT': 10, 'VT': 7, 'AVB': 11}   # AVB = 6 + 5
 STRAT_MAX_REPEAT = 4.0
+# Long-run boost inside the stratified sampler (2026-10-13): EC57 misses LONG VT / AFIB episodes
+# (escdb VT D Se 62 -> 42 after the portal-only fine-tune) while the portal strips are mostly
+# short runs. A window holding >= STRAT_LONG_SECONDS[class] of that class enters its category's
+# pool STRAT_LONG_BOOST times instead of once. Env "VT:5,AFIB:8"; boost 1 = off.
+STRAT_LONG_SECONDS = {k: float(v) for k, v in (x.split(':') for x in os.environ.get(
+    "ECGR_RHYTHM_STRAT_LONG", "").split(',') if x)}
+STRAT_LONG_BOOST = int(os.environ.get("ECGR_RHYTHM_STRAT_LONG_BOOST", 1))
 # Learning-rate schedule: 'plateau' (ReduceLROnPlateau, the runs before 2026-10-06) or
 # 'cosine' (1 warm-up epoch, cosine to LR_FLOOR_FRACTION x lr, deterministic).
 LR_SCHEDULE = os.environ.get("ECGR_RHYTHM_LR_SCHEDULE", "cosine")
@@ -450,9 +472,28 @@ NOISY_SECOND_WEIGHT = 0.25
 LEAD_LOSS_WEIGHT = 0.5
 NOISE_LOSS_WEIGHT = 0.5          # 'noise' output of the 20 ms family
 CHANNEL_LOSS_WEIGHT = 0.5        # 'channel' output of the dual U-Net (NOISE / CH1..3 per 2 s)
+
+# Small dual U-Nets (rhythm/distill.py): SSL of the shared encoder, then teacher -> student.
+# SSL = masked reconstruction of the input (time spans + one whole lead), loss on the hidden
+# samples only; the QRST cancellation is driven by the frozen teacher's beat positions.
+DISTILL_TEACHER = os.environ.get(
+    "ECGR_RHYTHM_TEACHER",
+    "/media/Project/ECG/Model_Dong/ecgr_rhythm/release_dualunet_1m_e26/checkpoint/best_model.keras")
+SSL_MASK_RATIO = 0.35            # fraction of the 10 s hidden, in spans
+SSL_SPAN_SECONDS = 0.24          # ~ one QRST complex per span
+SSL_LEAD_MASK_PROB = 0.3         # a sample additionally loses one whole lead
+SSL_EPOCHS = 12
+SSL_STEPS_PER_EPOCH = 1500
+SSL_LEARNING_RATE = 1e-3
+# KD: loss = (1 - KD_ALPHA) * label loss + KD_ALPHA * T^2 * KL(teacher_T || student_T), per head
+KD_TEMPERATURE = 2.0
+KD_ALPHA = 0.5
 # Per-class weights for the rhythm CE. None = computed from the train split's label counts
 # ((median / count) ** 0.5, clipped to [0.2, 5]) and stored in the run's manifest.
-CLASS_WEIGHTS = None
+# Rhythm CE class weights; None = the manifest's (inverse sqrt frequency). ECGR_RHYTHM_CLASS_WEIGHTS='1,1,1,1,1' overrides them
+# (raw-output tuning, 2026-10-13: no decode prior correction afterwards, so the head itself must be calibrated).
+CLASS_WEIGHTS = (tuple(float(v) for v in os.environ['ECGR_RHYTHM_CLASS_WEIGHTS'].split(','))
+                 if os.environ.get('ECGR_RHYTHM_CLASS_WEIGHTS') else None)
 LABEL_SMOOTHING = 0.05
 
 # Decoding (rhythm/labels.decode_episodes), applied in this order:
@@ -557,6 +598,8 @@ BEAT_PP_RUNS_TO_RHYTHM = {'VT': False, 'SVT': False}
 # the preceding intervals (0 = no prematurity gate). Chosen on validation (tune.py).
 BEAT_PP_S_IN_AFIB_TO_N = True
 BEAT_PP_S_PREMATURITY = 0.0
+# Boundary trimming after the beat stage (beats.trim_to_beats): {class: pad seconds}, {} = off.
+DECODE_TRIM_TO_BEATS = {}
 RHYTHM_BEAT_AI_EXTENSION = 'bti'     # hypothesis beat annotation (N/S/V at R) for bxb
 
 # Whole-record inference (predict.predict_signal): window hop (10 = back-to-back windows; 5 =

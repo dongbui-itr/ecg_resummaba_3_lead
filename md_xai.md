@@ -92,6 +92,23 @@ CPU mặc định (`--gpu` để dùng GPU). ~8 s / lần phân tích (2 lần c
 - **Input**: record PhysioNet + giây bắt đầu (dải cả record: tham chiếu vs argmax EC57 đã lưu, nhấp để nhảy),
   window eval split theo lớp, hoặc upload CSV. Chỉnh sửa: sóng f, nhiễu trắng / dải 4–9 Hz theo SNR,
   trôi nền, điện lưới, gain / mất / đảo lead, hoán vị lead, đảo thời gian, làm phẳng đoạn.
+- **File .dat bất kỳ** (tab *File .dat*): duyệt thư mục trên server (gốc mặc định: PhysionetData,
+  Holter_report_strip, physionet_data, challenge-2020, ptb-xl; thêm bằng `--browse-root <dir>`, ngoài
+  các gốc thì bị chặn 403) hoặc tải lên .hea + .dat (+ annotation). Chọn kênh record cho từng lead
+  model (`—` = lead trống, đệm 0 như khi rơi điện cực), file annotation (.atr, .qrs, …), giây bắt đầu
+  (bước 0.1 s), dải toàn record để nhảy. Nhãn tham chiếu: mốc rhythm của annotation, nếu không có thì
+  `eventType` + caliper `eventStartSample/StopSample` trong .hea (Holter strip), hoặc `Dx:` SNOMED
+  (Challenge 2020). Link trực tiếp: `http://<máy>:8777/?file=<record>&start=<s>[&gain=10]`.
+- **ECG 3 layer** (bật/tắt riêng): *lưới AAMI* (25 mm/s; ô nhỏ 1 mm = 0.04 s, ô lớn 5 mm = 0.2 s;
+  5 / 10 / 20 mm/mV, lane là bội 5 mm), *tín hiệu* (mV sau lọc dải của pipeline, xung chuẩn 1 mV × 0.2 s,
+  tô IG; "tự co" = z-score như cũ), *nhãn* (tham chiếu / argmax model theo giây, mốc rhythm + mã, dải
+  event / Dx của .hea, ký hiệu beat và annotation khác như `~`, beat của model, chú thích .hea).
+  Tooltip cho biên độ mV từng lead tại con trỏ.
+- **Dải HR** dưới tín hiệu (layer tín hiệu): HR tức thời = 60 / RR cho từng khoảng R-R, vẽ thành đoạn ngang từ
+  beat này tới beat sau; *atr* (beat của file annotation) = dải xám dày, *model* (beat head, lần chạy đã sửa) =
+  đường xanh mảnh ở trên, nên chỗ lệch (beat thừa / thiếu) hiện ra ngay. Lề trái: HR trung bình window
+  = 60 · (số beat − 1) / khoảng từ beat đầu tới beat cuối, và Δ model − atr. Bỏ RR < 0.2 s hoặc > 3 s.
+  Tooltip: HR tại con trỏ + trung bình + số beat của cả hai.
 - **Can thiệp layer**: nhánh A mù, SSM→identity từng layer, lead weight đều / tắt lead (V, A riêng),
   điều kiện beat, RR = trung bình, donor residual / RR từ window eval khác, QRST pre/post/ngưỡng,
   nhiệt độ lead weight, cắt kernel SSM.
@@ -109,3 +126,28 @@ CPU mặc định (`--gpu` để dùng GPU). ~8 s / lần phân tích (2 lần c
   | 4 Sóng f qua nhánh V | xác nhận | f 10 %: AFIB 27.7 % giây SINUS, A mù 22.0 % |
   | 5 Lead weight A bỏ qua nhiễu | xác nhận | V 0.34→0.00, A 0.35→0.32 |
   | 6 Lỗi EC57 chủ yếu do model | xác nhận | 79 % giây lỗi; 223 VT FN post-process 60 vs model 46 |
+
+## 5. Tự động hiệu chỉnh tham số theo layer (`POST /api/tune`, [xai_tune.py](ecgr/rhythm/xai_tune.py))
+
+Tìm tham lam (coordinate ascent) trên các can thiệp layer của mục 4: nhánh A mù, nhiệt độ lead,
+tắt lead V / A, cắt kernel SSM, từng `DiagSSM1D` → identity, điều kiện beat, RR = trung bình.
+Mục tiêu: trung bình log p(lớp | giây) trên n window eval của lớp đó (tập **chọn**); kết quả đo trên
+n window khác (tập **kiểm tra**, không tham gia tìm). `side_weight` > 0 phạt việc làm lệch p trung bình
+của các lớp khác. Vòng 0 cho bảng độ nhạy một-tham-số (layer nào gánh quyết định).
+
+```bash
+curl -X POST localhost:8777/api/tune -d '{"cls":"SVT","n":8,"max_rounds":3,"side_weight":1.0}'
+```
+
+Kết quả s1 (2026-10-13, n = 8 + 8, ~30 s / lớp trên CPU):
+
+| Lớp | Cấu hình tìm được | p(lớp) kiểm tra gốc → tune | Ghi chú |
+|---|---|---|---|
+| AFIB | không đổi | 0.958 → 0.958 | đã bão hoà, mọi knob \|Δ\| < 0.001 |
+| SVT | `neck_ssm0` identity + tắt lead V 1 + nhiệt độ 2 | 0.324 → 0.382 | AFIB 0.08 → 0.03, SINUS giữ nguyên |
+| VT | `rhythm_ssm` + `vs_ssm` identity + nhiệt độ 2 | 0.274 → 0.261 | **không tổng quát**: AFIB 0.10 → 0.32 trên tập kiểm tra |
+
+Đọc kết quả: các bước lớn nhất luôn là "tắt một SSM" — đó là layer **gánh** ngữ cảnh (khớp phát hiện 3),
+không phải "núm lấy nét" đặc trưng; bỏ nó làm dịch prior giữa các lớp. Tune trên 8 window là công cụ
+chẩn đoán (layer nào cản lớp nào), không phải cách chọn tham số suy luận: mọi cấu hình phải qua
+validation tune + EC57 như mục 3.

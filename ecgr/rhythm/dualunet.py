@@ -212,13 +212,32 @@ def _dilated_block(x, filters, kernel, dilations, name):
     return x
 
 
+def _position_decoder(vb, v3, v2, vs, v1, p2, p3, v2f, v3f, beat_width):
+    """Beat-position decoder on the V branch only -> (logit, sigmoid) at 1250 steps."""
+    h = layers.UpSampling1D(p3, name='pos3_up')(vb)
+    h = _double_conv(layers.Concatenate(name='pos3_skip')([h, v3]), v3f, 5, 'pos3')
+    h = layers.UpSampling1D(p3, name='pos2_up')(h)
+    h = _double_conv(layers.Concatenate(name='pos2_skip')([h, v2, vs]), v2f, 5, 'pos2')
+    h = layers.UpSampling1D(p2, name='pos1_up')(h)
+    h = _double_conv(layers.Concatenate(name='pos1_skip')([h, v1]), beat_width, 7, 'pos1')
+    pos_logit = layers.Conv1D(1, 1, name='beat_pos')(h)                 # (1250, 1)
+    return pos_logit, layers.Activation('sigmoid', name='beat_pos_prob')(pos_logit)
+
+
 # --- the model ----------------------------------------------------------------------------
 
 def build_dual_unet_model(stem=12, v_filters=(32, 48, 64, 96), a_filters=(24, 32, 48, 64),
                           width=64, ssm_blocks=2, state_dim=8, kernel_len=128, beat_width=32,
                           rhythm_width=48, lead_width=16, dropout=0.15,
-                          name='dualunet_rhythm'):
-    """(2500, 3) -> {'beat': (1250, 4), 'rhythm': (1250, NUM_CLASSES), 'channel': (5, 4)}."""
+                          name='dualunet_rhythm', external_pos=False, features_only=False):
+    """(2500, 3) -> {'beat': (1250, 4), 'rhythm': (1250, NUM_CLASSES), 'channel': (5, 4)}.
+
+    external_pos=True adds a second input 'p_beat' (1250, 1) that drives the QRST
+    cancellation instead of the model's own beat-position decoder (which is then not built):
+    the SSL stage feeds a teacher's beat positions there. features_only=True returns the
+    shared encoder alone: {'z': (250, width), 'v1': (1250, .), 'a1': (1250, .)}. Layer names
+    are the same in every variant, so encoder weights move between them by name
+    (train.init_matching)."""
     n, c = rc.SEGMENT_SAMPLES, rc.IN_CHANNELS
     t1, t2 = rc.BEAT_STEPS, rc.BACKBONE_STEPS                            # 1250, 250
     p1, p2, p3 = n // t1, t1 // t2, 5                                    # 2, 5, 5
@@ -227,6 +246,8 @@ def build_dual_unet_model(stem=12, v_filters=(32, 48, 64, 96), a_filters=(24, 32
     seg = rc.NOISE_SEGMENTS
 
     inp = keras.Input(shape=(n, c), name='input')
+    p_ext = keras.Input(shape=(t1, 1), name='p_beat') if external_pos else None
+    inputs = [inp, p_ext] if external_pos else inp
 
     # --- shared per-lead stem and lead pooling ---------------------------------------------
     img = LeadImage(name='lead_image')(inp)                             # (B, c, 2500, 1)
@@ -243,14 +264,11 @@ def build_dual_unet_model(stem=12, v_filters=(32, 48, 64, 96), a_filters=(24, 32
                    name='vs')                                           # (250, width)
 
     # --- beat POSITION decoder (V branch only: the template below depends on it) -----------
-    h = layers.UpSampling1D(p3, name='pos3_up')(vb)
-    h = _double_conv(layers.Concatenate(name='pos3_skip')([h, v3]), v3f, 5, 'pos3')
-    h = layers.UpSampling1D(p3, name='pos2_up')(h)
-    h = _double_conv(layers.Concatenate(name='pos2_skip')([h, v2, vs]), v2f, 5, 'pos2')
-    h = layers.UpSampling1D(p2, name='pos1_up')(h)
-    h = _double_conv(layers.Concatenate(name='pos1_skip')([h, v1]), beat_width, 7, 'pos1')
-    pos_logit = layers.Conv1D(1, 1, name='beat_pos')(h)                 # (1250, 1)
-    p_pos = layers.Activation('sigmoid', name='beat_pos_prob')(pos_logit)
+    pos_logit = None
+    if external_pos:
+        p_pos = p_ext
+    else:
+        pos_logit, p_pos = _position_decoder(vb, v3, v2, vs, v1, p2, p3, v2f, v3f, beat_width)
 
     # --- QRST cancellation -> A branch: P / F / f ------------------------------------------
     residual, qrs = QRSTCancel(name='qrst_cancel')([inp, p_pos])        # (1250, c), (1250, 1)
@@ -274,6 +292,11 @@ def build_dual_unet_model(stem=12, v_filters=(32, 48, 64, 96), a_filters=(24, 32
     for i in range(ssm_blocks):
         h = ssm_block(h, width, state_dim, kernel_len, name=f'neck_ssm{i}')
     z = h                                                               # (250, width)
+    if features_only:
+        return keras.Model(inputs, {'z': z, 'v1': v1, 'a1': a1}, name=name)
+    if external_pos:
+        raise ValueError("external_pos is for the encoder-only (SSL) graph: the full model's "
+                         "'beat' output needs its own position decoder")
 
     # --- decoder 1: beat TYPE (N / S / V), then the 'beat' output ---------------------------
     h = layers.UpSampling1D(p2, name='type_up')(z)
@@ -320,7 +343,8 @@ def build_dual_unet_model(stem=12, v_filters=(32, 48, 64, 96), a_filters=(24, 32
     channel = layers.Softmax(name='channel')(
         layers.Concatenate(name='chan_logits')([noise_logit, score]))  # (B, 5, 1 + c)
 
-    return keras.Model(inp, {'beat': beat, 'rhythm': rhythm, 'channel': channel}, name=name)
+    return keras.Model(inputs, {'beat': beat, 'rhythm': rhythm, 'channel': channel},
+                       name=name)
 
 
 # Widths fitted to the project's budgets (2m 1,899,421 / 1m 988,773 / 100k 80,189 / 30k 23,361).

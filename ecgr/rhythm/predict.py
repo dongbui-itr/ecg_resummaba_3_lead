@@ -48,13 +48,19 @@ def probs_step_hz(model):
     return 1 if per_second == 1 else min(per_second, rc.SAMPLE_PROBS_HZ)
 
 
-def predict_tta(model, x, batch_size, variants=None):
+PREDICT_CHUNK_WINDOWS = 2048     # windows sent to the device at once (a 24 h record is ~17k)
+
+
+def predict_tta(model, x, batch_size, variants=None, chunk=None):
     """model.predict averaged over test-time variants (rc.PREDICT_TTA): 'id', 'flip' (every
     lead's sign - a rhythm reads the same upside down, and training flips leads), 'swap' (the
     first two leads exchanged - training permutes the leads). Every output is invariant to
-    both, so the mean is taken as is."""
+    both, so the mean is taken as is. The windows go through in chunks of `chunk`, so a 24 h
+    record never has to sit on the GPU in one piece (several jobs sharing a card ran out of
+    memory on ltafdb, 2026-10-12) - the result is identical."""
     variants = rc.PREDICT_TTA if variants is None else variants
-    outs = []
+    chunk = chunk or PREDICT_CHUNK_WINDOWS
+    total = None
     for v in variants:
         xv = x
         if v == 'flip':
@@ -63,8 +69,12 @@ def predict_tta(model, x, batch_size, variants=None):
             xv = x[..., [1, 0, 2]]
         elif v != 'id':
             raise ValueError(f"unknown test-time variant {v!r}")
-        outs.append(model.predict(xv, batch_size=batch_size, verbose=0))
-    return {k: np.mean([np.asarray(o[k]) for o in outs], axis=0) for k in outs[0]}
+        parts = [model.predict(xv[i:i + chunk], batch_size=batch_size, verbose=0)
+                 for i in range(0, len(xv), chunk)]
+        out = {k: np.concatenate([np.asarray(p[k], np.float32) for p in parts], axis=0)
+               for k in parts[0]}
+        total = out if total is None else {k: total[k] + out[k] for k in out}
+    return {k: v / len(variants) for k, v in total.items()}
 
 
 def position_weights(rows, floor=None):

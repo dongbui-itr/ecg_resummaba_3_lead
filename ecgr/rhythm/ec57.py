@@ -176,6 +176,7 @@ def decode_record(rhythm, p_noise, step_hz, beats=None, decode=None):
     beat_pp = decode.pop('beat_pp', rc.DECODE_BEAT_POSTPROCESS)
     criteria = decode.pop('beat_criteria', None)
     options = decode.pop('beat_options', None)      # beats.default_options-shaped dict
+    trim = decode.pop('trim', rc.DECODE_TRIM_TO_BEATS)   # {class: pad s}: beats.trim_to_beats
     if len(rhythm) == 0:
         return [], None
     cls, _probs = decode_track(rhythm, p_noise, step_hz=step_hz, **decode)
@@ -184,6 +185,8 @@ def decode_record(rhythm, p_noise, step_hz, beats=None, decode=None):
         cls, symbols = beats_pp.postprocess(cls, beats, step_hz, criteria, options)
     elif beats is not None:
         symbols = np.asarray(beats['cls'], dtype=int)
+    if beats is not None and trim:
+        cls = beats_pp.trim_to_beats(cls, beats, step_hz, trim)
     return episodes_from_track(cls, rhythm, p_noise, step_hz), symbols
 
 

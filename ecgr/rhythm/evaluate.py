@@ -47,6 +47,9 @@ def predict_arrays(model, dataset):
 def summarize(y_true, y_pred):
     K = rc.NUM_CLASSES
     rt, rp = y_true['rhythm'], y_pred['rhythm']
+    if rp.shape[-1] != K:                       # a 6-class (AVB2 / AVB3) checkpoint -> 5
+        from .labels import to_current_classes
+        rp = to_current_classes(rp)
 
     # per second, labelled clean seconds (weight 1)
     sel = rt[..., K] > 0.5

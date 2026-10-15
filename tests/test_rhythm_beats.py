@@ -256,3 +256,17 @@ def test_tune_final_decode_uses_the_effective_class_weights(tmp_path):
     for name, w in zip(rc.CLASS_NAMES, weights):
         assert scale[name] == pytest.approx(w ** -0.5)
     tune._CTX.clear()
+
+
+def test_trim_to_beats_shrinks_runs_to_their_beats():
+    # SINUS 4 s | SVT run whose S beats are at 4.6..6.2 s but the track says 4-8 s | SINUS
+    track = track_from([(SINUS, 4), (SVT, 4), (SINUS, 4)])
+    t = np.array([1.0, 2.0, 3.0, 4.6, 5.0, 5.4, 5.8, 6.2, 7.0, 9.0, 10.0, 11.0])
+    cls = np.array([N, N, N, S, S, S, S, S, N, N, N, N])
+    beats = dict(t=t, cls=cls, conf=np.ones(len(t)), probs=np.zeros((len(t), 3)))
+    out = B.trim_to_beats(track, beats, HZ, {'SVT': 0.2})
+    sv = np.flatnonzero(out == SVT)
+    assert abs(sv[0] / HZ - 4.4) <= 1 / HZ and abs(sv[-1] / HZ - 6.4) <= 2 / HZ
+    assert classes_in(out) == [SINUS, SVT, SINUS]
+    # off / no beats: unchanged
+    assert (B.trim_to_beats(track, beats, HZ, {}) == track).all()

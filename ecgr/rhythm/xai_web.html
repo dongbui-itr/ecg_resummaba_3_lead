@@ -10,18 +10,21 @@
   --accent: #2a6fdb; --accent-ink: #ffffff; --grid: #eef0f4; --ecg: #222733; --ecg2: #9aa3b2;
   --ok: #1f8a4c; --warn: #b7791f; --bad: #c0392b; --chip: #eef2f8; --hl: rgba(255, 196, 0, .22);
   --c0: #3b8a5a; --c1: #e07b00; --c2: #2a6fdb; --c3: #d1343b; --c4: #8e5bd6;
+  --gmin: rgba(226, 104, 104, .16); --gmaj: rgba(214, 64, 64, .42); --paper: #fffafa;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #12151b; --panel: #1a1e26; --ink: #e6e9ef; --muted: #98a2b3; --line: #2c323d;
     --accent: #5b93f0; --accent-ink: #0b0d11; --grid: #232833; --ecg: #e6e9ef; --ecg2: #6b7385;
     --chip: #232a36; --hl: rgba(255, 196, 0, .16);
+    --gmin: rgba(255, 120, 120, .09); --gmaj: rgba(255, 120, 120, .26); --paper: #1a1e26;
   }
 }
 :root[data-theme="dark"] {
   --bg: #12151b; --panel: #1a1e26; --ink: #e6e9ef; --muted: #98a2b3; --line: #2c323d;
   --accent: #5b93f0; --accent-ink: #0b0d11; --grid: #232833; --ecg: #e6e9ef; --ecg2: #6b7385;
   --chip: #232a36; --hl: rgba(255, 196, 0, .16);
+  --gmin: rgba(255, 120, 120, .09); --gmaj: rgba(255, 120, 120, .26); --paper: #1a1e26;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--ink);
@@ -62,6 +65,15 @@ button.small { padding: 1px 6px; font-size: 12px; }
 .chips button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .plot { position: relative; width: 100%; }
 .plot canvas { display: block; width: 100%; }
+.plot canvas.ly { position: absolute; left: 0; top: 0; pointer-events: none; }
+.fbrowse { max-height: 210px; overflow: auto; border: 1px solid var(--line); border-radius: 5px; margin: 4px 0; font-size: 12px; }
+.fbrowse div { padding: 2px 6px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fbrowse div:hover { background: var(--chip); }
+.fbrowse div.on { background: var(--accent); color: var(--accent-ink); }
+.fbrowse .d::before { content: "▸ "; color: var(--muted); }
+.fbrowse .a { color: var(--muted); font-size: 11px; }
+#fInfo { margin: 4px 0; white-space: pre-wrap; word-break: break-word; }
+.notes { font-size: 12px; color: var(--muted); margin-top: 4px; white-space: pre-wrap; word-break: break-word; }
 .cursor { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--accent); pointer-events: none; display: none; }
 .tip { position: fixed; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
   padding: 6px 8px; font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.15); display: none; z-index: 50; max-width: 360px; }
@@ -105,6 +117,7 @@ pre { font-size: 11px; overflow: auto; max-height: 260px; background: var(--bg);
     <h2>1. Input <span class="sub">window 10 s · 250 Hz · 3 lead</span></h2>
     <div class="tabs" id="srcTabs">
       <button data-k="record" class="on">Record</button>
+      <button data-k="file">File .dat</button>
       <button data-k="eval">Eval split</button>
       <button data-k="array">Upload</button>
     </div>
@@ -116,6 +129,23 @@ pre { font-size: 11px; overflow: auto; max-height: 260px; background: var(--bg);
         <button class="small" data-step="1">+1</button><button class="small" data-step="10">+10</button></div>
       <div class="row"><input type="range" id="startRange" min="0" max="100" value="0"></div>
       <div class="row"><select id="bookmarks" style="width:100%"><option value="">— Ví dụ từ md_xai.md —</option></select></div>
+    </div>
+    <div id="src-file" hidden>
+      <div class="row"><input id="fPath" placeholder="đường dẫn record (.dat / .hea)" style="flex:1;min-width:0">
+        <button class="small" id="fOpen">Mở</button></div>
+      <div class="row"><button class="small" id="fUp" title="thư mục cha">↑</button>
+        <span class="hint" id="fDir" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">—</span>
+        <input id="fQ" placeholder="lọc" style="width:70px"></div>
+      <div class="fbrowse" id="fList"></div>
+      <div class="row"><label>Tải lên</label><input type="file" id="fUpload" multiple style="flex:1;min-width:0"></div>
+      <div class="hint">Chọn .hea + .dat (+ .atr …) cùng lúc. Duyệt được trong các thư mục gốc của server (<code>--browse-root</code> để thêm).</div>
+      <div id="fInfo" class="hint"></div>
+      <div class="row"><label>Lead 1</label><select id="fL0"></select><label>2</label><select id="fL1"></select><label>3</label><select id="fL2"></select></div>
+      <div class="row"><label>Annotation</label><select id="fAnn"></select></div>
+      <div class="row"><label>Bắt đầu (s)</label><input type="number" id="fStart" value="0" min="0" step="0.1" style="width:90px">
+        <button class="small" data-fstep="-10">−10</button><button class="small" data-fstep="-1">−1</button>
+        <button class="small" data-fstep="1">+1</button><button class="small" data-fstep="10">+10</button></div>
+      <div class="row"><input type="range" id="fStartRange" min="0" max="0" step="0.1" value="0"></div>
     </div>
     <div id="src-eval" hidden>
       <div class="row"><label>Lớp</label><select id="evCat"></select>
@@ -249,7 +279,17 @@ pre { font-size: 11px; overflow: auto; max-height: 260px; background: var(--bg);
       <label><input type="checkbox" id="showRefBeats" checked> beat tham chiếu</label>
       <div class="legend" id="clsLegend"></div>
     </div>
-    <div class="plot" data-kind="time"><canvas id="cvEcg" height="330"></canvas><div class="cursor"></div></div>
+    <div class="toolbar">
+      <label>Layer</label>
+      <label><input type="checkbox" id="lyGrid" checked> lưới AAMI</label>
+      <label><input type="checkbox" id="lySig" checked> tín hiệu</label>
+      <label><input type="checkbox" id="lyLab" checked> nhãn</label>
+      <label>Biên độ</label><select id="ecgGain"><option value="5">5 mm/mV</option><option value="10" selected>10 mm/mV</option>
+        <option value="20">20 mm/mV</option><option value="auto">tự co (z-score)</option></select>
+      <span class="hint" id="gridHint"></span>
+    </div>
+    <div class="plot" data-kind="time"><canvas id="cvEcg" height="330"></canvas><canvas id="cvEcgSig" class="ly" height="330"></canvas><canvas id="cvEcgLab" class="ly" height="330"></canvas><div class="cursor"></div></div>
+    <div class="notes" id="ecgNotes"></div>
   </div>
 
   <div class="card">
@@ -323,7 +363,8 @@ pre { font-size: 11px; overflow: auto; max-height: 260px; background: var(--bg);
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 const S = { meta: null, src: 'record', res: null, layerSel: null, detail: null, overview: null,
-            evIdx: [], scan: null, secSel: new Set(), busy: 0, uploaded: null, records: {} };
+            evIdx: [], scan: null, secSel: new Set(), busy: 0, uploaded: null, records: {},
+            overviewKey: '', file: { info: null, dir: '', parent: null, browsed: false } };
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const clsColor = k => css('--c' + k);
 const fmt = (v, d = 2) => v == null || !isFinite(v) ? '–' : Number(v).toFixed(d);
@@ -427,6 +468,16 @@ function tipFor(id, t, y) {
   let h = `<b>t = ${t.toFixed(2)} s</b> (giây ${s})`;
   if (R.info.ref && R.info.ref[s] >= 0) h += ` · tham chiếu <b>${names[R.info.ref[s]]}</b>${R.info.ref_codes[s] ? ' ' + R.info.ref_codes[s] : ''}`;
   h += `<br>gốc: ${row('orig')}<br>đã sửa: ${row('mod')}`;
+  if (id === 'cvEcg' && R.signal_raw) {
+    const i = Math.min(2499, Math.floor(t * 250)), lead = R.info.lead_names || [];
+    h += '<br>' + [0, 1, 2].map(L => `L${L + 1}${lead[L] ? ' ' + lead[L] : ''} ${fmt(R.signal_raw.mod[L][i], 3)} mV`).join(' · ');
+    const HR = ecgHr(), at = s => (s.seg.find(r => r.t0 <= t && t < r.t1) || {}).bpm;
+    h += `<br>HR tại con trỏ: atr <b>${fmt(at(HR.atr), 0)}</b> · model <b>${fmt(at(HR.model), 0)}</b> bpm` +
+         ` · trung bình window: atr ${fmt(HR.atr.mean, 1)} (${HR.atr.n} beat) · model ${fmt(HR.model.mean, 1)} (${HR.model.n} beat)`;
+    const lab = (R.info.labels && R.info.labels.rhythm || []).filter(m => m.t <= t).pop();
+    if (lab) h += `<br>nhãn rhythm: <b>${lab.code}</b>`;
+    for (const e of (R.info.labels && R.info.labels.events) || []) if (e.t0 <= t && t < e.t1) h += `<br>.hea: <b>${e.text}</b>`;
+  }
   if (id === 'cvHm') {
     const L = hmRows()[Math.floor((y - 4) / hmRowH())];
     if (L) { const i = Math.min(249, Math.floor(t * 25)); h += `<br><b>${L.name}</b> (${L.group}) |g×a| ${L.rel_profile[i].toExponential(2)} · act ${fmt(L.act_profile[i], 3)}`; }
@@ -475,6 +526,10 @@ function gatherIv() {
 }
 function gatherSource() {
   if (S.src === 'record') return { kind: 'record', db: $('#db').value, record: $('#rec').value, start: +$('#start').value };
+  if (S.src === 'file') {
+    if (!S.file.info) throw new Error('chưa chọn file .dat');
+    return { kind: 'file', path: S.file.info.path, start: +$('#fStart').value, ann: $('#fAnn').value, leads: fileLeads() };
+  }
   if (S.src === 'eval') return { kind: 'eval', index: +$('#evIdx').value };
   if (!S.uploaded) throw new Error('chưa tải file CSV');
   return { kind: 'array', data: S.uploaded.data, fs: +$('#upFs').value, name: S.uploaded.name };
@@ -498,7 +553,7 @@ async function analyze() {
     if (S.layerSel && !r.runs.mod.layers.find(l => l.name === S.layerSel)) S.layerSel = null;
     drawAll();
     if (S.layerSel) loadDetail();
-    if (src.kind === 'record') { $('#scanSec').value = src.start + (S.res.target.seconds[0] ?? 5); drawOverview(); }
+    if (src.kind === 'record' || src.kind === 'file') { $('#scanSec').value = Math.floor(src.start) + (S.res.target.seconds[0] ?? 5); drawOverview(); }
   } catch (e) { status('lỗi: ' + e.message); }
 }
 let autoT = null;
@@ -512,59 +567,224 @@ function drawAll() {
   $('#ecgTitle').innerHTML = `ECG <span class="sub">${I.title}${S.res.flip ? ' · đã đảo thời gian (hiển thị theo thời gian thật)' : ''}</span>`;
 }
 
-function drawEcg() {
-  const cv = $('#cvEcg'), c = prep(cv), R = S.res, view = $('#ecgView').value, igv = $('#igView').value;
-  const H = c.h, band = 18, laneH = (H - band - 16) / 3;
-  timeGrid(c, 0, H - 14);
-  highlightTargets(c, 0, band);
-  // reference bar + model argmax bars
-  const names = S.meta.classes;
-  for (let s = 0; s < 10; s++) {
-    const ref = R.info.ref[s];
-    if (ref >= 0) { c.g.fillStyle = clsColor(ref); c.g.fillRect(c.tx(s) + 1, 2, c.tx(s + 1) - c.tx(s) - 2, 6); }
-    const am = R.runs.mod.argmax[s];
-    c.g.fillStyle = clsColor(am); c.g.fillRect(c.tx(s) + 1, 10, c.tx(s + 1) - c.tx(s) - 2, 6);
+// ECG = three stacked canvases sharing one geometry (ecgGeom): cvEcg = AAMI paper grid (the
+// canvas the shared cursor reads), cvEcgSig = traces + IG + 1 mV calibration pulse, cvEcgLab =
+// reference / annotation / .hea labels + model argmax and beats. Paper: 25 mm/s, gain mm/mV,
+// small square 1 mm (0.04 s), large square 5 mm (0.2 s); lanes are whole 5 mm blocks.
+const MM_PER_S = 25, TOP_H = 38, BOT_H = 14, HR_H = 84, AUTO_LANES_H = 290;
+function ecgGeom() {
+  const R = S.res, w = $('#cvEcg').clientWidth;
+  const pxmm = (w - RM - LM) / (10 * MM_PER_S), gsel = $('#ecgGain').value;
+  const aami = gsel !== 'auto' && !!R.signal_raw, g = aami ? +gsel : 0;
+  const src = aami ? R.signal_raw : R.signal, view = $('#ecgView').value;
+  const keys = view === 'both' ? ['orig', 'mod'] : [view];
+  const lanes = [];
+  let y = TOP_H;
+  for (let L = 0; L < 3; L++) {
+    let lo = Infinity, hi = -Infinity;
+    for (const k of ['orig', 'mod']) for (const v of src[k][L]) { if (v < lo) lo = v; if (v > hi) hi = v; }
+    const flat = !(hi - lo > 1e-6), mid = flat ? 0 : (hi + lo) / 2;
+    let h, sc;
+    if (aami) {
+      const minMm = flat ? 10 : Math.ceil((g + 4) / 5) * 5;   // room for the 1 mV calibration pulse
+      const mm = Math.min(60, Math.max(minMm, Math.ceil(((flat ? 0 : hi - lo) * g + 4) / 5) * 5));
+      h = mm * pxmm; sc = g * pxmm;
+    } else { h = AUTO_LANES_H / 3; sc = (h - 6) / Math.max(hi - lo, 1e-6); }
+    lanes.push({ y0: y, h, mid, sc, flat });
+    y += h;
   }
-  c.g.fillStyle = css('--muted'); c.g.textAlign = 'right';
-  c.g.fillText('tham chiếu', LM - 6, 9); c.g.fillText('model (sửa)', LM - 6, 18);
-  const n = 2500, ig = igv !== 'off' && R.runs[igv].ig ? R.runs[igv].ig : null;
+  // below the lanes: model beat row, then the HR band (reference .atr beats vs model beats)
+  return { aami, g, pxmm, src, keys, lanes, yLanes: y, yBeat: y + BOT_H - 3,
+           hr0: y + BOT_H + 4, hr1: y + BOT_H + HR_H - 14, H: y + BOT_H + HR_H };
+}
+// instantaneous HR per R-R interval of a beat list: [{t0, t1, bpm}] + mean (beats - 1) / span
+function hrSeries(beats) {
+  const t = (beats || []).map(b => b.t).sort((a, b) => a - b), out = [];
+  for (let i = 1; i < t.length; i++) {
+    const rr = t[i] - t[i - 1];
+    if (rr > 0.2 && rr < 3) out.push({ t0: t[i - 1], t1: t[i], bpm: 60 / rr });   // 20-300 bpm
+  }
+  const mean = t.length > 1 ? 60 * (t.length - 1) / (t[t.length - 1] - t[0]) : null;
+  return { seg: out, mean, n: t.length };
+}
+function ecgHr() {
+  const R = S.res;
+  return { atr: hrSeries(R.info.ref_beats), model: hrSeries(R.runs.mod.beats) };
+}
+function drawHr(c, G) {
+  const HR = ecgHr(), y0 = G.hr0, y1 = G.hr1;
+  const all = [...HR.atr.seg, ...HR.model.seg].map(s => s.bpm);
+  let lo = all.length ? Math.min(...all) : 60, hi = all.length ? Math.max(...all) : 100;
+  lo = Math.max(0, Math.floor((lo - 5) / 20) * 20); hi = Math.ceil((hi + 5) / 20) * 20;
+  if (hi - lo < 40) hi = lo + 40;
+  const Y = v => y1 - (v - lo) / (hi - lo) * (y1 - y0);
+  // axis: bpm lines every 20 (every 40 when the range is wide)
+  const step = hi - lo > 120 ? 40 : 20;
+  c.g.strokeStyle = css('--grid'); c.g.lineWidth = 1; c.g.fillStyle = css('--muted'); c.g.textAlign = 'right';
+  for (let v = lo; v <= hi; v += step) {
+    const y = Math.round(Y(v)) + .5;
+    c.g.beginPath(); c.g.moveTo(c.x0, y); c.g.lineTo(c.x1, y); c.g.stroke();
+    c.g.fillText(String(v), c.x0 - 4, y + 4);
+  }
+  c.g.strokeStyle = css('--line'); c.g.strokeRect(c.x0 + .5, y0 + .5, c.x1 - c.x0 - 1, y1 - y0);
+  // reference: wide pale band underneath; model: thin line on top - a mismatch shows as a gap
+  const series = [['atr', HR.atr, css('--ecg2'), 5, 3.2], ['model', HR.model, css('--accent'), 1.6, 2]];
+  for (const [, s, col, lw, rad] of series) {
+    c.g.strokeStyle = col; c.g.lineWidth = lw; c.g.lineCap = 'round';
+    for (const r of s.seg) { c.g.beginPath(); c.g.moveTo(c.tx(r.t0), Y(r.bpm)); c.g.lineTo(c.tx(r.t1), Y(r.bpm)); c.g.stroke(); }
+    c.g.fillStyle = col;
+    for (const r of s.seg) { c.g.beginPath(); c.g.arc(c.tx(r.t1), Y(r.bpm), rad, 0, 7); c.g.fill(); }
+  }
+  c.g.lineCap = 'butt';
+  // legend in the left margin: mean HR over the window
+  c.g.textAlign = 'right'; c.g.font = '600 11px system-ui, sans-serif';
+  const txt = (s, name) => `${name} ${s.mean ? Math.round(s.mean) + ' bpm' : '–'}`;
+  c.g.fillStyle = css('--ecg2'); c.g.fillText(txt(HR.atr, 'HR atr ▬'), c.x0 - 30, y0 + 12);
+  c.g.fillStyle = css('--accent'); c.g.fillText(txt(HR.model, 'HR model ─'), c.x0 - 30, y0 + 27);
+  c.g.font = '11px system-ui, sans-serif';
+  if (HR.atr.mean && HR.model.mean) {
+    c.g.fillStyle = css('--muted');
+    c.g.fillText(`Δ ${HR.model.mean - HR.atr.mean >= 0 ? '+' : ''}${(HR.model.mean - HR.atr.mean).toFixed(1)} bpm`, c.x0 - 30, y0 + 42);
+  }
+  c.g.textAlign = 'left'; c.g.fillStyle = css('--muted'); c.g.fillText('bpm', c.x1 + 4, y0 + 10);
+}
+function drawEcg() {
+  const R = S.res; if (!R) return;
+  const G = ecgGeom();
+  for (const id of ['#cvEcg', '#cvEcgSig', '#cvEcgLab']) $(id).setAttribute('height', Math.round(G.H));
+  $('#cvEcgSig').style.display = $('#lySig').checked ? '' : 'none';   // before drawing: a hidden
+  $('#cvEcgLab').style.display = $('#lyLab').checked ? '' : 'none';   // canvas has no width
+  drawEcgGrid(G); drawEcgSig(G); drawEcgLab(G);
+  const u = (R.info.units || []).filter(x => x && x.toLowerCase() !== 'mv');
+  $('#gridHint').textContent = G.aami
+    ? `ô nhỏ 1 mm = 0.04 s × ${fmt(1 / G.g, 2)} mV · ô lớn 5 mm = 0.2 s × ${fmt(5 / G.g, 1)} mV` +
+      (R.info.units ? (u.length ? ` · đơn vị lead: ${u.join(', ')}` : '') : ' · đơn vị giả định mV')
+    : 'z-score từng lead (lưới AAMI chỉ có nghĩa ở mV)';
+  drawEcgNotes();
+}
+function drawEcgGrid(G) {
+  const c = prep($('#cvEcg')); if (!$('#lyGrid').checked) return;
+  const y0 = TOP_H, y1 = G.yLanes;
+  if (!G.aami) { timeGrid(c, y0, y1); return; }
+  c.g.fillStyle = css('--paper'); c.g.fillRect(c.x0, y0, c.x1 - c.x0, y1 - y0);
+  const cols = 10 * MM_PER_S, rows = Math.round((y1 - y0) / G.pxmm);
+  for (const major of [false, true]) {
+    if (!major && G.pxmm < 2) continue;                        // 1 mm lines too dense to read
+    c.g.strokeStyle = css(major ? '--gmaj' : '--gmin'); c.g.lineWidth = major ? 1 : 0.7; c.g.beginPath();
+    for (let k = 0; k <= cols; k++) if ((k % 5 === 0) === major) {
+      const x = Math.round(c.x0 + k * G.pxmm) + .5; c.g.moveTo(x, y0); c.g.lineTo(x, y1);
+    }
+    for (let k = 0; k <= rows; k++) if ((k % 5 === 0) === major) {
+      const y = Math.round(y0 + k * G.pxmm) + .5; c.g.moveTo(c.x0, y); c.g.lineTo(c.x1, y);
+    }
+    c.g.stroke();
+  }
+}
+function drawEcgSig(G) {
+  const c = prep($('#cvEcgSig')), R = S.res, igv = $('#igView').value;
+  const ig = igv !== 'off' && R.runs[igv].ig ? R.runs[igv].ig : null;
   let igMax = 1e-12;
   const igSm = ig ? ig.map(a => smoothAbs(a, 9)) : null;
   if (igSm) for (const a of igSm) for (const v of a) igMax = Math.max(igMax, v);
+  const names = R.info.lead_names || [];
+  const calW = G.aami ? 5 * G.pxmm : 0;                     // 0.2 s wide calibration pulse
   for (let L = 0; L < 3; L++) {
-    const y0 = band + 2 + L * laneH, ym = y0 + laneH / 2;
+    const ln = G.lanes[L], ym = ln.y0 + ln.h / 2;
     if (igSm) {   // IG as background shading
-      const cols = 500;
-      for (let k = 0; k < cols; k++) {
+      for (let k = 0; k < 500; k++) {
         let m = 0; for (let i = k * 5; i < k * 5 + 5; i++) m = Math.max(m, igSm[L][i]);
         const a = Math.pow(m / igMax, 0.7);
         if (a < 0.03) continue;
-        c.g.fillStyle = `rgba(214, 39, 40, ${0.55 * a})`;
-        c.g.fillRect(c.tx(k / 50), y0, c.tx((k + 1) / 50) - c.tx(k / 50) + 0.5, laneH);
+        c.g.fillStyle = `rgba(214, 39, 40, ${0.45 * a})`;
+        c.g.fillRect(c.tx(k / 50), ln.y0, c.tx((k + 1) / 50) - c.tx(k / 50) + 0.5, ln.h);
       }
     }
-    c.g.fillStyle = css('--muted'); c.g.textAlign = 'right'; c.g.fillText('lead ' + (L + 1), LM - 6, ym + 4);
-    const sigs = view === 'both' ? [['orig', css('--ecg2')], ['mod', css('--ecg')]] : [[view, css('--ecg')]];
-    for (const [k, col] of sigs) {
-      const y = R.signal[k][L];
-      let lo = Infinity, hi = -Infinity; for (const v of R.signal.mod[L]) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
-      for (const v of R.signal.orig[L]) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
-      const sc = (laneH - 6) / Math.max(hi - lo, 1e-6);
-      c.g.strokeStyle = col; c.g.lineWidth = 1; c.g.beginPath();
-      for (let i = 0; i < n; i++) { const X = c.tx(i / 250), Y = y0 + 3 + (hi - y[i]) * sc; i ? c.g.lineTo(X, Y) : c.g.moveTo(X, Y); }
+    c.g.fillStyle = css('--muted'); c.g.textAlign = 'right';
+    const xl = LM - 10 - calW - (calW ? 6 : 0);
+    c.g.fillText('lead ' + (L + 1), xl, ym - 2);
+    if (names[L]) c.g.fillText(names[L], xl, ym + 11);
+    if (G.aami && !ln.flat) {   // 1 mV x 0.2 s calibration pulse in the margin
+      const xb = LM - 8, xa = xb - calW, yb = ym + 0.5 * G.g * G.pxmm, yt = yb - G.g * G.pxmm;
+      c.g.strokeStyle = css('--ecg'); c.g.lineWidth = 1.2; c.g.beginPath();
+      c.g.moveTo(xa - 4, yb); c.g.lineTo(xa, yb); c.g.lineTo(xa, yt); c.g.lineTo(xb, yt); c.g.lineTo(xb, yb); c.g.lineTo(xb + 3, yb);
       c.g.stroke();
     }
+    if (ln.flat) { c.g.fillStyle = css('--muted'); c.g.textAlign = 'left'; c.g.fillText('(lead trống)', c.x0 + 6, ym + 4); continue; }
+    c.g.save(); c.g.beginPath(); c.g.rect(c.x0, ln.y0, c.x1 - c.x0, ln.h); c.g.clip();
+    for (const k of G.keys) {
+      const y = G.src[k][L];
+      c.g.strokeStyle = G.keys.length > 1 && k === 'orig' ? css('--ecg2') : css('--ecg');
+      c.g.lineWidth = G.aami ? 1.1 : 1; c.g.beginPath();
+      for (let i = 0; i < y.length; i++) { const X = c.tx(i / 250), Y = ym - (y[i] - ln.mid) * ln.sc; i ? c.g.lineTo(X, Y) : c.g.moveTo(X, Y); }
+      c.g.stroke();
+    }
+    c.g.restore();
   }
-  const bcol = { N: css('--c0'), S: css('--c2'), V: css('--c3'), Q: css('--muted') };
+  drawHr(c, G);
+}
+const BEAT_COL = () => ({ N: css('--c0'), S: css('--c2'), V: css('--c3'), Q: css('--muted') });
+function pill(c, text, x, y, col) {
+  const w = c.g.measureText(text).width + 8;
+  x = Math.min(x, c.x1 - w);
+  c.g.fillStyle = css('--panel'); c.g.globalAlpha = .85; c.g.fillRect(x, y - 10, w, 13); c.g.globalAlpha = 1;
+  c.g.strokeStyle = col; c.g.lineWidth = 1; c.g.strokeRect(x + .5, y - 9.5, w - 1, 12);
+  c.g.fillStyle = col; c.g.textAlign = 'left'; c.g.fillText(text, x + 4, y);
+}
+function drawEcgLab(G) {
+  const c = prep($('#cvEcgLab')), R = S.res, I = R.info, Lb = I.labels || {};
+  const y0 = TOP_H, y1 = G.yLanes, bcol = BEAT_COL();
+  highlightTargets(c, 0, 18);
+  // .hea events / Dx: a translucent span over every lane
+  let row = 0;
+  for (const e of Lb.events || []) {
+    const col = e.cls >= 0 ? clsColor(e.cls) : css('--muted'), xa = c.tx(e.t0), xb = c.tx(e.t1);
+    c.g.globalAlpha = .10; c.g.fillStyle = col; c.g.fillRect(xa, y0, xb - xa, y1 - y0); c.g.globalAlpha = 1;
+    c.g.strokeStyle = col; c.g.setLineDash([2, 3]);
+    for (const x of [xa, xb]) if (x > c.x0 + 1 && x < c.x1 - 1) { c.g.beginPath(); c.g.moveTo(x + .5, y0); c.g.lineTo(x + .5, y1); c.g.stroke(); }
+    c.g.setLineDash([]);
+    pill(c, '.hea: ' + e.text, xa + 3, y1 - 6 - 15 * row++, col);
+  }
+  // per-second reference (annotation / header) + model argmax
+  for (let s = 0; s < 10; s++) {
+    const ref = I.ref[s];
+    if (ref >= 0) { c.g.fillStyle = clsColor(ref); c.g.fillRect(c.tx(s) + 1, 2, c.tx(s + 1) - c.tx(s) - 2, 6); }
+    c.g.fillStyle = clsColor(R.runs.mod.argmax[s]); c.g.fillRect(c.tx(s) + 1, 10, c.tx(s + 1) - c.tx(s) - 2, 6);
+  }
+  c.g.fillStyle = css('--muted'); c.g.textAlign = 'right';
+  c.g.fillText('tham chiếu', LM - 6, 9); c.g.fillText('model (sửa)', LM - 6, 18);
+  // rhythm marks of the annotation file: where each starts + its code
+  for (const m of Lb.rhythm || []) {
+    const x = c.tx(m.t), col = clsColor(m.cls);
+    if (m.t > 0) { c.g.strokeStyle = col; c.g.lineWidth = 1.5; c.g.setLineDash([5, 3]);
+      c.g.beginPath(); c.g.moveTo(x, y0); c.g.lineTo(x, y1); c.g.stroke(); c.g.setLineDash([]); }
+    pill(c, m.code, x + 3, y0 + 12, col);
+  }
+  // annotation row: beat symbols as written + every other annotation (noise, comments ...)
+  if (Lb.ann) { c.g.fillStyle = css('--muted'); c.g.textAlign = 'right'; c.g.fillText('ann .' + Lb.ann, LM - 6, 32); }
+  c.g.textAlign = 'center';
+  if ($('#showRefBeats').checked) for (const b of I.ref_beats || []) {
+    const x = c.tx(b.t);
+    c.g.fillStyle = bcol[b.cls] || css('--muted'); c.g.fillText(b.sym, x, 32);
+    c.g.fillRect(x - .5, y0, 1, 5);
+  }
+  for (const o of Lb.other || []) {
+    c.g.fillStyle = css('--muted'); c.g.fillText(o.sym + (o.aux ? ' ' + o.aux : ''), c.tx(o.t), 32);
+  }
   if ($('#showBeats').checked && R.runs.mod.beats) for (const b of R.runs.mod.beats) {
-    c.g.fillStyle = bcol[b.cls]; c.g.textAlign = 'center'; c.g.fillText(b.cls, c.tx(b.t), H - 3);
-  }
-  if ($('#showRefBeats').checked) for (const b of R.info.ref_beats || []) {
-    c.g.fillStyle = bcol[b.cls] || css('--muted'); c.g.textAlign = 'center';
-    c.g.beginPath(); c.g.arc(c.tx(b.t), band + 4, 2.2, 0, 7); c.g.fill();
+    c.g.fillStyle = bcol[b.cls]; c.g.textAlign = 'center'; c.g.fillText(b.cls, c.tx(b.t), G.yBeat);
   }
   c.g.fillStyle = css('--muted'); c.g.textAlign = 'left';
-  c.g.fillText('beat model ↓', c.x1 + 4, H - 3);
+  c.g.fillText('beat model', c.x1 + 4, G.yBeat);
+}
+function drawEcgNotes() {
+  const I = S.res.info, Lb = I.labels;
+  if (!$('#lyLab').checked || !Lb) { $('#ecgNotes').textContent = ''; return; }
+  const lines = [];
+  if (Lb.ann) lines.push(`annotation: .${Lb.ann} · ${(I.ref_beats || []).length} beat, ${(Lb.rhythm || []).length} nhãn rhythm trong window`);
+  else lines.push('annotation: không có — tham chiếu lấy từ .hea' + ((Lb.events || []).length ? '' : ' (không có nhãn rhythm)'));
+  if (I.lead_names) lines.push('lead: ' + I.lead_names.map((n, k) => `${k + 1}=${n}${I.units[k] ? ' [' + I.units[k] + ']' : ''}`).join(' · '));
+  if ((Lb.comments || []).length) lines.push('.hea: ' + Lb.comments.join(' | '));
+  $('#ecgNotes').textContent = lines.join('\n');
 }
 function smoothAbs(a, k) {
   const out = new Float32Array(a.length), h = k >> 1; let s = 0;
@@ -771,20 +991,28 @@ function drawVectors() {
 }
 
 // ---------------------------------------------------------------------------------- overview / scan / batch
+// the whole-record strip follows the active source: a PhysioNet Record or a File .dat
+function ovQuery() {
+  if (S.src === 'record') return `db=${encodeURIComponent($('#db').value)}&record=${encodeURIComponent($('#rec').value)}`;
+  if (S.src === 'file' && S.file.info) return `path=${encodeURIComponent(S.file.info.path)}&ann=${encodeURIComponent($('#fAnn').value)}`;
+  return '';
+}
+function curStart() { return S.src === 'file' ? +$('#fStart').value : +$('#start').value; }
+function jumpTo(s) { if (S.src === 'file') setFStart(s); else setStart(s); }
 async function loadOverview() {
-  if (S.src !== 'record') { $('#ovCard').hidden = true; return; }
-  const key = $('#db').value + '/' + $('#rec').value;
+  const key = ovQuery();
+  if (!key) { S.overview = null; $('#ovCard').hidden = true; return; }
   try {
-    const o = await api(`/api/overview?db=${$('#db').value}&record=${$('#rec').value}`);
-    if (key !== $('#db').value + '/' + $('#rec').value) return;   // a newer record was picked meanwhile
-    S.overview = o; drawOverview();
+    const o = await api('/api/overview?' + key);
+    if (key !== ovQuery()) return;                               // a newer record was picked meanwhile
+    S.overview = o; S.overviewKey = key; drawOverview();
   }
   catch (e) { S.overview = null; $('#ovCard').hidden = true; }
 }
 function drawOverview() {
-  const o = S.overview; if (!o || S.src !== 'record') return;
+  const o = S.overview; if (!o || S.overviewKey !== ovQuery()) return;
   $('#ovCard').hidden = false;
-  $('#ovSub').textContent = `${o.seconds} s · tham chiếu (trên) · argmax lưu từ EC57 (dưới)${o.pred ? '' : ' — không có (--ec57-out)'} · đỏ = sai · nhấp để nhảy`;
+  $('#ovSub').textContent = `${o.seconds} s · tham chiếu (trên) · argmax lưu từ EC57 (dưới)${o.pred ? '' : ' — không có dự đoán EC57 lưu sẵn'} · đỏ = sai · nhấp để nhảy`;
   const cv = $('#cvOv'), c = prep(cv), W = c.w - 8, n = o.seconds;
   const px = s => 4 + W * s / n;
   for (let s = 0; s < n; s++) {
@@ -793,18 +1021,21 @@ function drawOverview() {
     if (o.pred) { c.g.fillStyle = clsColor(o.pred[s]); c.g.fillRect(x, 16, w, 12);
       if (o.ref[s] >= 0 && o.pred[s] !== o.ref[s]) { c.g.fillStyle = css('--bad'); c.g.fillRect(x, 30, w, 5); } }
   }
-  const st = +$('#start').value; c.g.strokeStyle = css('--ink'); c.g.lineWidth = 2;
+  const st = curStart(); c.g.strokeStyle = css('--ink'); c.g.lineWidth = 2;
   c.g.strokeRect(px(st), 1, Math.max(3, px(st + 10) - px(st)), 36);
 }
 $('#cvOv').addEventListener('click', ev => {
   const o = S.overview; if (!o) return;
   const r = ev.target.getBoundingClientRect(), s = Math.floor((ev.clientX - r.left - 4) / (r.width - 8) * o.seconds);
-  setStart(s - 5); analyze();
+  jumpTo(s - 5); analyze();
 });
 async function runScan() {
-  if (S.src !== 'record') { status('quét mép chỉ dùng cho Record'); return; }
+  if (S.src !== 'record' && S.src !== 'file') { status('quét mép chỉ dùng cho Record / File .dat'); return; }
+  const source = S.src === 'file'
+    ? { path: S.file.info && S.file.info.path, leads: fileLeads(), ann: $('#fAnn').value }
+    : { db: $('#db').value, record: $('#rec').value };
   try {
-    const r = await api('/api/scan', { source: { db: $('#db').value, record: $('#rec').value }, second: +$('#scanSec').value, interventions: gatherIv() });
+    const r = await api('/api/scan', { source, second: +$('#scanSec').value, interventions: gatherIv() });
     S.scan = r; drawScan();
   } catch (e) { status('lỗi: ' + e.message); }
 }
@@ -906,10 +1137,79 @@ function syncVals() {
   $('#iv_temp_v').textContent = $('#iv_temp').value; $('#iv_frac_v').textContent = $('#iv_frac').value;
 }
 function setSrc(k) {
+  const changed = S.src !== k;
   S.src = k;
   $$('#srcTabs button').forEach(b => b.classList.toggle('on', b.dataset.k === k));
-  for (const n of ['record', 'eval', 'array']) $('#src-' + n).hidden = n !== k;
-  if (k !== 'record') $('#ovCard').hidden = true; else drawOverview();
+  for (const n of ['record', 'file', 'eval', 'array']) $('#src-' + n).hidden = n !== k;
+  if (k === 'file' && !S.file.browsed) { S.file.browsed = true; browseDir(''); }
+  if (k !== 'record' && k !== 'file') $('#ovCard').hidden = true;
+  else if (changed || !S.overview) loadOverview(); else drawOverview();
+}
+
+// ---------------------------------------------------------------------------------- File .dat source
+const esc = s => String(s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
+const dirname = p => p.slice(0, Math.max(0, p.lastIndexOf('/')));
+function fileLeads() { return [0, 1, 2].map(j => $('#fL' + j).value === '' ? null : +$('#fL' + j).value); }
+async function browseDir(dir) {
+  try {
+    const r = await api(`/api/browse?dir=${encodeURIComponent(dir || '')}&q=${encodeURIComponent($('#fQ').value.trim())}`);
+    S.file.dir = r.dir; S.file.parent = r.parent;
+    $('#fDir').textContent = r.dir || 'thư mục gốc'; $('#fDir').title = r.dir || r.roots.join('\n');
+    $('#fUp').disabled = r.parent === null;
+    const cur = S.file.info && S.file.info.path;
+    $('#fList').innerHTML =
+      r.dirs.map(d => `<div class="d" data-dir="${esc(d.path)}" title="${esc(d.path)}">${esc(d.name)}</div>`).join('') +
+      r.records.map(x => `<div data-rec="${esc(x.path)}" class="${x.path === cur ? 'on' : ''}" title="${esc(x.path)}">${esc(x.name)} ` +
+        `<span class="a">${x.dat ? '' : '(không .dat) '}${esc(x.ann.slice(0, 3).join(' '))}${x.ann.length > 3 ? ' …' : ''}</span></div>`).join('') +
+      (r.truncated ? '<div class="a">… còn nữa, dùng ô lọc</div>' : '') +
+      (!r.dirs.length && !r.records.length ? '<div class="a">không có thư mục / record (.hea)</div>' : '');
+    $$('#fList [data-dir]').forEach(e => e.onclick = () => browseDir(e.dataset.dir));
+    $$('#fList [data-rec]').forEach(e => e.onclick = () => openFile(e.dataset.rec));
+    return true;
+  } catch (e) { status('lỗi: ' + e.message); return false; }
+}
+async function openFile(path) {
+  try { applyFileInfo(await api('/api/fileinfo?path=' + encodeURIComponent(path))); return true; }
+  catch (e) { status('lỗi: ' + e.message); return false; }
+}
+function applyFileInfo(fi) {
+  S.file.info = fi;
+  $('#fPath').value = fi.path;
+  const opts = '<option value="">— (trống)</option>' + fi.sig_name.map((n, k) =>
+    `<option value="${k}">${k}: ${esc(n || 'ch' + k)}${fi.units[k] ? ' [' + esc(fi.units[k]) + ']' : ''}</option>`).join('');
+  for (let j = 0; j < 3; j++) { $('#fL' + j).innerHTML = opts; $('#fL' + j).value = j < fi.n_sig ? String(j) : ''; }
+  $('#fAnn').innerHTML = '<option value="">(không dùng)</option>' + fi.ann_exts.map(e => `<option>${esc(e)}</option>`).join('');
+  $('#fAnn').value = fi.ann;
+  $('#fStartRange').max = Math.max(0, Math.floor((fi.seconds - 10) * 10) / 10);
+  const dur = fi.seconds >= 120 ? (fi.seconds / 60).toFixed(1) + ' phút' : fi.seconds.toFixed(1) + ' s';
+  $('#fInfo').textContent = `${fi.name} · ${fi.fs} Hz · ${fi.n_sig} kênh · ${dur}` +
+    fi.events.map(e => `\n.hea: ${e.text} (${e.t0.toFixed(1)}–${e.t1.toFixed(1)} s)`).join('') +
+    (fi.comments.length ? '\n' + fi.comments.slice(0, 8).join('\n') : '');
+  // start at the header's labelled event when it covers part of the record only
+  const ev = fi.events.find(e => e.t1 - e.t0 < fi.seconds - 0.5);
+  setFStart(ev ? ev.t0 : 0);
+  $$('#fList [data-rec]').forEach(e => e.classList.toggle('on', e.dataset.rec === fi.path));
+  if (S.file.dir !== dirname(fi.path)) browseDir(dirname(fi.path));
+  S.overview = null;
+  setSrc('file'); loadOverview(); autoRun();
+}
+function setFStart(v) {
+  const max = +$('#fStartRange').max;
+  v = Math.max(0, Math.min(max, Math.round(v * 10) / 10));
+  $('#fStart').value = v; $('#fStartRange').value = v; drawOverview();
+}
+async function uploadFiles(list) {
+  const files = [];
+  for (const f of list) {
+    const data = await new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(String(r.result).split(',', 2)[1] || ''); r.onerror = () => rej(r.error);
+      r.readAsDataURL(f);
+    });
+    files.push({ name: f.name, data });
+  }
+  try { const fi = await api('/api/upload', { files }); applyFileInfo(fi); status(`đã tải lên ${fi.name}`); }
+  catch (e) { status('lỗi: ' + e.message); }
 }
 async function loadRecords() {
   const db = $('#db').value;
@@ -1000,15 +1300,33 @@ async function init() {
     if (!data.length) { status('CSV không có dòng số nào'); return; }
     S.uploaded = { name: f.name, data }; status(`đã tải ${f.name}: ${data.length} mẫu × ${data[0].length} lead`); autoRun();
   };
+  // File .dat
+  const openTyped = async () => {
+    const p = $('#fPath').value.trim(); if (!p) return;
+    try { applyFileInfo(await api('/api/fileinfo?path=' + encodeURIComponent(p))); }
+    catch (e) { if (!(await browseDir(p))) status('lỗi: ' + e.message); }   // a folder: list it
+  };
+  $('#fOpen').onclick = openTyped;
+  $('#fPath').addEventListener('keydown', e => { if (e.key === 'Enter') openTyped(); });
+  $('#fUp').onclick = () => { if (S.file.parent !== null) browseDir(S.file.parent); };
+  let fqT = null;
+  $('#fQ').oninput = () => { clearTimeout(fqT); fqT = setTimeout(() => browseDir(S.file.dir), 300); };
+  $('#fUpload').onchange = () => { const fl = $('#fUpload').files; if (fl.length) uploadFiles(Array.from(fl)); };
+  for (const id of ['#fL0', '#fL1', '#fL2']) $(id).onchange = autoRun;
+  $('#fAnn').onchange = () => { loadOverview(); autoRun(); };
+  $('#fStart').onchange = () => { setFStart(+$('#fStart').value); autoRun(); };
+  $('#fStartRange').oninput = () => setFStart(+$('#fStartRange').value);
+  $('#fStartRange').onchange = autoRun;
+  $$('[data-fstep]').forEach(b => b.onclick = () => { setFStart(+$('#fStart').value + +b.dataset.fstep); autoRun(); });
   $('#donorRnd').onclick = () => pickDonor($('#evCat').value || 'SINUS');
   for (const el of $$('aside input, aside select')) {
-    if (el.closest('#src-record') || el.closest('#src-eval') || el.closest('#src-array') || ['fN', 'bN', 'bCat', 'autoRun'].includes(el.id)) continue;
+    if (el.closest('#src-record') || el.closest('#src-file') || el.closest('#src-eval') || el.closest('#src-array') || ['fN', 'bN', 'bCat', 'autoRun'].includes(el.id)) continue;
     el.addEventListener('change', () => { syncVals(); autoRun(); });
     if (el.type === 'range') el.addEventListener('input', syncVals);
   }
   $('#runBtn').onclick = analyze; $('#batchBtn').onclick = runBatch; $('#scanBtn').onclick = runScan;
   $('#fAll').onclick = async () => { for (const id of Object.keys(S.findings)) await measure(id); };
-  for (const id of ['#ecgView', '#igView', '#showBeats', '#showRefBeats']) $(id).addEventListener('change', drawEcg);
+  for (const id of ['#ecgView', '#igView', '#showBeats', '#showRefBeats', '#lyGrid', '#lySig', '#lyLab', '#ecgGain']) $(id).addEventListener('change', drawEcg);
   for (const id of ['#hmMode', '#hmRun', '#hmNorm']) $(id).addEventListener('change', drawHeatmap);
   $('#dtRun').onchange = loadDetail;
   document.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) analyze(); });
@@ -1023,7 +1341,14 @@ async function init() {
   setupCursor();
   if (S.meta.eval_available) { $('#evCat').value = 'SINUS'; evList().catch(() => {}); }
   await loadRecords();
-  if (S.meta.bookmarks.length && S.meta.dbs.includes('mitdb')) await gotoBookmark(0);
+  const qs = new URLSearchParams(location.search);              // deep link: ?file=<record>&start=<s>
+  if (qs.get('file')) {
+    if (await openFile(qs.get('file'))) {
+      if (qs.has('start')) setFStart(+qs.get('start'));
+      if (qs.has('gain')) $('#ecgGain').value = qs.get('gain');
+      await analyze();
+    }
+  } else if (S.meta.bookmarks.length && S.meta.dbs.includes('mitdb')) await gotoBookmark(0);
 }
 init();
 </script>

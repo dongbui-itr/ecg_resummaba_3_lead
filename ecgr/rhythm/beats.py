@@ -376,3 +376,50 @@ def postprocess(track, beats, step_hz, criteria=None, options=None):
         if hi > lo and track[lo:hi].max() != NOISE:       # noise stays noise
             track[lo:hi] = r[i]
     return track, out_sym
+
+
+# --- boundary trimming ---------------------------------------------------------------------
+
+def trim_to_beats(track, beats, step_hz, pads):
+    """Shrink every run of a class in `pads` ({class name: pad seconds}) to the beats that
+    carry it: from the first to the last beat inside the run (for VT the first / last V beat,
+    for SVT the first / last S or fast beat when there are any, else any beat), widened by the
+    pad on each side - never beyond the run. The trimmed ends take the class on that side of
+    the run (NOISE excepted: SINUS). A run without a qualifying beat is left as it is.
+
+    Why: a decoded episode reaches to the midpoints between beats, and the probabilities are
+    smoothed, so it spills into the sinus rhythm around a reviewer's caliper; on the reviewed
+    strips (strip_eval) every spilled step is a SINUS sample called an arrhythmia."""
+    if not pads or beats is None or len(beats['t']) == 0:
+        return track
+    track = np.asarray(track).copy()
+    t = np.asarray(beats['t'], dtype=np.float64)
+    sym = np.asarray(beats['cls'], dtype=int)
+    n = len(track)
+    for name, pad in pads.items():
+        c = class_index(name)
+        for lo, hi in runs(track):
+            if track[lo] != c:
+                continue
+            inside = (t * step_hz >= lo) & (t * step_hz < hi)
+            if name == 'VT':
+                q = inside & (sym == V_BEAT)
+            elif name == 'SVT':
+                q = inside & (sym == S_BEAT)
+            else:
+                q = inside
+            if not q.any():
+                q = inside
+            if not q.any():
+                continue
+            a = max(lo, int(np.floor((t[q].min() - pad) * step_hz + 1e-6)))
+            b = min(hi, int(np.ceil((t[q].max() + pad) * step_hz - 1e-6)) + 1)
+            left = track[lo - 1] if lo > 0 else rc.SINUS
+            right = track[hi] if hi < n else rc.SINUS
+            left = rc.SINUS if left == NOISE else left
+            right = rc.SINUS if right == NOISE else right
+            if a > lo:
+                track[lo:a] = left
+            if b < hi:
+                track[b:hi] = right
+    return track

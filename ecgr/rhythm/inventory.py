@@ -251,6 +251,15 @@ def collect(sources=None, max_sinus_per_study=None):
           f"({rc.MAX_HARD_SINUS_EVENTS_PER_STUDY} per study)")
     print(f"sinus cap    : {cap} per study, {len(drop):,} strips dropped, "
           f"{len(events):,} events left")
+    if rc.EVENT_LIST:
+        listed = pd.read_csv(rc.EVENT_LIST, dtype=str)
+        wanted = set(zip(listed['study_id'].str.strip(), listed['event_id'].str.strip()))
+        before = len(events)
+        events = [ev for ev in events if (ev['study_id'], ev['event_id']) in wanted]
+        report['event_list'] = dict(path=rc.EVENT_LIST, listed=len(wanted), kept=len(events),
+                                    dropped=before - len(events))
+        print(f"event list   : {len(events):,} of {before:,} events kept, {len(wanted):,} "
+              f"listed in {rc.EVENT_LIST}")
 
     studies = sorted({ev['study_id'] for ev in events}, key=int)
     train_ids, eval_ids = splits.split_studies(studies)
@@ -326,6 +335,18 @@ def event_region(ev, length):
     else:
         region = [(a, b) for _, a, b in spans]
         known = [(0, length)] if outside_policy(ev) == 'sinus' else []
+        if not known and rc.OUTSIDE_MARK_SECONDS > 0:
+            half = rc.OUTSIDE_MARK_SECONDS * rc.SAMPLING_RATE / 2
+            marks = []
+            for _, a, b in spans:
+                if b - a >= 2 * half:
+                    marks.append((a, b))
+                else:
+                    c = (a + b) / 2
+                    lo = int(max(0, min(c - half, length - 2 * half)))
+                    marks.append((lo, int(min(length, lo + 2 * half))))
+            known = marks
+            region = [(min(x, a), max(y, b)) for (x, y), (_, a, b) in zip(marks, spans)]
     return spans, region, known
 
 

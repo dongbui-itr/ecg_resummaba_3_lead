@@ -80,7 +80,9 @@ def load_arrays(split, npy_dir=None, max_windows=None, label_steps=None, beats=F
     if not shards:
         raise FileNotFoundError(f"no {split} shards under {root}")
     segs, labs, sids, bts, total = [], [], [], [], 0
+    labs_shards = []
     for path in shards:
+        labs_shards.append(path)
         segs.append(np.load(path))
         if beats:
             beat_path = path.replace('segments_', 'beats_')
@@ -102,6 +104,15 @@ def load_arrays(split, npy_dir=None, max_windows=None, label_steps=None, beats=F
         if max_windows and total >= max_windows:
             break
     segs, labs, sids = (np.concatenate(a) for a in (segs, labs, sids))
+    if rc.WINDOW_SOURCES and split in ('train', 'eval'):
+        keep = np.concatenate([
+            np.array([ev[0] in rc.WINDOW_SOURCES for ev in json.load(open(
+                p.replace('segments_', 'events_').replace('.npy', '.json')))], dtype=bool)
+            for p in shards[:len(labs_shards)]])[:len(labs)]
+        segs, labs, sids = segs[keep], labs[keep], sids[keep]
+        if beats:
+            bts = [np.concatenate(bts)[keep]]
+        print(f"  {split}: {int(keep.sum()):,} of {len(keep):,} windows from {list(rc.WINDOW_SOURCES)}")
     manifest_path = os.path.join(npy_dir or rc.NPY_DIR, 'manifest.json')
     if os.path.exists(manifest_path) and is_legacy(read_manifest(npy_dir)):
         labs = to_current_labels(labs)                  # AVB2 / AVB3 -> AVB
@@ -161,13 +172,30 @@ def stratified_plan(categories, batch_size, steps_per_epoch=None, quota=None,
     return plan, repeat, steps
 
 
-def stratified_batches(categories, plan, steps, seed=None):
+def long_run_boost(labels):
+    """(n,) pool multiplicity per window: rc.STRAT_LONG_BOOST for a window holding at least
+    rc.STRAT_LONG_SECONDS[class] of that class, else 1."""
+    labels = np.asarray(labels)
+    boost = np.ones(len(labels), dtype=np.int64)
+    if rc.STRAT_LONG_BOOST <= 1 or not rc.STRAT_LONG_SECONDS:
+        return boost
+    steps = labels.shape[1]
+    for name, sec in rc.STRAT_LONG_SECONDS.items():
+        need = max(1, int(round(sec * steps / rc.OUTPUT_SECONDS)))
+        boost[(labels == rc.CLASS_NAMES.index(name)).sum(axis=1) >= need] = rc.STRAT_LONG_BOOST
+    return boost
+
+
+def stratified_batches(categories, plan, steps, seed=None, boost=None):
     """Generator of `steps` index batches: plan[c] windows of each category, each category
-    cycling its own shuffled permutation (reshuffled when exhausted)."""
+    cycling its own shuffled permutation (reshuffled when exhausted). `boost` (n,) repeats a
+    window that many times in its category's pool (long_run_boost)."""
     rng = np.random.default_rng(seed)
     pools = {}
     for name, k in plan.items():
         idx = np.flatnonzero(categories == rc.CLASS_NAMES.index(name))
+        if boost is not None:
+            idx = np.repeat(idx, boost[idx])
         pools[name] = [rng.permutation(idx), 0, k]
     for _ in range(steps):
         parts = []
@@ -211,8 +239,12 @@ def make_dataset(segments, labels, batch_size, mode='clean', shuffle=None, seed_
         plan, repeat, steps = stratified_plan(cats, batch_size, steps_per_epoch)
         print(f"sampler      : stratified, per batch {plan}; repeats/epoch "
               f"{ {k: round(v, 2) for k, v in repeat.items()} }, {steps} steps")
+        boost = long_run_boost(labels)
+        if (boost > 1).any():
+            print(f"sampler      : long-run boost x{rc.STRAT_LONG_BOOST} for "
+                  f"{int((boost > 1).sum()):,} windows ({rc.STRAT_LONG_SECONDS})")
         ds = tf.data.Dataset.from_generator(
-            lambda: stratified_batches(cats, plan, steps),
+            lambda: stratified_batches(cats, plan, steps, boost=boost),
             output_signature=tf.TensorSpec([batch_size], tf.int64))
     elif sampler not in ('uniform', 'stratified'):
         raise ValueError(f"sampler must be uniform or stratified, got {sampler!r}")

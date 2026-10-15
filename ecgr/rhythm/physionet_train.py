@@ -229,7 +229,20 @@ def collect(dbs=None, eval_fraction=None):
         raise ValueError(f"EC57 databases are never a training source: {sorted(bad)}")
     out, report = {'train': [], 'eval': []}, {}
     patients = {}
-    for db, cfg in dbs.items():
+    # Study ids are numbered over ALL configured databases in config order, whatever subset is
+    # built: a build without e.g. nsrdb must give incartdb the same ids as the full build, or
+    # the written-data audit sees two different patients behind one id (2026-10-14). A
+    # configured database left out of `dbs` only reserves its patients' ids.
+    order = list(rc.PHYSIONET_TRAIN_DBS) + [db for db in dbs if db not in rc.PHYSIONET_TRAIN_DBS]
+    for db in order:
+        cfg = dbs.get(db)
+        if cfg is None:
+            skip = rc.PHYSIONET_TRAIN_DBS[db]
+            if os.path.isdir(skip['dir']):
+                for name in records(skip['dir']):
+                    key = patient_key(db, name, wfdb.rdheader(os.path.join(skip['dir'], name)))
+                    patients.setdefault(key, str(rc.PHYSIONET_TRAIN_STUDY_OFFSET + len(patients)))
+            continue
         if not os.path.isdir(cfg['dir']):
             print(f"{db:10s}: not found at {cfg['dir']} - skipped")
             continue

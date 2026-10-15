@@ -4,6 +4,7 @@
     python -m ecgr.rhythm models
     python -m ecgr.rhythm data     [--splits train eval test] [--sources ...] [--limit N]
     python -m ecgr.rhythm audit                            # re-prove the holdout from disk
+    python -m ecgr.rhythm tfrecord [--splits ...] [--out DIR]   # npy shards -> tfrecords
     python -m ecgr.rhythm train    --model rhythm_1m [--epochs N] [--backbone-from beat.keras]
     python -m ecgr.rhythm eval     --checkpoint best_model.keras [--split test] [--snrs ...]
     python -m ecgr.rhythm predict  --checkpoint best_model.keras --record path/to/rec [...]
@@ -35,6 +36,11 @@ def build_parser():
 
     sub.add_parser('audit', help='re-check train/eval/test study separation on disk')
 
+    f = sub.add_parser('tfrecord', help='export the npy shards (NPY_DIR) as tfrecords')
+    f.add_argument('--splits', nargs='*', default=['train', 'eval', 'test'],
+                   choices=['train', 'eval', 'test'])
+    f.add_argument('--out', default=None, help='default: <NPY_DIR>_tfrecord')
+
     t = sub.add_parser('train', help='train one model')
     t.add_argument('--model', choices=list_models(), required=True)
     t.add_argument('--epochs', type=int, default=None)
@@ -59,6 +65,33 @@ def build_parser():
                    help=f'batch composition (default rc.SAMPLER = {rc.SAMPLER})')
     t.add_argument('--schedule', choices=['plateau', 'cosine'], default=None,
                    help=f'learning-rate schedule (default rc.LR_SCHEDULE = {rc.LR_SCHEDULE})')
+
+    dual = [m for m in list_models() if m.startswith('rhythm_dual_')]
+    s = sub.add_parser('ssl', help='self-supervised (masked reconstruction) pretraining of a '
+                                   'dual U-Net encoder; teacher beat positions drive the QRST '
+                                   'cancellation')
+    s.add_argument('--model', choices=dual, required=True)
+    s.add_argument('--teacher', default=None, help='teacher .keras (default rc.DISTILL_TEACHER)')
+    s.add_argument('--epochs', type=int, default=None)
+    s.add_argument('--steps-per-epoch', type=int, default=None)
+    s.add_argument('--batch-size', type=int, default=None)
+    s.add_argument('--lr', type=float, default=None)
+    s.add_argument('--max-windows', type=int, default=None, help='smoke test')
+
+    k = sub.add_parser('distill', help='teacher -> student training of a dual U-Net')
+    k.add_argument('--model', choices=dual, required=True)
+    k.add_argument('--teacher', default=None, help='teacher .keras (default rc.DISTILL_TEACHER)')
+    k.add_argument('--ssl-from', default=None,
+                   help="ssl_encoder.keras (default: this run's if present; 'none' = random)")
+    k.add_argument('--epochs', type=int, default=None)
+    k.add_argument('--batch-size', type=int, default=None)
+    k.add_argument('--lr', type=float, default=None)
+    k.add_argument('--patience', type=int, default=None)
+    k.add_argument('--steps-per-epoch', type=int, default=None)
+    k.add_argument('--max-windows', type=int, default=None, help='smoke test')
+    k.add_argument('--alpha', type=float, default=None, help=f'KD weight (rc.KD_ALPHA = {rc.KD_ALPHA})')
+    k.add_argument('--temperature', type=float, default=None,
+                   help=f'KD temperature (rc.KD_TEMPERATURE = {rc.KD_TEMPERATURE})')
 
     e = sub.add_parser('eval', help='score a checkpoint (default: the rhythm test set)')
     e.add_argument('--checkpoint', required=True)
@@ -133,6 +166,9 @@ def build_parser():
                    help='xai_report.json of `xai` (error sources without re-reading EC57)')
     w.add_argument('--gpu', action='store_true', help='use the GPU (default CPU: it is shared '
                                                       'with training)')
+    w.add_argument('--browse-root', action='append', default=[],
+                   help='extra folder whose WFDB records (.hea/.dat) the File tab may open '
+                        '(repeatable; PhysioNet / dataset / challenge folders are always on)')
     x.add_argument('--skip-rhythm-eval', action='store_true')
     return p
 
@@ -166,6 +202,9 @@ def main(argv=None):
     elif args.stage == 'audit':
         from .build import audit_written
         audit_written()
+    elif args.stage == 'tfrecord':
+        from .tfrecord import export
+        export(out_dir=args.out, splits=tuple(args.splits))
     elif args.stage == 'train':
         from .train import train
         train(args.model, epochs=args.epochs, batch_size=args.batch_size, lr=args.lr,
@@ -174,6 +213,17 @@ def main(argv=None):
               init_matching_from=args.init_matching, freeze_epochs=args.freeze_epochs,
               lr2=args.lr2, sampler=args.sampler, schedule=args.schedule,
               backbone_from=args.backbone_from)
+    elif args.stage == 'ssl':
+        from .distill import pretrain_encoder
+        pretrain_encoder(args.model, teacher_path=args.teacher, epochs=args.epochs,
+                         steps_per_epoch=args.steps_per_epoch, batch_size=args.batch_size,
+                         lr=args.lr, max_windows=args.max_windows)
+    elif args.stage == 'distill':
+        from .distill import distill
+        distill(args.model, teacher_path=args.teacher, ssl_from=args.ssl_from,
+                epochs=args.epochs, batch_size=args.batch_size, lr=args.lr,
+                patience=args.patience, steps_per_epoch=args.steps_per_epoch,
+                max_windows=args.max_windows, alpha=args.alpha, temperature=args.temperature)
     elif args.stage == 'eval':
         from .evaluate import DEFAULT_SNRS, evaluate
         snrs = DEFAULT_SNRS if args.snrs is None else tuple(
@@ -213,7 +263,7 @@ def main(argv=None):
     elif args.stage == 'xai-web':
         from .xai_web import serve
         serve(args.checkpoint, host=args.host, port=args.port, ec57_out=args.ec57_out,
-              xai_report=args.xai_report)
+              xai_report=args.xai_report, browse_roots=args.browse_root)
     elif args.stage == 'ec57':
         from .ec57 import run
         run(args.checkpoint, args.tag or rc.RUN_TAG, dbs=args.dbs, classes=args.classes,

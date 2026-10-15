@@ -7,8 +7,11 @@ framework is installed on the training machines. Runs on CPU by default (the GPU
 with training); one TensorFlow call at a time behind a lock.
 
 What a request can do (POST /api/analyze):
-  source        a PhysioNet record + window start, a window of the held-out 'eval' split, or an
-                uploaded (n, <=3) array
+  source        a PhysioNet record + window start, ANY WFDB record (.hea/.dat) under the browse
+                roots or uploaded (kind 'file': start in s, which record channel feeds each model
+                lead, which annotation file), a window of the held-out 'eval' split, or an
+                uploaded (n, <=3) array. Reference per second = rhythm marks of the annotation
+                file, else the .hea's eventType caliper / Challenge 'Dx:' codes
   edits         signal-domain changes to the 10 s window before z-scoring: f waves, white /
                 band (4-9 Hz) noise at an SNR, baseline wander, mains hum, per-lead gain (0 =
                 missing lead, < 0 = inverted), lead order, time flip, a flat stretch
@@ -28,7 +31,8 @@ GET /api/layer on the cached result.
 POST /api/batch runs the same edits / interventions on n eval windows of a category (per
 second recall / F1 / mean p before vs after); POST /api/scan slides the window over one
 record second (edge effect); POST /api/finding re-measures one finding of md_xai.md and says
-whether it holds.
+whether it holds; POST /api/tune searches the layer settings (xai_tune.py) that raise p(class)
+on selection windows and reports them on disjoint check windows.
 """
 import base64
 import collections
@@ -46,6 +50,7 @@ import tensorflow as tf
 
 from . import config as rc
 from . import xai
+from . import xai_tune
 from .labels import to_current_classes
 
 CLASS_NAMES = rc.CLASS_NAMES
@@ -80,6 +85,64 @@ KEY_LAYERS = [
 VECTOR_LAYERS = [('rr_ac', 'rhythm head'), ('rr_film', 'rhythm head')]
 
 BEAT_SYMBOLS = {**{s: 'N' for s in 'NLRej'}, **{s: 'S' for s in 'AaJS'}, **{s: 'V' for s in 'VEF'}}
+
+# Any WFDB record (POST /api/analyze source kind 'file'): only under these folders (+ --browse-root
+# and the upload folder) - the service listens on 0.0.0.0 and must not expose the whole disk.
+NOT_ANNOTATION_EXT = {'dat', 'hea', 'mat', 'xws', 'json', 'csv', 'txt', 'png', 'jpg', 'npy', 'npz',
+                      'xlsx', 'xls', 'md', 'zip', 'gz', 'pdf', 'html', 'log', 'edf', 'py', 'pkl'}
+BROWSE_MAX = 3000                                  # entries per listed folder
+UPLOAD_MAX_BYTES = 300 * 2 ** 20                   # request body (base64 JSON) of POST /api/upload
+
+
+def default_browse_roots(physionet_dir):
+    return [physionet_dir, rc.DATA_ROOT, rc.PHYSIONET_TRAIN_DIR, rc.CHALLENGE2020_DIR, rc.PTBXL_DIR]
+
+
+def _header_fields(comments):
+    """'# key: value' comment lines of a .hea -> {key: value}; '#- key:' (dataset-eval) too."""
+    out = {}
+    for line in comments or []:
+        line = line.strip().lstrip('-').strip()
+        if ':' in line:
+            k, v = line.split(':', 1)
+            out.setdefault(k.strip(), v.strip())
+    return out
+
+
+def header_events(comments, sig_len):
+    """Rhythm labels written in a .hea's comments -> [dict(a, b (samples), cls index or -1, text)].
+
+    Holter strips (dataset-eval / dataset-4): 'eventType: AFIB' over the reviewer's caliper
+    eventStartSample..eventStopSample (build.header_span), else the strip startSample..stopSample,
+    else the whole record. Challenge 2020: 'Dx: <SNOMED codes>' for the whole record, classed as
+    the training data is (challenge2020.record_label; plain sinus records count as SINUS).
+    """
+    f = _header_fields(comments)
+    events = []
+
+    def span(k0, k1):
+        try:
+            a, b = int(f[k0]), int(f[k1])
+        except (KeyError, ValueError):
+            return None
+        return (a, min(b, sig_len)) if 0 <= a < b else None
+
+    if 'eventType' in f:
+        t = f['eventType'].strip()
+        name = rc.EVENT_TYPE_TO_CLASS.get(t.upper())
+        a, b = span('eventStartSample', 'eventStopSample') or span('startSample', 'stopSample') \
+            or (0, sig_len)
+        text = t + (f" · {f['comment']}" if f.get('comment') else '')
+        events.append(dict(a=a, b=b, cls=CLASS_NAMES.index(name) if name else -1, text=text))
+    if 'Dx' in f:
+        from .challenge2020 import record_label
+        codes = {c.strip() for c in f['Dx'].split(',') if c.strip()}
+        name, reason = record_label(codes)
+        if name is None and reason == 'plain':
+            name = 'SINUS'
+        events.append(dict(a=0, b=sig_len, cls=CLASS_NAMES.index(name) if name else -1,
+                           text=f"Dx {','.join(sorted(codes))}" + (f' → {name}' if name else f' ({reason})')))
+    return events
 
 
 # ---------------------------------------------------------------------------
@@ -278,7 +341,8 @@ def _softmax_leads(logit):
 # ---------------------------------------------------------------------------
 
 class Engine:
-    def __init__(self, checkpoint, ec57_out=None, npy_dir=None, physionet_dir=None, model=None):
+    def __init__(self, checkpoint, ec57_out=None, npy_dir=None, physionet_dir=None, model=None,
+                 browse_roots=None):
         from .. import config as base_config
         self.checkpoint = checkpoint
         self.model = model if model is not None else xai.load_model(checkpoint)
@@ -289,6 +353,9 @@ class Engine:
         self.physionet_dir = physionet_dir or base_config.PHYSIONET_DIR
         self.npy_dir = npy_dir or rc.NPY_DIR
         self.ec57_out = ec57_out
+        self.browse_roots = list(browse_roots) if browse_roots is not None \
+            else default_browse_roots(self.physionet_dir)
+        self.upload_dir = None                                 # created on the first upload
         self.lock = threading.RLock()
         self.cache = collections.OrderedDict()                 # analysis id -> captured arrays
         self._eval = None
@@ -325,56 +392,208 @@ class Engine:
                 continue
         return out
 
+    # -- any WFDB record on disk: browse / upload / resolve ------------------------------------
+    def _roots(self):
+        roots = [r for r in self.browse_roots if r and os.path.isdir(r)]
+        if self.upload_dir:
+            roots.append(self.upload_dir)
+        return list(dict.fromkeys(os.path.realpath(r) for r in roots))
+
+    def _allowed(self, p):
+        rp = os.path.realpath(p)
+        return any(rp == r or rp.startswith(r.rstrip(os.sep) + os.sep) for r in self._roots())
+
+    def resolve_path(self, p):
+        """A record path as typed or picked (with or without .dat/.hea) -> its base path, which
+        must have a .hea and lie under a browse root."""
+        p = os.path.expanduser(str(p or '').strip())
+        if not p:
+            raise ValueError('no record path')
+        base = p if os.path.exists(p + '.hea') else os.path.splitext(p)[0]
+        if not self._allowed(base + '.hea'):
+            raise PermissionError(f"{p} is outside the browse roots ({', '.join(self._roots())}); "
+                                  "start the service with --browse-root <folder>")
+        if not os.path.exists(base + '.hea'):
+            raise FileNotFoundError(f"no WFDB header {base}.hea")
+        return base
+
+    def browse(self, d=None, q=''):
+        """Folders and WFDB records (a .hea) of one folder; no folder = the browse roots."""
+        roots = self._roots()
+        if not d:
+            return dict(dir='', parent=None, roots=roots, truncated=False, records=[],
+                        dirs=[dict(name=r, path=r) for r in roots])
+        d = os.path.realpath(os.path.expanduser(d))
+        if not os.path.isdir(d) or not self._allowed(d):
+            raise PermissionError(f"{d} is not a folder under the browse roots")
+        parent = os.path.dirname(d) if d not in roots and self._allowed(os.path.dirname(d)) else ''
+        dirs, files = [], collections.defaultdict(set)
+        with os.scandir(d) as it:
+            for e in it:
+                if e.name.startswith('.'):
+                    continue
+                if e.is_dir():
+                    dirs.append(e.name)
+                elif '.' in e.name:
+                    stem, ext = e.name.rsplit('.', 1)
+                    files[stem].add(ext.lower())
+        q = (q or '').lower()
+        names = sorted(s for s, ex in files.items() if 'hea' in ex and q in s.lower())
+        recs = [dict(name=s, path=os.path.join(d, s), dat='dat' in files[s],
+                     ann=sorted(files[s] - NOT_ANNOTATION_EXT)) for s in names[:BROWSE_MAX]]
+        dirs = sorted(x for x in dirs if q in x.lower() or not q)
+        return dict(dir=d, parent=parent, roots=roots, dirs=[dict(name=x, path=os.path.join(d, x))
+                                                             for x in dirs[:BROWSE_MAX]],
+                    records=recs, truncated=len(names) > BROWSE_MAX or len(dirs) > BROWSE_MAX)
+
+    def _ann_exts(self, base):
+        d, stem = os.path.split(base)
+        out = []
+        for fn in os.listdir(d or '.'):
+            if fn.startswith(stem + '.'):
+                ext = fn[len(stem) + 1:]
+                if '.' not in ext and ext.lower() not in NOT_ANNOTATION_EXT:
+                    out.append(ext)
+        return sorted(out, key=lambda e: (e != 'atr', e))
+
+    def file_info(self, path):
+        base = self.resolve_path(path)
+        h = self._header(base)
+        exts = self._ann_exts(base)
+        ev = [dict(t0=e['a'] / h.fs, t1=e['b'] / h.fs, cls=e['cls'], text=e['text'])
+              for e in header_events(h.comments, h.sig_len)]
+        return dict(path=base, name=os.path.basename(base), fs=float(h.fs), n_sig=int(h.n_sig),
+                    sig_name=list(h.sig_name or []), units=list(h.units or []),
+                    sig_len=int(h.sig_len), seconds=float(h.sig_len / h.fs),
+                    comments=list(h.comments or []), ann_exts=exts,
+                    ann=exts[0] if exts else '', events=ev)
+
+    def upload(self, req):
+        """{files: [{name, data (base64)}]} -> saved together in a fresh folder; the record is the
+        stem of the (first) .hea. The upload folder is a browse root from then on."""
+        import tempfile
+        files = req.get('files') or []
+        heas = [f['name'] for f in files if str(f.get('name', '')).lower().endswith('.hea')]
+        if not heas:
+            raise ValueError('upload needs the .hea with its .dat (and annotation files if any)')
+        with self.lock:
+            if self.upload_dir is None:
+                self.upload_dir = tempfile.mkdtemp(prefix='xai_web_upload_')
+            d = os.path.join(self.upload_dir, uuid.uuid4().hex[:10])
+            os.makedirs(d)
+        for f in files:
+            name = os.path.basename(str(f['name']))
+            if not name or name.startswith('.'):
+                raise ValueError(f"bad file name {f['name']!r}")
+            with open(os.path.join(d, name), 'wb') as out:
+                out.write(base64.b64decode(f['data']))
+        return self.file_info(os.path.join(d, os.path.basename(heas[0])[:-4]))
+
     @functools.lru_cache(maxsize=512)
     def _header(self, path):
         import wfdb
         return wfdb.rdheader(path)
 
     @functools.lru_cache(maxsize=64)
-    def _annotations(self, path):
-        """(rhythm marks [(sample, code)], beats (samples, symbols)) at the record's own rate."""
+    def _annotations(self, path, ext='atr'):
+        """(rhythm marks [(sample, code)], beats (samples, symbols), other annotations
+        [(sample, symbol, aux)]) at the record's own rate."""
         import wfdb
-        if not os.path.exists(path + '.atr'):
-            return [], (np.zeros(0, int), [])
-        a = wfdb.rdann(path, 'atr')
-        aux = [(x or '').split('\x00')[0].strip() for x in a.aux_note]
+        if not ext or not os.path.exists(f'{path}.{ext}'):
+            return [], (np.zeros(0, int), []), []
+        a = wfdb.rdann(path, ext)
+        aux = [(x or '').split('\x00')[0].strip() for x in (a.aux_note or [''] * len(a.sample))]
         marks = [(int(s), c) for s, c, sym in zip(a.sample, aux, a.symbol)
                  if sym == '+' and c.startswith('(')]
         keep = [i for i, s in enumerate(a.symbol) if s in BEAT_SYMBOLS or s in 'Q/f']
-        return marks, (np.asarray(a.sample)[keep], [a.symbol[i] for i in keep])
+        kept = set(keep)
+        other = [(int(a.sample[i]), a.symbol[i], aux[i]) for i in range(len(a.sample))
+                 if i not in kept and not (a.symbol[i] == '+' and aux[i].startswith('('))]
+        return marks, (np.asarray(a.sample)[keep], [a.symbol[i] for i in keep]), other
+
+    @staticmethod
+    def _mark_class(code):
+        cls = 'AFIB' if code == '(AFL' else rc.PHYSIONET_AUX_TO_CLASS.get(code)   # AFL = AF
+        return CLASS_NAMES.index(cls) if cls else rc.SINUS
 
     def _record_window(self, db, name, start):
-        from .build import read_leads
         path = os.path.join(self.physionet_dir, os.path.basename(db), os.path.basename(name))
+        return self._path_window(path, start, title=f"{db}/{name}",
+                                 extra=dict(kind='record', db=db, record=name))
+
+    def _path_window(self, path, start, leads=None, ann='atr', title=None, extra=None):
+        """10 s of a WFDB record from `start` s (any fraction), 3 model leads = record channels
+        `leads` (None entries = missing lead, zero-filled; None = the first channels), and what
+        is known about it: per second reference (rhythm marks of the annotation file, else the
+        .hea event / Dx), beats, every other annotation, the header's comments."""
+        from .build import read_leads
         h = self._header(path)
-        total = int(h.sig_len / h.fs)
-        start = int(min(max(0, start), max(0, total - rc.OUTPUT_SECONDS)))
-        a, b = int(start * h.fs), int((start + rc.OUTPUT_SECONDS) * h.fs)
-        leads, _ = read_leads(path, chunk=(a, min(b + int(h.fs), h.sig_len)))
-        w = leads[:N_SAMPLES]
+        total = h.sig_len / h.fs
+        start = float(min(max(0.0, float(start)), max(0.0, total - rc.OUTPUT_SECONDS)))
+        start = int(start) if float(start).is_integer() else round(start, 3)
+        a = int(round(start * h.fs))
+        b = a + int(round(rc.OUTPUT_SECONDS * h.fs))
+        chunk = (a, min(b + int(h.fs), h.sig_len))
+        if leads is None:
+            w, _ = read_leads(path, chunk=chunk)
+            chans = list(range(min(3, h.n_sig)))
+        else:
+            chans = [None if c in (None, '', -1) else int(c) for c in list(leads)[:3]]
+            chans += [None] * (3 - len(chans))
+            if any(c is not None and not 0 <= c < h.n_sig for c in chans):
+                raise ValueError(f"leads {chans} outside the record's {h.n_sig} signals")
+            pick = [c for c in chans if c is not None]
+            if not pick:
+                raise ValueError('pick at least one lead')
+            got, _ = read_leads(path, leads=pick, chunk=chunk)
+            w = np.zeros((len(got), 3), np.float32)
+            j = 0
+            for k, c in enumerate(chans):                       # band-pass is per lead: reorder
+                if c is not None:
+                    w[:, k] = got[:, j]
+                    j += 1
+        w = w[:N_SAMPLES]
         if len(w) < N_SAMPLES:
             w = np.concatenate([w, np.zeros((N_SAMPLES - len(w), w.shape[1]), w.dtype)])
-        marks, (bs, bsym) = self._annotations(path)
+        marks, (bs, bsym), other = self._annotations(path, ann)
+        events = header_events(h.comments, h.sig_len)
         ref, codes = [], []
         for k in range(rc.OUTPUT_SECONDS):
             mid = (start + k + 0.5) * h.fs
-            code = '(N'
-            for s, c in marks:
-                if s <= mid:
-                    code = c
-                else:
-                    break
-            codes.append(code if marks else '')
-            cls = rc.PHYSIONET_AUX_TO_CLASS.get(code)
-            if code == '(AFL':                                   # project convention: AFL = AF
-                cls = 'AFIB'
-            ref.append(CLASS_NAMES.index(cls) if cls else (rc.SINUS if marks else -1))
+            if marks:
+                code = '(N'
+                for s, c in marks:
+                    if s <= mid:
+                        code = c
+                    else:
+                        break
+                codes.append(code)
+                ref.append(self._mark_class(code))
+                continue
+            ev = [e for e in events if e['a'] <= mid < e['b']]
+            codes.append(ev[0]['text'] if ev else '')
+            ref.append(ev[0]['cls'] if ev else -1)
         sel = (bs >= a) & (bs < b)
         beats = [dict(t=float((s - a) / h.fs), sym=sym, cls=BEAT_SYMBOLS.get(sym, 'Q'))
                  for s, sym in zip(bs[sel], np.asarray(bsym, object)[sel])]
-        info = dict(kind='record', title=f"{db}/{name}  {start}-{start + rc.OUTPUT_SECONDS} s",
-                    db=db, record=name, start=start, total_seconds=total, ref=ref,
-                    ref_codes=codes, ref_beats=beats)
+        sec = lambda s: float((s - a) / h.fs)                   # noqa: E731
+        rhythm = [dict(t=max(0.0, sec(s)), code=c, cls=self._mark_class(c))
+                  for i, (s, c) in enumerate(marks)
+                  if a <= s < b or (s < a and (i + 1 == len(marks) or marks[i + 1][0] > a))]
+        labels = dict(ann=ann if (marks or len(bs) or other) else '', rhythm=rhythm,
+                      other=[dict(t=sec(s), sym=sym, aux=x) for s, sym, x in other if a <= s < b],
+                      events=[dict(t0=max(0.0, sec(e['a'])), t1=min(float(rc.OUTPUT_SECONDS), sec(e['b'])),
+                                   cls=e['cls'], text=e['text'])
+                              for e in events if e['b'] > a and e['a'] < b],
+                      comments=list(h.comments or []))
+        names, units = list(h.sig_name or []), list(h.units or [])
+        title = title or os.path.basename(path)
+        info = dict(kind='file', title=f"{title}  {start:g}-{start + rc.OUTPUT_SECONDS:g} s",
+                    path=path, start=start, total_seconds=int(total), ref=ref, ref_codes=codes,
+                    ref_beats=beats, labels=labels, fs_record=float(h.fs),
+                    lead_names=[names[c] if c is not None and c < len(names) else '—' for c in chans],
+                    units=[units[c] if c is not None and c < len(units) else '' for c in chans])
+        info.update(extra or {})
         return np.asarray(w, np.float32), info
 
     def _eval_data(self):
@@ -432,6 +651,10 @@ class Engine:
         kind = src.get('kind', 'record')
         if kind == 'record':
             return self._record_window(src['db'], src['record'], int(src.get('start', 0)))
+        if kind == 'file':
+            path = self.resolve_path(src.get('path'))
+            return self._path_window(path, float(src.get('start', 0) or 0), leads=src.get('leads'),
+                                     ann=src.get('ann', 'atr'), extra=dict(kind='file'))
         if kind == 'eval':
             return self.eval_window(src.get('index', 0))
         if kind == 'array':
@@ -454,20 +677,31 @@ class Engine:
                            ref=[-1] * rc.OUTPUT_SECONDS, ref_codes=[], ref_beats=[])
         raise ValueError(f"unknown source kind {kind!r}")
 
-    def record_overview(self, db, name):
+    def record_overview(self, db=None, name=None, path=None, ann='atr'):
         """Whole-record per-second track: stored EC57 probabilities (argmax, p) of --ec57-out
-        if present, and the reference class per second - to find error stretches."""
-        path = os.path.join(self.physionet_dir, os.path.basename(db), os.path.basename(name))
+        if present (PhysioNet records), and the reference class per second (rhythm marks of
+        the annotation file, else the .hea event / Dx) - to find error stretches."""
+        if path:
+            path, db = self.resolve_path(path), None
+            name = os.path.basename(path)
+            phys = os.path.realpath(self.physionet_dir)
+            if os.path.dirname(os.path.dirname(os.path.realpath(path))) == phys:
+                db = os.path.basename(os.path.dirname(path))     # a PhysioNet record: EC57 strip too
+        else:
+            path = os.path.join(self.physionet_dir, os.path.basename(db), os.path.basename(name))
         h = self._header(path)
         n = int(h.sig_len / h.fs)
-        marks, _ = self._annotations(path)
+        marks, _, _ = self._annotations(path, ann)
         ref = np.full(n, -1 if not marks else rc.SINUS, int)
         for (s0, c), (s1, _) in zip(marks, marks[1:] + [(h.sig_len, None)]):
             cls = 'AFIB' if c == '(AFL' else rc.PHYSIONET_AUX_TO_CLASS.get(c)
             if cls:
                 ref[int(s0 / h.fs):int(np.ceil(s1 / h.fs))] = CLASS_NAMES.index(cls)
+        if not marks:
+            for e in header_events(h.comments, h.sig_len):
+                ref[int(e['a'] / h.fs):int(np.ceil(e['b'] / h.fs))] = e['cls']
         out = dict(seconds=n, ref=ref.tolist(), pred=None, p=None)
-        if self.ec57_out:
+        if self.ec57_out and db:
             from .ec57 import load_probs
             got = load_probs(os.path.join(self.ec57_out, '_ann', os.path.basename(db)),
                              os.path.basename(name))
@@ -684,6 +918,8 @@ class Engine:
             disp = lambda a: a[::-1] if flip else a                 # noqa: E731
         return dict(id=aid, info=info, target=dict(cls=cls, name=CLASS_NAMES[cls], seconds=seconds),
                     signal=dict(orig=_round(x0.T, 3), mod=_round(disp(x1).T, 3)),
+                    # physical units (mV for WFDB records) for the AAMI paper grid
+                    signal_raw=dict(orig=_round(raw.T, 4), mod=_round(disp(raw_mod).T, 4)),
                     flip=flip, runs=runs, edits_active=_edits_active(edits),
                     interventions_active=self.active(iv), elapsed=round(time.time() - t0, 2))
 
@@ -793,11 +1029,13 @@ class Engine:
             src = req['source']
             second = int(req['second'])
             rows, xs = [], []
+            path = self.resolve_path(src['path']) if src.get('path') else None
             for pos in range(rc.OUTPUT_SECONDS):
                 start = second - pos
                 if start < 0:
                     continue
-                raw, info = self._record_window(src['db'], src['record'], start)
+                raw, info = self._path_window(path, start, src.get('leads'), src.get('ann', 'atr')) \
+                    if path else self._record_window(src['db'], src['record'], start)
                 if info['start'] != start:
                     continue
                 xs.append(normalize(raw))
@@ -1017,6 +1255,10 @@ def make_handler(engine, xai_report=None):
                 self._send(200, _clean(fn()))
             except KeyError as e:
                 self._send(404, dict(error=str(e)))
+            except PermissionError as e:
+                self._send(403, dict(error=str(e)))
+            except (ValueError, FileNotFoundError) as e:
+                self._send(400, dict(error=str(e)))
             except Exception as e:                              # noqa: BLE001
                 import traceback
                 traceback.print_exc()
@@ -1033,7 +1275,12 @@ def make_handler(engine, xai_report=None):
             if u.path == '/api/records':
                 return self._guard(lambda: engine.records(q.get('db', 'mitdb')))
             if u.path == '/api/overview':
-                return self._guard(lambda: engine.record_overview(q['db'], q['record']))
+                return self._guard(lambda: engine.record_overview(
+                    q.get('db'), q.get('record'), path=q.get('path'), ann=q.get('ann', 'atr')))
+            if u.path == '/api/browse':
+                return self._guard(lambda: engine.browse(q.get('dir'), q.get('q', '')))
+            if u.path == '/api/fileinfo':
+                return self._guard(lambda: engine.file_info(q['path']))
             if u.path == '/api/eval_list':
                 def ev():
                     idx = engine.eval_sample(q.get('category', 'ALL'), int(q.get('n', 40)),
@@ -1049,7 +1296,11 @@ def make_handler(engine, xai_report=None):
         def do_POST(self):
             u = urlparse(self.path)
             n = int(self.headers.get('Content-Length') or 0)
+            if n > UPLOAD_MAX_BYTES:
+                return self._send(413, dict(error=f'request over {UPLOAD_MAX_BYTES >> 20} MB'))
             req = json.loads(self.rfile.read(n) or b'{}')
+            if u.path == '/api/upload':
+                return self._guard(lambda: engine.upload(req))
             if u.path == '/api/analyze':
                 return self._guard(lambda: engine.analyze(req))
             if u.path == '/api/batch':
@@ -1059,6 +1310,8 @@ def make_handler(engine, xai_report=None):
             if u.path == '/api/finding':
                 return self._guard(lambda: finding(engine, req['id'], int(req.get('n', 60)),
                                                    int(req.get('seed', 0)), xai_report))
+            if u.path == '/api/tune':
+                return self._guard(lambda: xai_tune.tune(engine, req))
             self._send(404, dict(error='not found'))
 
     return Handler
@@ -1091,10 +1344,14 @@ def _clean(o):
     return o
 
 
-def serve(checkpoint, host='0.0.0.0', port=8777, ec57_out=None, xai_report=None, npy_dir=None):
+def serve(checkpoint, host='0.0.0.0', port=8777, ec57_out=None, xai_report=None, npy_dir=None,
+          browse_roots=()):
     from http.server import ThreadingHTTPServer
     print(f"[xai-web] loading {checkpoint}", flush=True)
-    engine = Engine(checkpoint, ec57_out=ec57_out, npy_dir=npy_dir)
+    from .. import config as base_config
+    roots = default_browse_roots(base_config.PHYSIONET_DIR) + list(browse_roots or ())
+    engine = Engine(checkpoint, ec57_out=ec57_out, npy_dir=npy_dir, browse_roots=roots)
+    print(f"[xai-web] browse roots: {', '.join(engine._roots())}", flush=True)
     httpd = ThreadingHTTPServer((host, port), make_handler(engine, xai_report))
     print(f"[xai-web] http://{host}:{port}/  (Ctrl+C to stop)", flush=True)
     try:

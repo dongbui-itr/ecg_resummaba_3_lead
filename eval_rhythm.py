@@ -50,6 +50,12 @@ DATABASES = ['mitdb', 'afdb', 'escdb']      # EC57 databases ([] = skip)
 SCORE_RHYTHM_EVAL = False                   # the 4,909-event portal holdout as well (slow)
 RECORDS = None                              # e.g. ['mitdb/201', 'afdb/04015'] = single-record mode
 
+# --- decode ---------------------------------------------------------------------------------
+# 'official' = the config defaults (rc.DECODE_* / rc.BEAT_PP_*), the official decode since
+# 2026-10-08 - comparable with release_dualunet_1m_e26/ec57_results; 'tune' = choose it on the
+# validation records first (below); a path = a tuned_decode.json.
+DECODE = 'tune'
+
 # --- validation tuning ------------------------------------------------------------------
 TUNE_ON_VALIDATION = True                   # choose the decode / beat PP on validation first
 VALIDATION_DBS = ['ltafdb', 'nsrdb', 'incartdb', 'svdb']
@@ -146,7 +152,7 @@ def preflight():
         d = os.path.join(os.environ['ECGR_PHYSIONET_DIR'], db)
         if not os.path.isdir(d):
             problems.append(f"database not on disk: {d}")
-    if TUNE_ON_VALIDATION and not TUNED_DECODE:
+    if TUNE_ON_VALIDATION and not TUNED_DECODE and DECODE == 'tune':
         from ecgr.rhythm import config as rc
         for db in VALIDATION_DBS:
             d = rc.PHYSIONET_TRAIN_DBS.get(db, {}).get('dir')
@@ -209,6 +215,12 @@ def default_decode():
 def choose_decode(ckpt, ec57_root):
     """The decode dict for the EC57 run: tuned on validation, loaded, or the defaults."""
     from ecgr.rhythm import ec57, tune
+    if DECODE == 'official':
+        print("decode: OFFICIAL = config defaults (rc.DECODE_* / rc.BEAT_PP_*)")
+        return {}
+    if DECODE not in ('tune', None):
+        print(f"decode from {DECODE}")
+        return tune.load_decode(DECODE)
     if TUNED_DECODE:
         d = tune.load_decode(TUNED_DECODE)
         print(f"decode from {TUNED_DECODE}")
