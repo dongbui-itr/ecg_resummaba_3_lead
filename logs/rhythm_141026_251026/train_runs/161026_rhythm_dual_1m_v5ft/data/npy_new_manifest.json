@@ -1,0 +1,140 @@
+{
+  "inventory": {
+    "sources": {
+      "physionet_train": {
+        "nsrdb": {
+          "train": {
+            "records": 16,
+            "windows": 4533,
+            "categories": {
+              "sinus": 960,
+              "sinus_tachy": 1166,
+              "sinus_brady": 2400,
+              "sinus_ectopy": 1,
+              "SVT": 6
+            }
+          },
+          "eval": {
+            "records": 2,
+            "windows": 483,
+            "categories": {
+              "sinus": 120,
+              "sinus_tachy": 62,
+              "sinus_brady": 300,
+              "sinus_ectopy": 1
+            }
+          }
+        },
+        "ltdb": {
+          "train": {
+            "records": 6,
+            "windows": 4519,
+            "categories": {
+              "beat_n": 1800,
+              "beat_v": 1800,
+              "VT": 267,
+              "beat_s": 615,
+              "SVT": 37
+            }
+          },
+          "eval": {
+            "records": 1,
+            "windows": 533,
+            "categories": {
+              "beat_n": 300,
+              "beat_v": 217,
+              "VT": 16
+            }
+          }
+        },
+        "svdbb": {
+          "train": {
+            "records": 62,
+            "windows": 11171,
+            "categories": {
+              "beat_n": 5425,
+              "beat_s": 3039,
+              "beat_v": 2308,
+              "SVT": 253,
+              "VT": 146
+            }
+          },
+          "eval": {
+            "records": 16,
+            "windows": 2914,
+            "categories": {
+              "beat_n": 1451,
+              "beat_s": 1012,
+              "SVT": 110,
+              "beat_v": 308,
+              "VT": 33
+            }
+          }
+        }
+      }
+    },
+    "sinus_cap": {
+      "per_study": 3,
+      "dropped": 0,
+      "hard_extra": 0
+    },
+    "studies": {
+      "train": 0,
+      "eval": 0,
+      "held_out": 4154,
+      "rhythm_test": 1966,
+      "ptbxl": {
+        "train": 84,
+        "eval": 19
+      }
+    }
+  },
+  "splits": {
+    "train": {
+      "windows": 18382,
+      "events": 20223,
+      "seconds": {
+        "SINUS": 26911,
+        "AFIB": 0,
+        "SVT": 1282,
+        "VT": 747,
+        "AVB": 0,
+        "IGNORE": 154880
+      },
+      "stats": {
+        "events_used": 18382,
+        "windows": 18382,
+        "dead": 1841
+      }
+    }
+  },
+  "segment_samples": 2500,
+  "in_channels": 3,
+  "sampling_rate": 250,
+  "output_seconds": 10,
+  "class_names": [
+    "SINUS",
+    "AFIB",
+    "SVT",
+    "VT",
+    "AVB"
+  ],
+  "ignore_label": 255,
+  "signal_dtype": "float16",
+  "labels_dtype": "uint8",
+  "sample_labels": true,
+  "beat_labels": true,
+  "sources": [
+    "nsrdb",
+    "ltdb",
+    "svdbb"
+  ],
+  "limit": null,
+  "class_weights": [
+    0.2,
+    5.0,
+    0.7633369553036806,
+    1.0,
+    5.0
+  ]
+}

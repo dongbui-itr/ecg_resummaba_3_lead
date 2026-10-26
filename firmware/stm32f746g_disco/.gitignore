@@ -1,0 +1,4 @@
+# build output (make, make -C host, export_model.py work files)
+build/
+# STM32CubeF7 sources fetched by fetch_deps.sh
+third_party/
