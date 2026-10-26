@@ -1,0 +1,18 @@
+section,db,metric,dualcfc_1m_baseline,u3cfc_final_no_gate,u3cfc_final_gate0.2
+beat,mitdb,Q Se/+P,99.98/99.93,99.99/99.96,99.36/99.97
+beat,mitdb,V Se/+P,97.53/80.46,97.02/87.58,95.29/87.67
+beat,mitdb,S Se/+P,61.31/28.85,51.73/46.45,51.77/46.67
+beat,dataset-v4-beat,Q Se/+P,99.76/99.66,99.78/99.73,97.63/99.79
+beat,dataset-v4-beat,V Se/+P,97.33/93.32,96.81/93.72,94.60/94.01
+beat,dataset-v4-beat,S Se/+P,92.03/78.76,92.30/81.09,91.01/81.46
+beat,escdb,Q Se/+P,99.99/99.96,99.99/99.98,99.90/99.98
+beat,escdb,V Se/+P,98.08/83.22,98.06/84.63,93.87/84.58
+beat,ahadb,Q Se/+P,99.88/99.82,99.92/99.77,99.09/99.82
+beat,ahadb,V Se/+P,90.25/82.33,90.08/91.81,87.85/91.76
+beat,afdb,Q Se/+P,97.56/95.50,97.55/95.49,96.74/95.55
+beat,nstdb,Q Se/+P,97.09/94.06,96.74/93.29,79.56/99.00
+rhythm,mitdb,AFIB/AVB/SVT/VT episode F1,72.9/33.3/63.6/66.0,80.5/100.0/43.1/69.0,
+rhythm,afdb,AFIB episode F1,91.4,92.4,
+rhythm,escdb,SVT/VT episode F1,7.4/84.3,7.4/70.1,
+rhythm,rhythm_eval holdout,AFIB/AVB/SVT/VT episode F1,71.7/80.1/75.8/62.0,70.2/77.5/74.9/60.7,
+noise,nstdb,<=6 dB noise blocks flagged / everything else flagged,0.2%/0.0%,57.9%/0.0% (p>=0.5),

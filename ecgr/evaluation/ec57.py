@@ -297,6 +297,13 @@ def portal_split_records(split, db_names=None):
     rows, seen, relisted = [], set(), 0
     for db in (db_names or config.TRAIN_DATASETS):
         path = os.path.join(config.DATA_DIR, db, config.DATASET_CSV)
+        if not os.path.exists(path):
+            # physionet-* extras (ECGR_EXTRA_DATASETS) are npy shards built by
+            # ecgr.data.physionet_beats, not portal exports: they have no event CSV and no
+            # per-event strips to score. portal-eval is portal data by definition.
+            print(f"portal {split}: '{db}' has no {config.DATASET_CSV} - not a portal "
+                  f"dataset, skipped")
+            continue
         with open(path, newline='') as f:
             for r in csv.DictReader(f):
                 sid, eid = str(r['study_id']).strip(), str(r['event_id']).strip()

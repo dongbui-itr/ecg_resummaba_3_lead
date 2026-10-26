@@ -25,11 +25,12 @@ The base model is frozen while the head trains: its metrics are the floor, and a
 cannot move off it.
 """
 import keras
+import numpy as np
 import tensorflow as tf
 from keras import layers
 
 from .. import config
-from .layers import PKG, ssm_block
+from .layers import PKG, TIME_MIXERS, ssm_block
 
 HEAD_INPUT = 'head_drop'          # the base layer whose INPUT is the pre-softmax feature map
 
@@ -95,13 +96,23 @@ class LogProb(layers.Layer):
 
 
 def attach_refinement(base, width=48, blocks=2, state_dim=8, kernel_len=256, dropout=0.1,
-                      freeze_base=True, mode='beats', name=None):
+                      freeze_base=True, mode='beats', name=None, mixer='ssm', s_prior=1.0):
     """Wrap a trained base model with the refinement head; returns the composed keras.Model.
 
     `base` is a model built by models.build (or loaded from one of its checkpoints). Its
     graph is reused, not copied: the head reads the tensor feeding `head_drop` and the base's
     softmax output through a sub-model over the same layers, so the base's weights are shared
     and, with freeze_base, untouched by training.
+
+    `mixer` picks the head's time mixer: 'ssm' (DiagSSM1D, the original) or 'cfc' - a CfC
+    base should not get a state-space decoder bolted back on, the whole point of resucfc_*
+    is that it exports without one.
+
+    `s_prior` > 1 starts the head AS the s_boost preset instead of as the identity: in
+    's_only' mode the delta bias is set to log(s_prior), which multiplies the S:N odds by
+    s_prior at every step before any training. Epoch 0 then equals `decode_beats(...,
+    s_boost=s_prior)` restricted to the N<->S pair (V and None untouched), and training can
+    only make the shift INPUT-DEPENDENT - the one thing a global multiplier cannot be.
     """
     feat = base.get_layer(HEAD_INPUT).input
     probe = keras.Model(base.inputs, [feat, base.outputs[0]], name=f'{base.name}_probe')
@@ -117,12 +128,16 @@ def attach_refinement(base, width=48, blocks=2, state_dim=8, kernel_len=256, dro
     h = layers.Conv1D(width, 1, use_bias=False, name='refine_proj')(h)
     h = layers.BatchNormalization(name='refine_proj_bn')(h)
     h = layers.Activation('silu', name='refine_proj_act')(h)
+    block = TIME_MIXERS[mixer]
     for i in range(blocks):
-        h = ssm_block(h, width, state_dim, kernel_len, name=f'refine_ssm{i}')
+        h = block(h, width, state_dim, kernel_len, name=f'refine_{mixer}{i}')
     h = layers.Dropout(dropout, name='refine_drop')(h)
     # zeros: the head starts as the identity (see module docstring)
     n_out = 1 if mode == 's_only' else config.NUM_CLASSES - 1
-    delta = layers.Conv1D(n_out, 1, kernel_initializer='zeros', bias_initializer='zeros',
+    if s_prior != 1.0 and mode != 's_only':
+        raise ValueError("s_prior is defined for mode='s_only' only")
+    bias = keras.initializers.Constant(float(np.log(s_prior))) if s_prior != 1.0 else 'zeros'
+    delta = layers.Conv1D(n_out, 1, kernel_initializer='zeros', bias_initializer=bias,
                           name='refine_delta')(h)
     out = BeatClassRefine(mode=mode, name='refine_compose')([p1, delta])
     return keras.Model(inp, out, name=name or f'{base.name}_refined')

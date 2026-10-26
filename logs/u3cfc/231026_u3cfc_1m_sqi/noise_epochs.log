@@ -1,0 +1,120 @@
+=== epoch_01 12:04
+  118e24     24 dB     0.7%   0.4%
+  118e18     18 dB     1.4%   0.4%
+  118e12     12 dB    30.7%   0.4%
+  118e06      6 dB    88.5%   0.4%
+  118e00      0 dB    98.9%   0.5%
+  118e_6     -6 dB    99.5%   0.4%
+  119e24     24 dB     0.2%   0.0%
+  119e18     18 dB     0.2%   0.0%
+  119e12     12 dB     2.3%   0.0%
+  119e06      6 dB    35.0%   0.0%
+  119e00      0 dB    93.9%   0.2%
+  119e_6     -6 dB    98.9%   0.5%
+noisy blocks of the <= 6 dB records flagged (want ~100%): 85.8% of 2658
+everything else flagged (want ~0%): 1.9% of 9402
+=== epoch_02 12:06
+  118e24     24 dB     0.2%   0.4%
+  118e18     18 dB     1.4%   0.4%
+  118e12     12 dB    35.2%   0.4%
+  118e06      6 dB    86.2%   0.4%
+  118e00      0 dB    98.2%   0.4%
+  118e_6     -6 dB    99.5%   0.4%
+  119e24     24 dB     0.2%   0.0%
+  119e18     18 dB     0.5%   0.0%
+  119e12     12 dB     5.4%   0.0%
+  119e06      6 dB    45.6%   0.0%
+  119e00      0 dB    93.0%   0.2%
+  119e_6     -6 dB    98.6%   0.2%
+noisy blocks of the <= 6 dB records flagged (want ~100%): 86.9% of 2658
+everything else flagged (want ~0%): 2.2% of 9402
+=== epoch_03 12:07
+  118e24     24 dB     0.2%   0.4%
+  118e18     18 dB     0.7%   0.4%
+  118e12     12 dB    34.8%   0.4%
+  118e06      6 dB    84.4%   0.4%
+  118e00      0 dB    98.4%   0.4%
+  118e_6     -6 dB    99.5%   0.4%
+  119e24     24 dB     0.2%   0.0%
+  119e18     18 dB     0.5%   0.0%
+  119e12     12 dB     7.0%   0.0%
+  119e06      6 dB    48.8%   0.0%
+  119e00      0 dB    93.7%   0.2%
+  119e_6     -6 dB    98.6%   0.2%
+noisy blocks of the <= 6 dB records flagged (want ~100%): 87.2% of 2658
+everything else flagged (want ~0%): 2.2% of 9402
+=== epoch_04 12:22
+  118e24     24 dB     0.2%   0.4%
+  118e18     18 dB     0.2%   0.4%
+  118e12     12 dB    21.4%   0.4%
+  118e06      6 dB    83.7%   0.4%
+  118e00      0 dB    98.2%   0.4%
+  118e_6     -6 dB    99.5%   0.4%
+  119e24     24 dB     0.2%   0.0%
+  119e18     18 dB     0.2%   0.0%
+  119e12     12 dB     4.1%   0.0%
+  119e06      6 dB    40.0%   0.0%
+  119e00      0 dB    91.2%   0.2%
+  119e_6     -6 dB    98.4%   0.5%
+noisy blocks of the <= 6 dB records flagged (want ~100%): 85.2% of 2658
+everything else flagged (want ~0%): 1.4% of 9402
+=== epoch_05 12:40
+  118e24     24 dB     0.2%   0.4%
+  118e18     18 dB     0.5%   0.4%
+  118e12     12 dB    25.7%   0.4%
+  118e06      6 dB    83.3%   0.4%
+  118e00      0 dB    98.2%   0.4%
+  118e_6     -6 dB    99.5%   0.4%
+  119e24     24 dB     0.2%   0.0%
+  119e18     18 dB     0.2%   0.0%
+  119e12     12 dB     5.0%   0.0%
+  119e06      6 dB    43.6%   0.0%
+  119e00      0 dB    92.1%   0.2%
+  119e_6     -6 dB    98.4%   0.2%
+noisy blocks of the <= 6 dB records flagged (want ~100%): 85.9% of 2658
+everything else flagged (want ~0%): 1.6% of 9402
+=== epoch_06 12:57
+  118e24     24 dB     0.2%   0.4%
+  118e18     18 dB     0.7%   0.4%
+  118e12     12 dB    30.0%   0.4%
+  118e06      6 dB    84.9%   0.4%
+  118e00      0 dB    98.2%   0.4%
+  118e_6     -6 dB    99.5%   0.4%
+  119e24     24 dB     0.2%   0.0%
+  119e18     18 dB     0.2%   0.0%
+  119e12     12 dB     5.6%   0.0%
+  119e06      6 dB    46.7%   0.0%
+  119e00      0 dB    93.5%   0.2%
+  119e_6     -6 dB    98.6%   0.7%
+noisy blocks of the <= 6 dB records flagged (want ~100%): 86.9% of 2658
+everything else flagged (want ~0%): 1.9% of 9402
+=== epoch_07 13:14
+  118e24     24 dB     0.2%   0.4%
+  118e18     18 dB     0.5%   0.4%
+  118e12     12 dB    30.5%   0.4%
+  118e06      6 dB    84.7%   0.4%
+  118e00      0 dB    98.2%   0.4%
+  118e_6     -6 dB    99.5%   0.4%
+  119e24     24 dB     0.2%   0.0%
+  119e18     18 dB     0.2%   0.0%
+  119e12     12 dB     5.4%   0.0%
+  119e06      6 dB    46.5%   0.0%
+  119e00      0 dB    93.2%   0.2%
+  119e_6     -6 dB    98.4%   0.5%
+noisy blocks of the <= 6 dB records flagged (want ~100%): 86.8% of 2658
+everything else flagged (want ~0%): 1.9% of 9402
+=== epoch_08 13:31
+  118e24     24 dB     0.2%   0.4%
+  118e18     18 dB     0.5%   0.4%
+  118e12     12 dB    28.7%   0.4%
+  118e06      6 dB    84.4%   0.4%
+  118e00      0 dB    98.2%   0.4%
+  118e_6     -6 dB    99.5%   0.4%
+  119e24     24 dB     0.2%   0.0%
+  119e18     18 dB     0.2%   0.0%
+  119e12     12 dB     4.7%   0.0%
+  119e06      6 dB    44.0%   0.0%
+  119e00      0 dB    93.2%   0.2%
+  119e_6     -6 dB    98.4%   0.7%
+noisy blocks of the <= 6 dB records flagged (want ~100%): 86.3% of 2658
+everything else flagged (want ~0%): 1.8% of 9402

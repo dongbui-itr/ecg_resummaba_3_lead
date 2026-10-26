@@ -56,6 +56,18 @@ def _hash01(text):
     return int(hashlib.md5(str(text).encode()).hexdigest(), 16) % 10 ** 6 / 10 ** 6
 
 
+def inventory_path(name):
+    """The export to read for `name`: the generated CSV if there is one, else config's.
+
+    Preferring the generated file is what lets a machine that received records without
+    spreadsheets still build: the .hea comments carry the same fields the export does.
+    """
+    generated = os.path.join(rc.GENERATED_INVENTORY_DIR, f"{name}.csv")
+    if os.path.exists(generated):
+        return generated
+    return os.path.join(rc.DATA_ROOT, rc.SOURCES[name]['inventory'])
+
+
 def read_source(name):
     """Events of one source: {(study, event): event dict}.
 
@@ -65,7 +77,7 @@ def read_source(name):
     several spans. Rows whose type maps to no class are dropped.
     """
     src = rc.SOURCES[name]
-    df = _read_table(os.path.join(rc.DATA_ROOT, src['inventory']))
+    df = _read_table(inventory_path(name))
     events = {}
     skipped = defaultdict(int)
     for row in df.to_dict('records'):
@@ -175,6 +187,29 @@ def _studies_of_events(event_ids, portal_csv=None):
             f"{portal_csv} (e.g. {sorted(missing)[:3]}). Their studies cannot be held out, "
             f"so the holdout would be incomplete - refusing to build.")
     return {str(s).strip() for s in found['study_id']}
+
+
+def _study_of_event(event_ids, portal_csv=None):
+    """{event id: study id} for the same index _studies_of_events checks, same strictness:
+    an id that cannot be resolved raises rather than being dropped or left None. build.py
+    stores the study id beside every written window, so None there would crash the build -
+    late, and after the expensive part."""
+    portal_csv = portal_csv or rc.PORTAL_EVENT_INDEX
+    if not portal_csv or not os.path.exists(portal_csv):
+        raise FileNotFoundError(
+            f"the rhythm test set is keyed by EVENT id and the portal inventory that "
+            f"resolves them is not readable: {portal_csv}. Set ECGR_PORTAL_EVENT_INDEX.")
+    index = pd.read_csv(portal_csv, low_memory=False, usecols=['study_id', 'event_id'],
+                        dtype={'study_id': str, 'event_id': str})
+    found = index[index['event_id'].isin(set(event_ids))]
+    out = {str(e).strip(): str(s).strip()
+           for e, s in zip(found['event_id'], found['study_id'])}
+    missing = set(event_ids) - set(out)
+    if missing:
+        raise ValueError(
+            f"{len(missing)} of {len(event_ids)} rhythm-test event ids are absent from "
+            f"{portal_csv} (e.g. {sorted(missing)[:3]}).")
+    return out
 
 
 def rhythm_test_studies(eval_dir=None):
@@ -346,8 +381,73 @@ def collect(sources=None, max_sinus_per_study=None):
     return out, report
 
 
+def _dense_spans(codes, fs, seconds_per_row=rc.RHYTHM_CODE_SECONDS):
+    """A dense per-second rhythm code array -> merged (class, start, stop) sample spans."""
+    spans, run_start, run_code = [], 0, None
+    for i, raw in enumerate(list(codes) + [None]):
+        code = None if raw is None else int(raw)
+        if code == run_code:
+            continue
+        if run_code is not None:
+            name = rc.RHYTHM_CODE_TO_CLASS.get(run_code)
+            if name is not None:
+                spans.append((class_index(name),
+                              int(run_start * seconds_per_row * fs),
+                              int(i * seconds_per_row * fs)))
+        run_start, run_code = i, code
+    return sorted(spans)
+
+
+def _test_events_dense(eval_dir):
+    """The holdout's second layout: EVAL_DIR/<event id>/<record>.json, the reference a dense
+    per-second code array in <record>_b&r.json (rc.RHYTHM_CODE_TO_CLASS).
+
+    The array covers the whole recording, not a reviewed sub-window, so the event is `whole`
+    and its known region is the record. An event whose _b&r.json is missing, unreadable or
+    carries no 'rhythms' is skipped - it has no reference to score against.
+    """
+    import wfdb
+    events, skipped = [], 0
+    for main in sorted(glob.glob(os.path.join(eval_dir, '*', '*.json'))):
+        if main.endswith('_b&r.json'):
+            continue
+        base = main[:-5]
+        if not os.path.exists(base + '.hea'):
+            continue
+        try:
+            with open(main) as f:
+                info = json.load(f)
+            with open(base + '_b&r.json') as f:
+                codes = json.load(f).get('rhythms')
+        except (OSError, ValueError):
+            skipped += 1
+            continue
+        if not codes:
+            skipped += 1
+            continue
+        header = wfdb.rdheader(base)
+        event_id = os.path.basename(os.path.dirname(main))
+        events.append(dict(source='rhythm_eval', study_id=event_id, event_id=event_id,
+                           types=[str(info.get('event_type'))],
+                           spans=_dense_spans(codes, header.fs),
+                           strip=(0, int(header.sig_len)), whole=True, needs_runs=False,
+                           record=base, dataset=os.path.basename(eval_dir)))
+    if skipped:
+        print(f"  rhythm_eval: {skipped} events without a readable dense reference, skipped")
+    study = _study_of_event([ev['event_id'] for ev in events])
+    for ev in events:
+        ev['study_id'] = study[ev['event_id']]
+    return events
+
+
 def collect_test(eval_dir=None):
-    """The rhythm test set as events. The reviewer's 10-50 s mark is the known region."""
+    """The rhythm test set as events, in either export layout.
+
+    `<eval_dir>/<study id>/<event id>/*.json` carries the reviewer's rhythm spans in the JSON
+    itself and marks a reviewed sub-window. `<eval_dir>/<event id>/*.json` carries none of
+    that: its reference is the dense per-second array beside it (_test_events_dense). Reading
+    only the first layout made the second one score ZERO events while reporting no error.
+    """
     eval_dir = eval_dir or rc.EVAL_DIR
     events = []
     for path in sorted(glob.glob(os.path.join(eval_dir, '*', '*', '*.json'))):
@@ -363,7 +463,7 @@ def collect_test(eval_dir=None):
                            event_id=str(info['eventId']), types=[str(info['type'])],
                            spans=sorted(spans), strip=mark, whole=False, needs_runs=False,
                            record=path[:-5], dataset=info.get('dataset')))
-    return events
+    return events or _test_events_dense(eval_dir)
 
 
 def event_region(ev, length):

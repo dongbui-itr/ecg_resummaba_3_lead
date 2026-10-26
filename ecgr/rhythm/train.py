@@ -198,6 +198,22 @@ class LogLR(tf.keras.callbacks.Callback):
             logs['learning_rate'] = float(tf.keras.backend.get_value(self.model.optimizer.learning_rate))
 
 
+class JointMonitor(tf.keras.callbacks.Callback):
+    """logs['val_joint'] = mean(val_rhythm_f1, val_beat_f1), for config.MONITOR = 'val_joint'.
+    Must sit before the checkpoint and early-stopping callbacks in the list: Keras calls them
+    in order and they read the key from the same logs dict."""
+
+    def on_epoch_end(self, epoch, logs=None):
+        if logs is None:
+            return
+        missing = [k for k in ('val_rhythm_f1', 'val_beat_f1') if k not in logs]
+        if missing:
+            raise KeyError(f"val_joint needs {missing}; logged: {sorted(logs)}")
+        logs['val_joint'] = 0.5 * (float(logs['val_rhythm_f1']) + float(logs['val_beat_f1']))
+        print(f"\nval_joint {logs['val_joint']:.4f} (rhythm {logs['val_rhythm_f1']:.4f}, "
+              f"beat {logs['val_beat_f1']:.4f})")
+
+
 class BeatMatchLog(tf.keras.callbacks.Callback):
     """Beat-level validation the way bxb scores it: the 'beat' output of a fixed set of eval
     windows -> beats.pick_beats -> matched to the annotated R samples within
@@ -308,23 +324,31 @@ def train(model_name, epochs=None, batch_size=None, lr=None, patience=None,
         _plan, repeat, _steps = pipeline.stratified_plan(cats, batch_size, steps_per_epoch)
     weights = class_weights(repeat)
     rhythm_f1 = RhythmF1(name='f1')
+    # EVERY quality head the model has, not the first one that matches. The dualcfc family
+    # emits 'channel' AND 'noise' as separate heads, and picking one left the other with no
+    # loss at all - weights that receive no gradient and an output that is pure noise while
+    # the run still looks healthy, because nothing reports a head it is not training.
+    losses = {'rhythm': rhythm_loss(weights)}
+    loss_weights = {'rhythm': 1.0}
+    metrics = {'rhythm': [rhythm_f1]}
+    lead_acc = None
+    for quality in [q for q in ('noise', 'channel', 'lead') if q in outputs]:
+        # Keras logs these as rhythm_f1 / lead_acc / lead_noise_f1, or noise_acc / noise_f1
+        # (output name + metric name)
+        if quality == 'noise':
+            acc = NoiseF1(name='acc', mode='accuracy')
+            losses[quality] = noise_loss()
+            metrics[quality] = [acc, NoiseF1(name='f1')]
+            loss_weights[quality] = rc.NOISE_LOSS_WEIGHT
+        else:
+            # 'lead' per window, or 'channel' (dual U-Net) per 2 s segment - same classes
+            acc = LeadConfusion(name='acc', mode='accuracy')
+            losses[quality] = lead_loss()
+            metrics[quality] = [acc, LeadConfusion(name='noise_f1')]
+            loss_weights[quality] = rc.CHANNEL_LOSS_WEIGHT if quality == 'channel' else \
+                rc.LEAD_LOSS_WEIGHT
+        lead_acc = lead_acc or acc
     quality = next(q for q in ('noise', 'channel', 'lead') if q in outputs)
-    # Keras logs these as rhythm_f1 / lead_acc / lead_noise_f1, or noise_acc / noise_f1
-    # (output name + metric name)
-    if quality == 'noise':
-        lead_acc = NoiseF1(name='acc', mode='accuracy')
-        quality_loss, quality_metrics = noise_loss(), [lead_acc, NoiseF1(name='f1')]
-        quality_weight = rc.NOISE_LOSS_WEIGHT
-    else:
-        # 'lead' per window, or 'channel' (dual U-Net) per 2 s segment - same classes
-        lead_acc = LeadConfusion(name='acc', mode='accuracy')
-        quality_loss = lead_loss()
-        quality_metrics = [lead_acc, LeadConfusion(name='noise_f1')]
-        quality_weight = rc.CHANNEL_LOSS_WEIGHT if quality == 'channel' else \
-            rc.LEAD_LOSS_WEIGHT
-    losses = {'rhythm': rhythm_loss(weights), quality: quality_loss}
-    loss_weights = {'rhythm': 1.0, quality: quality_weight}
-    metrics = {'rhythm': [rhythm_f1], quality: quality_metrics}
     beat_f1 = None
     if 'beat' in outputs:
         beat_f1 = BeatF1(name='f1')
@@ -361,7 +385,10 @@ def train(model_name, epochs=None, batch_size=None, lr=None, patience=None,
                    'sampler_repeat': repeat, 'batch_size': batch_size, 'lr': lr, 'lr2': lr2,
                    'schedule': schedule, 'freeze_epochs': freeze_epochs,
                    'init_from': init_from, 'backbone_from': backbone_from,
-                   'init_matching_from': init_matching_from, 'npy_dir': rc.NPY_DIR},
+                   'init_matching_from': init_matching_from, 'npy_dir': rc.NPY_DIR,
+                   'monitor': rc.MONITOR, 'noise_snr_reference': rc.NOISE_SNR_REFERENCE,
+                   'noise_label_snr_db': rc.NOISE_LABEL_SNR_DB,
+                   'noise_snr_range_db': [rc.NOISE_SNR_DB_MIN, rc.NOISE_SNR_DB_MAX]},
                   f, indent=2)
 
     monitor = rc.MONITOR
@@ -379,6 +406,10 @@ def train(model_name, epochs=None, batch_size=None, lr=None, patience=None,
         tf.keras.callbacks.TensorBoard(log_dir=logs_dir),
         tf.keras.callbacks.CSVLogger(os.path.join(logs_dir, 'history.csv'), append=True),
     ]
+    if monitor == 'val_joint':
+        if 'beat' not in outputs:
+            raise ValueError("MONITOR=val_joint needs a model with a 'beat' output")
+        callbacks.insert(0, JointMonitor())
     if 'beat' in outputs:
         # the beat matcher must run before ConfusionLog / CSVLogger so its numbers are logged
         callbacks.insert(0, BeatMatchLog(eval_arrays[0][:rc.BEAT_MATCH_WINDOWS],

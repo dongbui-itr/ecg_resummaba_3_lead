@@ -97,10 +97,65 @@ def _noise_waveforms(seeds, batch, n, c):
     bumps = tf.where(tf.abs(x) <= 1.0, 0.5 * (1.0 + tf.cos(np.pi * x)), 0.0)
     motion = tf.reduce_sum(bumps * sign * active, axis=-1) + 1e-3 * white
 
-    w = _uniform(seeds, [batch, 1, 1, 3])
+    if not rc.NOISE_ELECTRODE_MOTION:
+        w = _uniform(seeds, [batch, 1, 1, 3])
+        w = w / tf.sqrt(tf.reduce_sum(tf.square(w), axis=-1, keepdims=True))
+        parts = tf.stack([_unit_rms(white), _unit_rms(tonal), _unit_rms(motion)], axis=-1)
+        return _unit_rms(tf.reduce_sum(parts * w, axis=-1))
+
+    # with electrode motion: half the time it dominates, otherwise a random four-way mix
+    em = _electrode_motion(seeds, batch, n, c)
+    w = _uniform(seeds, [batch, 1, 1, 4])
+    dominant = _uniform(seeds, [batch, 1, 1, 1]) < rc.NOISE_EM_DOMINANT_PROB
+    w = tf.where(dominant, tf.constant([0.15, 0.15, 0.15, 1.0]) * w + [0, 0, 0, 0.5], w)
     w = w / tf.sqrt(tf.reduce_sum(tf.square(w), axis=-1, keepdims=True))
-    parts = tf.stack([_unit_rms(white), _unit_rms(tonal), _unit_rms(motion)], axis=-1)
+    parts = tf.stack([_unit_rms(white), _unit_rms(tonal), _unit_rms(motion), _unit_rms(em)],
+                     axis=-1)
     return _unit_rms(tf.reduce_sum(parts * w, axis=-1))
+
+
+def _electrode_motion(seeds, batch, n, c):
+    """(batch, n, c) electrode-motion noise of unit RMS, as it reaches the model.
+
+    Electrode motion is skin-electrode impedance changing with movement: a slow, large,
+    non-stationary wobble with a 1/f^alpha spectrum, plus baseline steps when the contact
+    shifts. Physics, not a fit: alpha is drawn per lead from NOISE_EM_ALPHA, the band is what
+    the inference band-pass passes (config FILTER_LOWCUT..FILTER_HIGHCUT, 0.5-30 Hz - the
+    sub-0.5 Hz part of real motion never reaches the model), and a step comes out of that
+    high-pass as a decaying transient with tau = 1 / (2 pi f_lo) = 0.32 s.
+
+    Why it is needed: the three shapes above put their power at 1-30 Hz, and wander (the
+    only slow component) is trained as NOT noise. A model trained on them flagged 0.3 % of
+    the nstdb segments below 0 dB as noise - their power is ~80 % in 0.5-5 Hz once filtered,
+    a band the generator had no noise in."""
+    fs = float(rc.SAMPLING_RATE)
+    lo, hi = rc.FILTER_LOWCUT_HZ, rc.FILTER_HIGHCUT_HZ
+    rows = batch * c
+    spec = tf.signal.rfft(tf.random.stateless_normal([rows, n], seeds()))
+    f = tf.constant(np.fft.rfftfreq(n, 1.0 / fs).astype(np.float32))           # (n//2+1,)
+    alpha = tf.random.stateless_uniform([rows, 1], seeds(), *rc.NOISE_EM_ALPHA)
+    band = tf.cast((f >= lo) & (f <= hi), tf.float32)[None, :]
+    gain = band * tf.pow(tf.maximum(f, lo)[None, :], -alpha / 2.0)
+    x = tf.signal.irfft(spec * tf.cast(gain, tf.complex64), fft_length=[n])    # (rows, n)
+    x = tf.transpose(tf.reshape(x, [batch, c, n]), [0, 2, 1])                  # (b, n, c)
+
+    # non-stationarity: slow amplitude modulation, 0.05-0.5 Hz, depth 0-0.9
+    t = tf.range(n, dtype=tf.float32) / fs
+    am_f = _uniform(seeds, [batch, 1, c], 0.05, 0.5)
+    am_p = _uniform(seeds, [batch, 1, c], 0.0, _TWO_PI)
+    depth = _uniform(seeds, [batch, 1, c], 0.0, 0.9)
+    x = _unit_rms(x) * (1.0 + depth * tf.sin(_TWO_PI * am_f * t[None, :, None] + am_p))
+
+    # baseline steps through the high-pass: up to 3 per lead, either sign, 0.5-3 x the RMS
+    k = 3
+    t0 = _uniform(seeds, [batch, 1, c, k], 0.0, float(n))
+    amp = _uniform(seeds, [batch, 1, c, k], 0.5, 3.0) * \
+        tf.sign(_uniform(seeds, [batch, 1, c, k], -1.0, 1.0)) * \
+        tf.cast(_uniform(seeds, [batch, 1, c, k]) < 0.4, tf.float32)
+    dt = (tf.range(n, dtype=tf.float32)[None, :, None, None] - t0) / fs
+    tau = 1.0 / (_TWO_PI * lo)
+    steps = tf.reduce_sum(tf.where(dt >= 0.0, amp * tf.exp(-dt / tau), 0.0), axis=-1)
+    return x + steps
 
 
 def _readable(sig_rms, noise, live, snr_db=None):
@@ -115,6 +170,24 @@ def _readable(sig_rms, noise, live, snr_db=None):
     per_sec = tf.reshape(noise, [-1, rc.OUTPUT_SECONDS, rc.SECOND_SAMPLES, c])
     noise_rms = tf.sqrt(tf.reduce_mean(tf.square(per_sec), axis=2))            # (b, s, c)
     return tf.logical_and(sig_rms / (noise_rms + 1e-6) >= 10.0 ** (snr_db / 20.0), live)
+
+
+def signal_reference(x, sig_rms):
+    """(batch, 1, c) amplitude the SNR is measured against, per config.NOISE_SNR_REFERENCE:
+    the clean RMS ('rms'), or the nstdb one ('qrs_pp'): QRS peak-to-peak / (2 sqrt 2), the RMS
+    of a sinusoid of that p-p - so 20 log10(ref / noise_rms) is nstdb's SNR. The QRS p-p of a
+    lead is the median over the five 2 s segments of its max - min."""
+    if rc.NOISE_SNR_REFERENCE == 'rms':
+        return sig_rms
+    if rc.NOISE_SNR_REFERENCE != 'qrs_pp':
+        raise ValueError(f"NOISE_SNR_REFERENCE must be 'rms' or 'qrs_pp', not "
+                         f"{rc.NOISE_SNR_REFERENCE!r}")
+    c = x.shape[-1] or rc.IN_CHANNELS
+    k = rc.NOISE_SEGMENTS
+    seg = tf.reshape(x, [-1, k, rc.SEGMENT_SAMPLES // k, c])
+    pp = tf.reduce_max(seg, axis=2) - tf.reduce_min(seg, axis=2)                # (b, 5, c)
+    pp = tf.sort(pp, axis=1)[:, k // 2:k // 2 + 1, :]                           # median
+    return pp / (2.0 * np.sqrt(2.0))
 
 
 def clean_seconds(sig_rms, noise, live, snr_db=None, min_leads=None):
@@ -223,7 +296,7 @@ def beat_targets(beats, clean):
     return tf.concat([heat[..., None], typed, w_heat[..., None], w_type[..., None]], axis=-1)
 
 
-def targets(labels, clean, lead, beats=None, channel_key=None):
+def targets(labels, clean, lead, beats=None, channel_key=None, noise_clean=None):
     """{'rhythm': (batch, steps, NUM_CLASSES + 1), 'lead': (batch, NUM_LEAD_CLASSES),
         'noise': (batch, NOISE_SEGMENTS, 2), 'beat' (when beats given): (batch, BEAT_STEPS, 6),
         'channel' (when channel_key given): (batch, NOISE_SEGMENTS, NUM_LEAD_CLASSES)}
@@ -233,12 +306,15 @@ def targets(labels, clean, lead, beats=None, channel_key=None):
     second - noise is measured per second - and is repeated over a second's samples.
     rhythm = one-hot rhythm (all zero on an IGNORE step) | loss weight of that step,
     0 on IGNORE and NOISY_SECOND_WEIGHT on a noisy one - see config. lead = one-hot.
+    noise_clean (per second, default `clean`) is what the 'noise' and 'channel' targets call
+    readable - config.NOISE_SNR_REFERENCE / NOISE_LABEL_SNR_DB.
     """
     labels = tf.cast(labels, tf.int32)
     clean_sec = clean
+    noise_clean = clean if noise_clean is None else noise_clean
     # 'noise' (the 20 ms family): a 2 s segment is CLEAN only when both its seconds are
     segment_clean = tf.reduce_min(tf.reshape(
-        clean, [-1, rc.NOISE_SEGMENTS, rc.NOISE_SEGMENT_SECONDS]), axis=-1)
+        noise_clean, [-1, rc.NOISE_SEGMENTS, rc.NOISE_SEGMENT_SECONDS]), axis=-1)
     noise = tf.one_hot(tf.cast(segment_clean < 0.5, tf.int32), len(rc.NOISE_CLASSES))
     steps = labels.shape[1]
     if steps is not None and steps != rc.OUTPUT_SECONDS:
@@ -292,6 +368,7 @@ def augment(signal, labels, seed, noise_prob=None, permute_prob=None, snr_range=
     x = x * (1.0 - victim * drop[:, None])[:, None, :]
     sig_rms = tf.sqrt(tf.reduce_mean(tf.square(x), axis=1, keepdims=True))      # (b, 1, c)
     live = sig_rms > 0.05
+    s_ref = signal_reference(x, sig_rms)       # what the drawn SNR and the noise label mean
 
     # 2. baseline wander (not noise: it leaves the rhythm readable)
     t = tf.range(n, dtype=tf.float32) / float(rc.SAMPLING_RATE)
@@ -308,23 +385,28 @@ def augment(signal, labels, seed, noise_prob=None, permute_prob=None, snr_range=
     hit = tf.cast(rank < tf.cast(k, tf.int32)[:, None], tf.float32)[:, None, :]  # (b, 1, c)
     on = tf.cast(_uniform(seeds, [batch, 1, 1]) < noise_prob, tf.float32)
     snr = _uniform(seeds, [batch, 1, c], snr_lo, snr_hi)
-    level = sig_rms * tf.pow(10.0, -snr / 20.0)
+    level = s_ref * tf.pow(10.0, -snr / 20.0)
     shared = _uniform(seeds, [batch, 1, 1]) < rc.NOISE_SHARED_BURST_PROB
     env = tf.where(shared,
                    tf.tile(_flat_top(seeds, batch, n, 1, rc.NOISE_SPAN_SECONDS), [1, 1, c]),
                    _flat_top(seeds, batch, n, c, rc.NOISE_SPAN_SECONDS))
     # whole-window wrecks: all leads, the whole window, below the readable SNR
     wreck = _uniform(seeds, [batch, 1, 1]) < wreck_prob
-    wreck_hi = rc.CLEAN_SNR_DB - 3.0
+    wreck_hi = (rc.CLEAN_SNR_DB if rc.NOISE_SNR_REFERENCE == 'rms'
+                else rc.NOISE_LABEL_SNR_DB) - 3.0
     wreck_snr = _uniform(seeds, [batch, 1, c], min(snr_lo, wreck_hi), wreck_hi)
     on = tf.where(wreck, 1.0, on)
     hit = tf.where(wreck, 1.0, hit)
     env = tf.where(wreck, 1.0, env)
-    level = tf.where(wreck, sig_rms * tf.pow(10.0, -wreck_snr / 20.0), level)
+    level = tf.where(wreck, s_ref * tf.pow(10.0, -wreck_snr / 20.0), level)
     noise = on * hit * level * env * _noise_waveforms(seeds, batch, n, c)
 
     # 4. the targets, from exactly what was added
     clean = clean_seconds(sig_rms, noise, live)
+    noise_clean = clean if (rc.NOISE_SNR_REFERENCE == 'rms' and
+                            rc.NOISE_LABEL_MIN_LEADS == rc.CLEAN_MIN_LEADS) else \
+        clean_seconds(s_ref, noise, live, snr_db=rc.NOISE_LABEL_SNR_DB,
+                      min_leads=rc.NOISE_LABEL_MIN_LEADS)
     key, n_read = lead_scores(x, sig_rms, noise, live)
     chan_key = channel_scores(x, sig_rms, noise, live)
     x = x + wander + noise
@@ -341,4 +423,5 @@ def augment(signal, labels, seed, noise_prob=None, permute_prob=None, snr_range=
     # 6. what inference does to any strip
     x = _zscore(x)
     x.set_shape([None, n, c])
-    return x, targets(labels, clean, lead_label(key, n_read), beats, chan_key)
+    return x, targets(labels, clean, lead_label(key, n_read), beats, chan_key,
+                      noise_clean=noise_clean)

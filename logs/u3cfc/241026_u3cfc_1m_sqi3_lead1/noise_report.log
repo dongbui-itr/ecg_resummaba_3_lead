@@ -1,0 +1,44 @@
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1792982467.241448 3064152 gpu_device.cc:2020] Created device /job:localhost/replica:0/task:0/device:GPU:0 with 22311 MB memory:  -> device: 0, name: NVIDIA GeForce RTX 3090, pci bus id: 0000:5e:00.0, compute capability: 8.6
+  118e24: 201 windows, QRS p-p [2.72 2.2 ] mV
+  118e18: 201 windows, QRS p-p [2.72 2.2 ] mV
+  118e12: 201 windows, QRS p-p [2.72 2.2 ] mV
+  118e06: 201 windows, QRS p-p [2.72 2.2 ] mV
+  118e00: 201 windows, QRS p-p [2.72 2.2 ] mV
+  118e_6: 201 windows, QRS p-p [2.72 2.2 ] mV
+  119e24: 201 windows, QRS p-p [2.43 1.26] mV
+  119e18: 201 windows, QRS p-p [2.43 1.26] mV
+  119e12: 201 windows, QRS p-p [2.43 1.26] mV
+  119e06: 201 windows, QRS p-p [2.43 1.26] mV
+  119e00: 201 windows, QRS p-p [2.43 1.26] mV
+  119e_6: 201 windows, QRS p-p [2.43 1.26] mV
+
+p(NOISE) >= 0.5: share of 2 s segments flagged, by TRUE nstdb SNR (worse lead)
+    true SNR  segments  flagged
+    no noise      6744     0.0%
+      < 0 dB      2373    62.7%
+     0..3 dB       421    11.4%
+     3..6 dB       466     1.3%
+     6..9 dB       422     0.2%
+    9..12 dB       467     0.0%
+   12..18 dB       876     0.0%
+    >= 18 dB       291     0.0%
+
+per record, noisy blocks only (nominal SNR = record name):
+  record  nominal  flagged   clean blocks flagged
+  118e24     24 dB     0.0%   0.0%
+  118e18     18 dB     0.0%   0.0%
+  118e12     12 dB     0.7%   0.0%
+  118e06      6 dB    54.4%   0.0%
+  118e00      0 dB    91.9%   0.0%
+  118e_6     -6 dB    75.2%   0.0%
+  119e24     24 dB     0.0%   0.0%
+  119e18     18 dB     0.0%   0.0%
+  119e12     12 dB     0.0%   0.0%
+  119e06      6 dB     1.4%   0.0%
+  119e00      0 dB    47.6%   0.0%
+  119e_6     -6 dB    77.2%   0.0%
+
+noisy blocks of the <= 6 dB records flagged (want ~100%): 57.9% of 2658
+everything else flagged (want ~0%): 0.0% of 9402
+-> /mnt/md0/Dong_data/portal_data/train/241026_u3cfc_1m_sqi3_lead1/checkpoints/u3cfc_rhythm_1m_sqi3/nstdb_noise_segments.csv

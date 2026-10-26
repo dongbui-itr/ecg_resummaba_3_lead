@@ -43,9 +43,15 @@ from ..models.layers import (AdaIN, BeatProbability, RhythmDescriptor, StopGradi
 from ..models.resumamba import SIZES as BEAT_SIZES
 from ..models.resumamba import build_backbone, build_context_encoder
 from . import config as rc
+from .dualcfc import BUDGETS as DUALCFC_BUDGETS
+from .dualcfc import SIZES as DUALCFC_SIZES
+from .dualcfc import build_dual_cfc_model
 from .dualunet import BUDGETS as DUAL_BUDGETS
 from .dualunet import SIZES as DUAL_SIZES
 from .dualunet import build_dual_unet_model
+from .u3cfc import BUDGETS as U3CFC_BUDGETS
+from .u3cfc import SIZES as U3CFC_SIZES
+from .u3cfc import build_u3cfc_model
 from .unet import beat_head, build_unet_backbone, sample_head
 
 
@@ -299,7 +305,7 @@ for _name, _kw in DUAL_SIZES.items():
 
 
 def rhythm_steps(model):
-    """Rows of the model's 'rhythm' output per 10 s window: 10, 500 or 2500."""
+    """Rows of the model's 'rhythm' output per 10 s window: 10, 20, 500, 1250 or 2500."""
     return int(model.output['rhythm'].shape[1])
 
 
@@ -312,12 +318,33 @@ def output_names(model):
     return tuple(model.output)
 
 
+# Dual U-Net + CfC (dualcfc.py): the same two-branch encoder with every time mixer swapped
+# for a closed-form continuous-time cell, and four separate decoders - beat (1250, 4),
+# rhythm (20, 5), channel (5, 4), noise (5, 2). Built for hardware: a CfC keeps one state
+# register per cell where the diagonal SSM needs a delay line as deep as its kernel.
+for _name, _kw in DUALCFC_SIZES.items():
+    SIZES[_name] = dict(_kw, family='dualcfc')
+    BUDGETS[_name] = DUALCFC_BUDGETS[_name]
+
+# Three U-Nets (QRS / P-T / atrial) as the encoder, a CNN + CfC decoder (u3cfc.py): the
+# dualcfc outputs and shapes, encoder <= 900K and decoder <= 300K parameters.
+for _name, _kw in U3CFC_SIZES.items():
+    SIZES[_name] = dict(_kw, family='u3cfc')
+    BUDGETS[_name] = U3CFC_BUDGETS[_name]
+
+
 def list_models():
-    return sorted(SIZES, key=lambda n: ('dual' in n, 'unet1250b' in n, 'unet1250' in n,
-                                        'unet500' in n, 'unet' in n, -BUDGETS[n]))
+    return sorted(SIZES, key=lambda n: ('u3cfc' in n, 'dualcfc' in n, 'dual' in n,
+                                        'unet1250b' in n,
+                                        'unet1250' in n, 'unet500' in n, 'unet' in n,
+                                        -BUDGETS[n]))
 
 
 def keras_name(name):
+    if name.startswith('rhythm_u3cfc_'):
+        return f"u3cfc_rhythm_{name[len('rhythm_u3cfc_'):]}"
+    if name.startswith('rhythm_dualcfc_'):
+        return f"dualcfc_rhythm_{name[len('rhythm_dualcfc_'):]}"
     if name.startswith('rhythm_dual_'):
         return f"dualunet_rhythm_{name[len('rhythm_dual_'):]}"
     if name.startswith('rhythm_unet1250b_'):
@@ -336,6 +363,11 @@ def build(name, **kw):
         raise KeyError(f"unknown rhythm model {name!r}; available: {list_models()}")
     kwargs = dict(SIZES[name], name=keras_name(name))
     kwargs.update(kw)
-    if kwargs.pop('family', None) == 'dual':
+    family = kwargs.pop('family', None)
+    if family == 'u3cfc':
+        return build_u3cfc_model(**kwargs)
+    if family == 'dualcfc':
+        return build_dual_cfc_model(**kwargs)
+    if family == 'dual':
         return build_dual_unet_model(**kwargs)
     return build_rhythm_model(**kwargs)

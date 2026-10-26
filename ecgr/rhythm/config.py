@@ -26,6 +26,13 @@ WORK_DIR = os.environ.get("ECGR_RHYTHM_WORK_DIR", "/media/Project/ECG/Model_Dong
 # (a 24-hex ObjectId) instead of by study. Without it those folders cannot be turned into the
 # study ids the holdout is enforced on; see inventory._studies_of_events for why resolving
 # them matters rather than comparing them directly.
+# Where generated inventories live. The portal exports on some machines arrive as records
+# only - no .xlsx - but every field the spreadsheet carries (eventType, the caliper, the
+# channel) is also in each record's .hea, and for dataset-1/4/5 in dataset_info_full_all.csv.
+# scripts/make_rhythm_inventories.py reconstructs them here, and read_source prefers
+# <GENERATED_INVENTORY_DIR>/<source>.csv over config's .xlsx path when it exists.
+GENERATED_INVENTORY_DIR = os.environ.get(
+    "ECGR_RHYTHM_INVENTORY_DIR", os.path.join(DATA_ROOT, "_generated_inventory"))
 PORTAL_EVENT_INDEX = os.environ.get(
     "ECGR_PORTAL_EVENT_INDEX", os.path.join(DATA_ROOT, "dataset_info_full_all.csv"))
 RUN_TAG = os.environ.get("ECGR_RHYTHM_RUN_TAG",
@@ -103,6 +110,12 @@ BEAT_CLASS_WEIGHTS = (0.15, 1.0, 4.0, 3.0)          # none (unused), N, S, V
 BEAT_MATCH_TOLERANCE_SECONDS = 0.15               # bxb's window, for the beat-level metric
 BEAT_MATCH_WINDOWS = 2048                         # eval windows the per-epoch beat matcher sees
 
+# Rhythm grid of the dualcfc family: 20 steps over the 10 s window = 0.5 s each. Coarser
+# than the per-sample track the dualunet family emits, and deliberately: an episode boundary
+# is not localised to 8 ms by any reviewer, and 2500 rhythm logits per window spend capacity
+# on a resolution the labels do not carry. 2500 / 20 = 125, an exact pooling ratio.
+RHYTHM_STEPS = int(os.environ.get("ECGR_RHYTHM_STEPS", 20))
+
 NOISE_CLASSES = ['CLEAN', 'NOISE']
 NOISE_SEGMENTS = 5
 NOISE_SEGMENT_SECONDS = 2
@@ -129,6 +142,27 @@ EVENT_TYPE_TO_CLASS = {
     'AVB2': 'AVB',
     'AVB3': 'AVB',
 }
+
+# The rhythm holdout's second export layout (EVAL_DIR/<event id>/) stores its reference as a
+# DENSE array, one portal rhythm code per second, in <record>_b&r.json's 'rhythms'. The codes
+# are integers with no table shipped beside them. This mapping was DERIVED, not guessed: over
+# all 4,252 readable events the array uses exactly six codes, and cross-tabulating the code
+# against the reviewer's own event_type (fraction of events of that type whose array contains
+# the code) separates them one to one -
+#
+#   type    n      1     2     3     4     6     7
+#   AFIB    1401  29%   92%   18%    3%    1%    2%
+#   SVT     1623  96%   14%   91%    5%    5%    1%
+#   VT       378  94%   17%   25%   75%    6%    1%
+#   AVB2     630  55%   11%    3%    1%   93%   20%
+#   AVB3     281  54%   10%    8%    2%   73%   72%
+#
+# - every type has exactly one code at >= 72% that is near the floor in every other type.
+# 1 is the baseline present almost everywhere, i.e. SINUS. AVB2 strips routinely contain AVB3
+# seconds and the reverse, which is why 6 and 7 co-occur; the model merges both into AVB.
+# No code outside this table appears anywhere in the holdout.
+RHYTHM_CODE_TO_CLASS = {1: 'SINUS', 2: 'AFIB', 3: 'SVT', 4: 'VT', 6: 'AVB', 7: 'AVB'}
+RHYTHM_CODE_SECONDS = 1          # rows per second of that dense array
 
 # Classes whose extent is recovered from the beat annotations when the inventory gives no
 # caliper span (dataset-1 / dataset-4): a run of >= RUN_MIN_BEATS consecutive S beats is SVT, of
@@ -376,7 +410,35 @@ LEAD_DROP_PROB = 0.2
 # most of each batch still teaches rhythm.
 NOISE_PROB = float(os.environ.get("ECGR_RHYTHM_NOISE_PROB", 0.7))
 NOISE_LEADS_WEIGHTS = (0.2, 0.35, 0.45)
-NOISE_SNR_DB_MIN, NOISE_SNR_DB_MAX = -12.0, 18.0
+NOISE_SNR_DB_MIN = float(os.environ.get("ECGR_RHYTHM_NOISE_SNR_MIN", -12.0))
+NOISE_SNR_DB_MAX = float(os.environ.get("ECGR_RHYTHM_NOISE_SNR_MAX", 18.0))
+# What "SNR" means for the noise LEVEL drawn above and for the 'noise' / 'channel' targets.
+#   'rms'     clean-window RMS over noise RMS (the original definition)
+#   'qrs_pp'  the MIT-BIH NST definition (nstdb, nst.c): signal power = (QRS peak-to-peak)^2 / 8,
+#             i.e. the QRS treated as a sinusoid of that p-p, over noise power. For a typical
+#             ECG this reads ~6 dB HIGHER than 'rms' (p-p / (2 sqrt 2) is ~2x the RMS), so
+#             CLEAN_SNR_DB = 6 under 'rms' labels noise at roughly nstdb's 12 dB records.
+#             Here the QRS p-p is the median over the five 2 s segments of each lead's
+#             max - min (every 2 s holds a QRS above 30 bpm; the median ignores one artefact).
+# The rhythm and beat loss weights keep CLEAN_SNR_DB under 'rms' whatever this says: the
+# switch moves what the noise head is taught to call NOISE, not which seconds teach rhythm.
+NOISE_SNR_REFERENCE = os.environ.get("ECGR_RHYTHM_NOISE_SNR_REF", "rms")
+# A 2 s segment is NOISE for the 'noise' / 'channel' targets when it is not readable at
+# NOISE_LABEL_SNR_DB (same CLEAN_MIN_LEADS rule); 6 dB under 'qrs_pp' = "reject the nstdb
+# segments below 6 dB".
+NOISE_LABEL_SNR_DB = float(os.environ.get("ECGR_RHYTHM_NOISE_LABEL_SNR_DB", 6.0))
+# Readable leads a 2 s segment needs to NOT be NOISE for the 'noise' / 'channel' targets
+# (default = CLEAN_MIN_LEADS). 1 = noise only when no lead can be read: the right rule for a
+# beat gate - with two real leads (every EC57 record) the 2-lead rule calls a segment noise
+# when ONE electrode is bad, and the gate then drops beats the other lead shows plainly
+# (mitdb 101: Q Se 100 -> 34.5 under the gate).
+# Electrode-motion noise (augment._electrode_motion): 1/f^alpha in the inference band, slow
+# amplitude modulation, baseline-step transients. Off by default so earlier runs reproduce;
+# on, it is the dominant shape in NOISE_EM_DOMINANT_PROB of the noisy windows.
+NOISE_ELECTRODE_MOTION = os.environ.get("ECGR_RHYTHM_NOISE_EM", "0") == "1"
+NOISE_EM_ALPHA = (1.0, 3.0)
+NOISE_EM_DOMINANT_PROB = 0.5
+FILTER_LOWCUT_HZ, FILTER_HIGHCUT_HZ = 0.5, 30.0      # = ecgr.config FILTER_LOWCUT / HIGHCUT
 NOISE_SPAN_SECONDS = (2.0, 16.0)             # > 10 s = most or all of the window
 NOISE_SHARED_BURST_PROB = 0.7                # same burst on every noisy lead (body motion)
 WANDER_PROB, WANDER_AMP = 0.3, 0.5           # baseline wander: nuisance, NOT counted as noise
@@ -395,6 +457,7 @@ NOISE_WINDOW_PROB = 0.12
 # the other two, and that is the case the model has to learn to ride through.
 CLEAN_SNR_DB = 6.0
 CLEAN_MIN_LEADS = 2
+NOISE_LABEL_MIN_LEADS = int(os.environ.get("ECGR_RHYTHM_NOISE_LABEL_MIN_LEADS", CLEAN_MIN_LEADS))
 
 # The 'lead' target, per window. Leads are ranked by, in this order:
 #   1. how many of the 10 seconds are readable on that lead (SNR >= CLEAN_SNR_DB)
@@ -438,7 +501,10 @@ LR_WARMUP_EPOCHS = 1
 LR_FLOOR_FRACTION = 0.02
 WEIGHT_DECAY = 1e-4
 PATIENCE = 8
-MONITOR = 'val_rhythm_f1'        # macro F1 over the six classes, per second
+# macro F1 over the rhythm classes, per second. 'val_joint' = mean of val_rhythm_f1 and
+# val_beat_f1 (train.JointMonitor) for a model whose beat head matters as much as its rhythm
+# head - with val_rhythm_f1 alone the beat peak is routinely not the checkpoint kept.
+MONITOR = os.environ.get("ECGR_RHYTHM_MONITOR", 'val_rhythm_f1')
 # First epoch (1-indexed) allowed to write a checkpoint - best_model.keras and epochs/*.keras.
 # 6 = epochs 1-5 are measured and logged but never saved, and EarlyStopping only starts
 # counting after them, so an early, still-noisy peak cannot become "best".
@@ -497,7 +563,7 @@ LABEL_SMOOTHING = 0.05
 # The 2026-09-29 row above (smoothing 5 s for AFIB/AVB, minimums {4, 1.5, 1, 6, 3}) had been
 # picked on mitdb/afdb themselves - i.e. on the test set; kept in ec57.MIN_SETS / SMOOTH_SETS.
 DECODE_SMOOTH_SECONDS = 1
-DECODE_NOISE_THRESHOLD = 0.5     # p(NOISE) of the 'lead'/'noise' output above which = noise
+DECODE_NOISE_THRESHOLD = float(os.environ.get("ECGR_RHYTHM_DECODE_NOISE_THR", 0.5))  # p(NOISE) of the 'lead'/'noise' output above which = noise
 DECODE_PRIORITY = ['VT', 'SVT', 'AFIB', 'AVB']
 DECODE_MERGE_GAP_SECONDS = {'AFIB': 3, 'SVT': 0, 'VT': 0, 'AVB': 0}
 DECODE_MIN_EPISODE_SECONDS = {'AFIB': 3, 'SVT': 1, 'VT': 1, 'AVB': 2}     # AVB2's old value
@@ -678,6 +744,9 @@ def describe():
         f"drop p={LEAD_DROP_PROB}, noise p={NOISE_PROB} "
         f"SNR {NOISE_SNR_DB_MIN:g}..{NOISE_SNR_DB_MAX:g} dB; a lead is readable at >= "
         f"{CLEAN_SNR_DB:g} dB, NOISE = best lead < {LEAD_MIN_READABLE_SECONDS}/10 s readable",
+        f"noise label  : SNR reference '{NOISE_SNR_REFERENCE}', 2 s segment NOISE below "
+        f"{NOISE_LABEL_SNR_DB:g} dB (noise levels drawn in the same reference); electrode "
+        f"motion {'ON' if NOISE_ELECTRODE_MOTION else 'off'}",
         f"monitor      : {MONITOR}, checkpoints saved from epoch {CKPT_START_EPOCH} "
         f"(epochs 1-{CKPT_START_EPOCH - 1} measured only)",
     ])

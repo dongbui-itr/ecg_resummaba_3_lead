@@ -127,6 +127,16 @@ DECODE_MIN_PEAK_PROB = float(os.environ.get("ECGR_DECODE_MIN_PEAK_PROB", 0.0))
 TRAIN_DATASETS = ["dataset-1", "dataset-2", "dataset-3", "dataset-4", "dataset-5",
                   "dataset-3-filter-vt-svt-avb2-avb3", "dataset 2_3_4 - AFib - v2",
                   "dataset_ivcd"]
+
+# Extra training datasets, comma separated, e.g. "physionet-svdb,physionet-ltafdb" (built by
+# ecgr/data/physionet_beats.py). They are appended to TRAIN_DATASETS, which is what
+# data/pipeline.split_files iterates: a dataset whose tfrecords exist but whose NAME is not
+# in this list is silently skipped at load time, and a run then trains on less data than its
+# tfrecord directory holds while reporting nothing wrong. Keeping it an env knob means the
+# runs that must stay comparable with the older checkpoints are unaffected by default.
+EXTRA_TRAIN_DATASETS = [d for d in
+                        os.environ.get("ECGR_EXTRA_DATASETS", "").split(",") if d.strip()]
+TRAIN_DATASETS = TRAIN_DATASETS + [d.strip() for d in EXTRA_TRAIN_DATASETS]
 DATASET_CSV = "dataset_info_full.csv"
 PORTAL_FS = 250               # native sampling rate of the portal records
 
