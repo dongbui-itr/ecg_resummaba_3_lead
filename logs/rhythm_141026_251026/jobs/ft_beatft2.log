@@ -1,0 +1,22 @@
+[11:20:13] beat-decoder-only fine-tune from v4_scratch_best: --train-only '^(pos[123]|beat_pos|type)', lr 1e-4 cosine, 4 epochs
+train-only   : /^(pos[123]|beat_pos|type)/ -> 35 layers trainable, the rest frozen (incl. BatchNorm statistics)
+train: 333,680 windows (train), labels (1250,), beat labels
+class weights: {'SINUS': np.float64(0.241), 'AFIB': np.float64(0.374), 'SVT': np.float64(0.524), 'VT': np.float64(0.812), 'AVB': np.float64(0.681)} (after sampler repeats {'SINUS': 0.69, 'AFIB': 1.37, 'SVT': 2.5, 'VT': 4.72, 'AVB': 4.81})
+eval : 65,883 windows (noisy), labels (1250,), beat labels
+EPOCH 1  beats matched at 150 ms: QRS Se=99.69 +P=99.43  type F1(N,S,V)=0.8294
+EPOCH 1  val_rhythm_f1=0.8818
+EPOCH 1  beat: f1(N,S,V)=0.8938
+Epoch 1: finished saving model to /media/Project/ECG/Model_Dong/ecgr_rhythm/191026_rhythm_dual_1m_v4_beatft2/checkpoints/dualunet_rhythm_1m/best_model.keras
+EPOCH 2  beats matched at 150 ms: QRS Se=99.69 +P=99.43  type F1(N,S,V)=0.8287
+EPOCH 2  val_rhythm_f1=0.8818
+EPOCH 2  beat: f1(N,S,V)=0.8937
+Epoch 2: finished saving model to /media/Project/ECG/Model_Dong/ecgr_rhythm/191026_rhythm_dual_1m_v4_beatft2/checkpoints/dualunet_rhythm_1m/best_model.keras
+EPOCH 3  beats matched at 150 ms: QRS Se=99.68 +P=99.43  type F1(N,S,V)=0.8281
+EPOCH 3  val_rhythm_f1=0.8822
+EPOCH 3  beat: f1(N,S,V)=0.8939
+Epoch 3: finished saving model to /media/Project/ECG/Model_Dong/ecgr_rhythm/191026_rhythm_dual_1m_v4_beatft2/checkpoints/dualunet_rhythm_1m/best_model.keras
+EPOCH 4  beats matched at 150 ms: QRS Se=99.68 +P=99.44  type F1(N,S,V)=0.8287
+EPOCH 4  val_rhythm_f1=0.8821
+EPOCH 4  beat: f1(N,S,V)=0.8933
+training finished; checkpoints in /media/Project/ECG/Model_Dong/ecgr_rhythm/191026_rhythm_dual_1m_v4_beatft2/checkpoints/dualunet_rhythm_1m
+[11:39:31] FT_BEATFT2_DONE

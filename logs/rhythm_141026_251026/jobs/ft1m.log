@@ -1,0 +1,131 @@
+[14:55:53] dual1m_ft_e4: validation inference
+2026-10-12 14:55:53.912052: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-12 14:55:53.947785: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-10-12 14:55:54.597163: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+Fontconfig error: No writable cache directories
+xla          : --xla_gpu_cuda_data_dir=/usr/local/cuda
+1 GPU(s)
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1791791756.551044 3165322 gpu_device.cc:2020] Created device /job:localhost/replica:0/task:0/device:GPU:0 with 18856 MB memory:  -> device: 0, name: NVIDIA RTX A5000, pci bus id: 0000:01:00.0, compute capability: 8.6
+2026-10-12 14:55:58.675070: I external/local_xla/xla/service/service.cc:163] XLA service 0x74f634044c50 initialized for platform CUDA (this does not guarantee that XLA will be used). Devices:
+2026-10-12 14:55:58.675095: I external/local_xla/xla/service/service.cc:171]   StreamExecutor device (0): NVIDIA RTX A5000, Compute Capability 8.6
+2026-10-12 14:55:58.760667: I tensorflow/compiler/mlir/tensorflow/utils/dump_mlir_util.cc:269] disabling MLIR crash reproducer, set env var `MLIR_CRASH_REPRODUCER_DIRECTORY` to enable.
+2026-10-12 14:55:59.247640: I external/local_xla/xla/stream_executor/cuda/cuda_dnn.cc:473] Loaded cuDNN version 92600
+2026-10-12 14:55:59.515388: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2267', 24 bytes spill stores, 24 bytes spill loads
+
+2026-10-12 14:55:59.519734: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2267', 12 bytes spill stores, 12 bytes spill loads
+
+2026-10-12 14:55:59.531473: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2267', 12 bytes spill stores, 12 bytes spill loads
+
+2026-10-12 14:56:06.599636: W external/local_xla/xla/tsl/framework/bfc_allocator.cc:382] Garbage collection: deallocate free memory regions (i.e., allocations) so that we can re-allocate a larger region to avoid OOM due to memory fragmentation. If you see this message frequently, you are running near the threshold of the available device memory and re-allocation may incur great performance overhead. You may try smaller batch sizes to observe the performance impact. Set TF_ENABLE_GPU_GARBAGE_COLLECTION=false if you'd like to disable this feature.
+I0000 00:00:1791791769.954794 3165720 device_compiler.h:196] Compiled cluster using XLA!  This line is logged at most once for the lifetime of the process.
+2026-10-12 14:56:18.919468: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2830', 24 bytes spill stores, 24 bytes spill loads
+
+2026-10-12 14:56:18.946488: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2830', 12 bytes spill stores, 12 bytes spill loads
+
+2026-10-12 14:56:18.977053: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2830', 12 bytes spill stores, 12 bytes spill loads
+
+  500/3778 records predicted
+  1000/3778 records predicted
+  1500/3778 records predicted
+  2000/3778 records predicted
+  2500/3778 records predicted
+  3000/3778 records predicted
+  3500/3778 records predicted
+[15:09:50] dual1m_ft_e4: validation inference
+2026-10-12 15:09:50.568208: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-12 15:09:50.770424: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-10-12 15:09:51.699022: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+xla          : --xla_gpu_cuda_data_dir=/usr/local/cuda
+1 GPU(s)
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1791792593.469706   15652 gpu_device.cc:2020] Created device /job:localhost/replica:0/task:0/device:GPU:0 with 20860 MB memory:  -> device: 0, name: NVIDIA RTX A5000, pci bus id: 0000:01:00.0, compute capability: 8.6
+2026-10-12 15:09:56.212813: I external/local_xla/xla/service/service.cc:163] XLA service 0x794d88056c70 initialized for platform CUDA (this does not guarantee that XLA will be used). Devices:
+2026-10-12 15:09:56.212845: I external/local_xla/xla/service/service.cc:171]   StreamExecutor device (0): NVIDIA RTX A5000, Compute Capability 8.6
+2026-10-12 15:09:56.301664: I tensorflow/compiler/mlir/tensorflow/utils/dump_mlir_util.cc:269] disabling MLIR crash reproducer, set env var `MLIR_CRASH_REPRODUCER_DIRECTORY` to enable.
+2026-10-12 15:09:56.661589: I external/local_xla/xla/stream_executor/cuda/cuda_dnn.cc:473] Loaded cuDNN version 92600
+2026-10-12 15:09:57.014607: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2267', 24 bytes spill stores, 24 bytes spill loads
+
+2026-10-12 15:09:57.054068: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2267', 12 bytes spill stores, 12 bytes spill loads
+
+2026-10-12 15:09:57.083557: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2267', 12 bytes spill stores, 12 bytes spill loads
+
+2026-10-12 15:10:04.195791: W external/local_xla/xla/tsl/framework/bfc_allocator.cc:382] Garbage collection: deallocate free memory regions (i.e., allocations) so that we can re-allocate a larger region to avoid OOM due to memory fragmentation. If you see this message frequently, you are running near the threshold of the available device memory and re-allocation may incur great performance overhead. You may try smaller batch sizes to observe the performance impact. Set TF_ENABLE_GPU_GARBAGE_COLLECTION=false if you'd like to disable this feature.
+I0000 00:00:1791792608.011485   16053 device_compiler.h:196] Compiled cluster using XLA!  This line is logged at most once for the lifetime of the process.
+2026-10-12 15:10:23.839675: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2830', 12 bytes spill stores, 12 bytes spill loads
+
+2026-10-12 15:10:23.862442: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2830', 24 bytes spill stores, 24 bytes spill loads
+
+2026-10-12 15:10:23.869151: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2830', 12 bytes spill stores, 12 bytes spill loads
+
+  268/268 records predicted
+PREDICT_DONE dual1m_ft_e4
+[15:10:57] dual1m_ft_e4: decode tuning
+start: shortfall 22.9, cells met 29/36
+  round 1: scale_AFIB = 0.6 -> shortfall 12.59, met 29/36
+  round 1: min_AFIB = 5 -> shortfall 12.57, met 29/36
+  round 1: min_SVT = 0.5 -> shortfall 11.94, met 31/36
+  round 1: min_SVT = 1 -> shortfall 11.69, met 31/36
+  round 1: min_VT = 0.5 -> shortfall 11.69, met 31/36
+  round 1: min_AVB = 1 -> shortfall 11.34, met 31/36
+  round 1: prob_AFIB = 0 -> shortfall 10.73, met 30/36
+  round 1: prob_AFIB = 0.5 -> shortfall 10.33, met 31/36
+  round 1: prob_VT = 0.7 -> shortfall 10.25, met 31/36
+  round 1: gap_AFIB = 5 -> shortfall 9.76, met 32/36
+  round 1: smooth_SINUS = 0.04 -> shortfall 8.36, met 33/36
+  round 1: smooth_SVT = 2 -> shortfall 8.34, met 33/36
+  round 1: smooth_VT = 2 -> shortfall 8.23, met 33/36
+  round 1: trim_SVT = None -> shortfall 7.86, met 33/36
+  round 1: trim_SVT = 0.3 -> shortfall 7.60, met 33/36
+  round 2: scale_AFIB = 0.7 -> shortfall 7.44, met 33/36
+  round 2: min_SVT = 0.5 -> shortfall 7.23, met 33/36
+  round 2: prob_AFIB = 0.6 -> shortfall 6.44, met 33/36
+  round 2: smooth_VT = 0.5 -> shortfall 6.38, met 33/36
+## VALIDATION (strip_val), tuned decode - /media/Project/ECG/Model_Dong/ecgr_rhythm/summary_111026/strip_eval/val_npz/dual1m_ft_e4 (3778 events)
+
+**epicmp, segment to segment (inside the mark)** - ours vs target (E Se / E +P / D Se / D +P)
+
+| class | E Se | E +P | D Se | D +P | target |
+|---|---|---|---|---|---|
+| AFIB | 90 | 94 ! | 88 | 96 ! | 90/94/88/96 |
+| SVT | 90 | 88 ! | 74 | 87 | 89/88/60/78 |
+| VT | 83 | 95 | 78 | 88 | 81/90/62/86 |
+| AVB | 30 | 99 | 33 | 95 | 25/77/31/65 |
+
+**sample to sample (row %, inside the mark)**
+
+| true \ pred | SINUS | AFIB | SVT | VT | AVB | NOISE | target diag |
+|---|---|---|---|---|---|---|---|
+| SINUS | 93.69 | 2.05 | 1.70 | 0.29 | 2.27 | 0.00 | 92.89 |
+| AFIB | 8.93 | 88.43 | 2.47 | 0.17 | 0.00 | 0.00 | 88.07 |
+| SVT | 15.44 | 9.78 | 73.51 | 1.26 | 0.00 | 0.00 | 72.6 |
+| VT | 16.95 | 1.72 | 3.77 | 77.57 | 0.00 | 0.00 | 69.37 |
+| AVB2 | 71.84 | 0.47 | 0.11 | 0.00 | 27.58 | 0.00 | 26.58 |
+| AVB3 | 53.96 | 0.96 | 0.00 | 0.00 | 45.09 | 0.00 | 30.69 |
+
+**event level (one label per event)**
+
+| true \ pred | AFIB | SVT | VT | AVB | (none inside mark) |
+|---|---|---|---|---|---|
+| AFIB | 1497 | 57 | 10 | 5 | 114 |
+| SVT | 66 | 887 | 10 | 0 | 64 |
+| VT | 15 | 14 | 302 | 0 | 32 |
+| AVB2 | 27 | 9 | 3 | 581 | 441 |
+| AVB3 | 12 | 9 | 1 | 273 | 177 |
+
+| class | Se | PPV | F1 | target Se / PPV / F1 |
+|---|---|---|---|---|
+| AFIB | 95.4 | 92.6 | 94.0 | 86.6/80.3/83.3 |
+| SVT | 92.1 | 90.9 | 91.5 | 86.6/81.1/83.8 |
+| VT | 91.2 | 92.6 | 91.9 | 70.1/53.3/60.6 |
+| AVB | 93.3 | 99.4 | 96.3 | 40.2/62.5/48.9 |
+| AVB2 row Se | 93.7 | | | 22.6 |
+| AVB3 row Se | 92.5 | | | 19.9 |
+
+**33/36 target cells met; smallest margin -0.5**
+below target: epicmp AFIB E +P 93.6<94, epicmp AFIB D +P 95.9<96, epicmp SVT E +P 87.5<88
+
+-> /media/Project/ECG/Model_Dong/ecgr_rhythm/summary_111026/strip_eval/tuned_dual1m_ft_e4.json
+[15:16:04] dual1m_ft_e4: CHAIN_DONE

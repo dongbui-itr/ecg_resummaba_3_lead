@@ -61,6 +61,9 @@ def build_parser():
                    help='with --init-matching: epochs training only the new layers at --lr '
                         'before everything trains at --lr2')
     t.add_argument('--lr2', type=float, default=None, help='phase-2 learning rate (lr / 5)')
+    t.add_argument('--train-only', default=None, metavar='REGEX',
+                   help='train only the layers whose name matches (the rest stay frozen), e.g. '
+                        "'^(pos[123]|beat_pos|type)' = the beat decoder of the dual U-Net")
     t.add_argument('--sampler', choices=['uniform', 'stratified'], default=None,
                    help=f'batch composition (default rc.SAMPLER = {rc.SAMPLER})')
     t.add_argument('--schedule', choices=['plateau', 'cosine'], default=None,
@@ -83,6 +86,11 @@ def build_parser():
     k.add_argument('--teacher', default=None, help='teacher .keras (default rc.DISTILL_TEACHER)')
     k.add_argument('--ssl-from', default=None,
                    help="ssl_encoder.keras (default: this run's if present; 'none' = random)")
+    k.add_argument('--init-from', default=None,
+                   help='fine-tune: a full student checkpoint of this model (all weights, encoder '
+                        'and decoders, start there and train under the teacher)')
+    k.add_argument('--train-only', default=None, metavar='REGEX',
+                   help="train only the student layers whose name matches, e.g. '^(rhythm|rr_)'")
     k.add_argument('--epochs', type=int, default=None)
     k.add_argument('--batch-size', type=int, default=None)
     k.add_argument('--lr', type=float, default=None)
@@ -211,6 +219,7 @@ def main(argv=None):
               patience=args.patience, steps_per_epoch=args.steps_per_epoch,
               max_windows=args.max_windows, init_from=args.init_from,
               init_matching_from=args.init_matching, freeze_epochs=args.freeze_epochs,
+              train_only=args.train_only,
               lr2=args.lr2, sampler=args.sampler, schedule=args.schedule,
               backbone_from=args.backbone_from)
     elif args.stage == 'ssl':
@@ -223,7 +232,8 @@ def main(argv=None):
         distill(args.model, teacher_path=args.teacher, ssl_from=args.ssl_from,
                 epochs=args.epochs, batch_size=args.batch_size, lr=args.lr,
                 patience=args.patience, steps_per_epoch=args.steps_per_epoch,
-                max_windows=args.max_windows, alpha=args.alpha, temperature=args.temperature)
+                max_windows=args.max_windows, alpha=args.alpha, temperature=args.temperature,
+                init_from=args.init_from, train_only=args.train_only)
     elif args.stage == 'eval':
         from .evaluate import DEFAULT_SNRS, evaluate
         snrs = DEFAULT_SNRS if args.snrs is None else tuple(

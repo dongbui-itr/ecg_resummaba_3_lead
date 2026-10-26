@@ -98,6 +98,31 @@ def default_browse_roots(physionet_dir):
     return [physionet_dir, rc.DATA_ROOT, rc.PHYSIONET_TRAIN_DIR, rc.CHALLENGE2020_DIR, rc.PTBXL_DIR]
 
 
+def read_record_leads(path, n_sig, leads=None, chunk=None):
+    """build.read_leads with a channel per model lead: `leads` = 3 record channel indices,
+    None entries = missing lead (zero, as when an electrode comes off); None = the record's
+    first channels. -> ((n, 3) float32 at 250 Hz, chans)."""
+    from .build import read_leads
+    if leads is None:
+        w, _ = read_leads(path, chunk=chunk)
+        return np.asarray(w, np.float32), list(range(min(3, n_sig)))
+    chans = [None if c in (None, '', -1) else int(c) for c in list(leads)[:3]]
+    chans += [None] * (3 - len(chans))
+    if any(c is not None and not 0 <= c < n_sig for c in chans):
+        raise ValueError(f"leads {chans} outside the record's {n_sig} signals")
+    pick = [c for c in chans if c is not None]
+    if not pick:
+        raise ValueError('pick at least one lead')
+    got, _ = read_leads(path, leads=pick, chunk=chunk)
+    w = np.zeros((len(got), 3), np.float32)
+    j = 0
+    for k, c in enumerate(chans):                               # band-pass is per lead: reorder
+        if c is not None:
+            w[:, k] = got[:, j]
+            j += 1
+    return w, chans
+
+
 def _header_fields(comments):
     """'# key: value' comment lines of a .hea -> {key: value}; '#- key:' (dataset-eval) too."""
     out = {}
@@ -361,6 +386,8 @@ class Engine:
         self._eval = None
         self._rr_mean = None
         self._sub = {}
+        from .xai_predict import PredictLab
+        self.pred = PredictLab(self)                           # the 'Predict vs label' tab
 
     # -- meta / sources ----------------------------------------------------------------------
     def meta(self):
@@ -526,32 +553,13 @@ class Engine:
         `leads` (None entries = missing lead, zero-filled; None = the first channels), and what
         is known about it: per second reference (rhythm marks of the annotation file, else the
         .hea event / Dx), beats, every other annotation, the header's comments."""
-        from .build import read_leads
         h = self._header(path)
         total = h.sig_len / h.fs
         start = float(min(max(0.0, float(start)), max(0.0, total - rc.OUTPUT_SECONDS)))
         start = int(start) if float(start).is_integer() else round(start, 3)
         a = int(round(start * h.fs))
         b = a + int(round(rc.OUTPUT_SECONDS * h.fs))
-        chunk = (a, min(b + int(h.fs), h.sig_len))
-        if leads is None:
-            w, _ = read_leads(path, chunk=chunk)
-            chans = list(range(min(3, h.n_sig)))
-        else:
-            chans = [None if c in (None, '', -1) else int(c) for c in list(leads)[:3]]
-            chans += [None] * (3 - len(chans))
-            if any(c is not None and not 0 <= c < h.n_sig for c in chans):
-                raise ValueError(f"leads {chans} outside the record's {h.n_sig} signals")
-            pick = [c for c in chans if c is not None]
-            if not pick:
-                raise ValueError('pick at least one lead')
-            got, _ = read_leads(path, leads=pick, chunk=chunk)
-            w = np.zeros((len(got), 3), np.float32)
-            j = 0
-            for k, c in enumerate(chans):                       # band-pass is per lead: reorder
-                if c is not None:
-                    w[:, k] = got[:, j]
-                    j += 1
+        w, chans = read_record_leads(path, h.n_sig, leads, chunk=(a, min(b + int(h.fs), h.sig_len)))
         w = w[:N_SAMPLES]
         if len(w) < N_SAMPLES:
             w = np.concatenate([w, np.zeros((N_SAMPLES - len(w), w.shape[1]), w.dtype)])
@@ -1277,6 +1285,12 @@ def make_handler(engine, xai_report=None):
             if u.path == '/api/overview':
                 return self._guard(lambda: engine.record_overview(
                     q.get('db'), q.get('record'), path=q.get('path'), ann=q.get('ann', 'atr')))
+            if u.path == '/api/pred/dbs':
+                return self._guard(engine.pred.dbs)
+            if u.path == '/api/pred/sources':
+                return self._guard(lambda: engine.pred.sources(q['path']))
+            if u.path == '/api/pred/presets':
+                return self._guard(lambda: engine.pred.presets(refresh=q.get('refresh') == '1'))
             if u.path == '/api/browse':
                 return self._guard(lambda: engine.browse(q.get('dir'), q.get('q', '')))
             if u.path == '/api/fileinfo':
@@ -1299,6 +1313,10 @@ def make_handler(engine, xai_report=None):
             if n > UPLOAD_MAX_BYTES:
                 return self._send(413, dict(error=f'request over {UPLOAD_MAX_BYTES >> 20} MB'))
             req = json.loads(self.rfile.read(n) or b'{}')
+            if u.path == '/api/pred/run':
+                return self._guard(lambda: engine.pred.run(req))
+            if u.path == '/api/pred/signal':
+                return self._guard(lambda: engine.pred.signal(req))
             if u.path == '/api/upload':
                 return self._guard(lambda: engine.upload(req))
             if u.path == '/api/analyze':

@@ -1,0 +1,30 @@
+[09:45:05] 30k: fine-tune from /media/Project/ECG/Model_Dong/ecgr_rhythm/121026_rhythm_dual_30k_ftstrip/checkpoints/dualunet_rhythm_30k/epochs/epoch_03.keras
+train: 126,818 windows (train), labels (1250,), beat labels
+eval : 32,020 windows (noisy), labels (1250,), beat labels
+Epoch 1: val_rhythm_f1 improved from None to 0.84072, saving model to /media/Project/ECG/Model_Dong/ecgr_rhythm/131026_rhythm_dual_30k_raw/checkpoints/dualunet_rhythm_30k/best_model.keras
+Epoch 1: finished saving model to /media/Project/ECG/Model_Dong/ecgr_rhythm/131026_rhythm_dual_30k_raw/checkpoints/dualunet_rhythm_30k/best_model.keras
+Epoch 2: val_rhythm_f1 did not improve from 0.84072
+Epoch 3: val_rhythm_f1 improved from 0.84072 to 0.84133, saving model to /media/Project/ECG/Model_Dong/ecgr_rhythm/131026_rhythm_dual_30k_raw/checkpoints/dualunet_rhythm_30k/best_model.keras
+Epoch 3: finished saving model to /media/Project/ECG/Model_Dong/ecgr_rhythm/131026_rhythm_dual_30k_raw/checkpoints/dualunet_rhythm_30k/best_model.keras
+Epoch 4: val_rhythm_f1 improved from 0.84133 to 0.84247, saving model to /media/Project/ECG/Model_Dong/ecgr_rhythm/131026_rhythm_dual_30k_raw/checkpoints/dualunet_rhythm_30k/best_model.keras
+Epoch 4: finished saving model to /media/Project/ECG/Model_Dong/ecgr_rhythm/131026_rhythm_dual_30k_raw/checkpoints/dualunet_rhythm_30k/best_model.keras
+Epoch 5: val_rhythm_f1 did not improve from 0.84247
+Epoch 6: val_rhythm_f1 did not improve from 0.84247
+Epoch 7: val_rhythm_f1 did not improve from 0.84247
+Epoch 8: val_rhythm_f1 did not improve from 0.84247
+training finished; checkpoints in /media/Project/ECG/Model_Dong/ecgr_rhythm/131026_rhythm_dual_30k_raw/checkpoints/dualunet_rhythm_30k
+[10:43:15] 30k: epoch selection + bias calibration + rhythm_eval
+epoch_01.keras SINUS 91.59 AFIB 84.84 SVT 80.03 VT 87.57 AVB2 83.90 AVB3 87.03 margin -13.53
+epoch_02.keras SINUS 93.07 AFIB 84.90 SVT 78.33 VT 86.63 AVB2 81.38 AVB3 85.71 margin -15.23
+epoch_03.keras SINUS 92.56 AFIB 85.92 SVT 80.41 VT 85.51 AVB2 81.81 AVB3 86.32 margin -13.15
+epoch_04.keras SINUS 92.94 AFIB 85.46 SVT 82.29 VT 84.86 AVB2 81.26 AVB3 86.71 margin -11.37
+epoch_05.keras SINUS 93.34 AFIB 85.16 SVT 80.22 VT 84.88 AVB2 81.17 AVB3 85.99 margin -13.34
+epoch_06.keras SINUS 93.53 AFIB 85.20 SVT 80.80 VT 86.16 AVB2 79.26 AVB3 84.45 margin -12.76
+epoch_07.keras SINUS 93.19 AFIB 85.67 SVT 80.15 VT 85.66 AVB2 81.06 AVB3 86.06 margin -13.41
+epoch_08.keras SINUS 93.15 AFIB 85.61 SVT 79.75 VT 85.65 AVB2 81.72 AVB3 86.62 margin -13.81
+picked /media/Project/ECG/Model_Dong/ecgr_rhythm/131026_rhythm_dual_30k_raw/checkpoints/dualunet_rhythm_30k/epochs/epoch_04.keras -11.37
+bias [0.0, 0.0, 0.0, -1.4, 0.0] val margin -11.32 SINUS 93.08 AFIB 85.51 SVT 82.40 VT 75.46 AVB2 81.26 AVB3 86.71
+VAL  SINUS 93.08 AFIB 85.51 SVT 82.40 VT 75.46 AVB2 81.26 AVB3 86.71 margin -11.32
+TEST SINUS 91.86 AFIB 88.82 SVT 74.80 VT 67.94 AVB2 80.17 AVB3 83.48 margin -18.76
+FINAL_RAW_DONE
+[10:48:37] 30k: RAW_CHAIN_DONE

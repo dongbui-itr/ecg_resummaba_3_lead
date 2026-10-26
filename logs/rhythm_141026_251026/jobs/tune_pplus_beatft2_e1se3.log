@@ -1,0 +1,106 @@
+2026-10-19 14:33:36.653318: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-19 14:33:36.686362: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-10-19 14:33:37.330869: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+holter: 42 records {'ltafdb': 15, 'nsrdb': 2, 'incartdb': 9, 'svdb': 16}
+strip_val2: 4719 of 4719 events have npz
+guards / AVB floor relative to reference v4ov1_gate
+START score -115.26 shortfall 111.3 guard 0.4
+sweep 0 gap_SVT=             2 -> score -114.55 short 110.4 guard 0.4
+sweep 0 trim_VT=           0.3 -> score -114.43 short 110.3 guard 0.4
+sweep 0 sinus=            12 -> score -113.53 short 111.7 guard 0.2
+sweep 0 smooth_VT=           0.5 -> score -112.36 short 110.5 guard 0.2
+sweep 0 prob_AVB=           0.5 -> score -112.09 short 110.3 guard 0.2
+sweep 0 long_inv=            20 -> score -110.94 short 109.8 guard 0.1
+sweep 0 scale_VT=          1.25 -> score -109.54 short 108.4 guard 0.1
+sweep 0 svt_frac=           0.5 -> score -109.52 short 108.4 guard 0.1
+sweep 1 gap_VT=             2 -> score -109.42 short 108.3 guard 0.1
+sweep 1 scale_AFIB=          0.85 -> score -109.21 short 106.8 guard 0.2
+sweep 1 smooth_SVT=             2 -> score -109.11 short 107.3 guard 0.2
+sweep 2 trim_VT=           0.1 -> score -108.56 short 106.5 guard 0.2
+sweep 2 s_margin=           0.1 -> score -107.94 short 103.7 guard 0.4
+sweep 2 smooth_VT=             1 -> score -107.71 short 103.5 guard 0.4
+sweep 2 smooth_SVT=           0.5 -> score -105.12 short 103.4 guard 0.2
+sweep 2 scale_SVT=          1.25 -> score -102.53 short 102.6 guard 0.0
+random 47 -> score -102.50 short 102.5 guard 0.0
+# tune_pplus beatft2_e1: validation only (Holter eval side + strip_val2), overlap as stored
+
+score -102.50  target shortfall 102.5  guard violation 0.0
+
+## knobs changed from official
+
+- scale_AFIB: 1.0 -> 0.85
+- scale_SVT: 1.0 -> 1.25
+- scale_VT: 1.0 -> 1.25
+- prob_AVB: 0 -> 0.5
+- gap_SVT: 0 -> 2
+- gap_VT: 0 -> 2
+- trim_VT: None -> 0.1
+- svt_frac: 0.3 -> 0.5
+- sinus: 8.0 -> 12
+- long_inv: 10.0 -> 20
+- s_margin: 0 -> 0.1
+
+## validation metrics (official -> tuned)
+
+| metric | official | tuned | target |
+|---|---|---|---|
+| B|all|QRS|PP | 98.96 | 99.04 | 99.8 |
+| B|all|QRS|Se | 99.93 | 99.93 |  |
+| B|all|S|PP | 52.13 | 55.71 | 72 |
+| B|all|S|Se | 91.33 | 90.46 |  |
+| B|all|V|PP | 92.84 | 93.81 | 95 |
+| B|all|V|Se | 77.74 | 77.26 |  |
+| B|incartdb|QRS|PP | 99.83 | 99.83 |  |
+| B|incartdb|QRS|Se | 99.91 | 99.91 |  |
+| B|incartdb|V|PP | 99.54 | 99.48 |  |
+| B|incartdb|V|Se | 91.44 | 91.08 |  |
+| B|ltaf+inc|S|PP | 56.48 | 57.55 | 40 |
+| B|ltaf+inc|S|Se | 91.46 | 90.62 |  |
+| B|ltafdb|QRS|PP | 99.52 | 99.53 |  |
+| B|ltafdb|QRS|Se | 99.92 | 99.92 |  |
+| B|ltafdb|S|PP | 56.98 | 58.00 |  |
+| B|ltafdb|S|Se | 91.46 | 90.62 |  |
+| B|ltafdb|V|PP | 92.03 | 93.06 |  |
+| B|ltafdb|V|Se | 75.16 | 74.61 |  |
+| B|nsrdb|QRS|PP | 93.14 | 93.87 |  |
+| B|nsrdb|QRS|Se | 100.00 | 100.00 |  |
+| B|svdb|QRS|PP | 99.86 | 99.86 |  |
+| B|svdb|QRS|Se | 99.98 | 99.98 |  |
+| B|svdb|S|PP | 54.31 | 55.83 | 72 |
+| B|svdb|S|Se | 90.19 | 88.93 |  |
+| B|svdb|V|PP | 93.25 | 93.65 |  |
+| B|svdb|V|Se | 93.55 | 94.08 |  |
+| FPH|AFIB | 0.58 | 0.39 |  |
+| FPH|AVB | 0.03 | 0.02 |  |
+| FPH|SVT | 0.82 | 0.90 |  |
+| FPH|VT | 0.15 | 0.15 |  |
+| H|ltafdb|AFIB|D_PP | 99.27 | 99.38 | 90 |
+| H|ltafdb|AFIB|D_Se | 94.98 | 95.10 | 98 |
+| H|ltafdb|AFIB|E_PP | 85.17 | 86.21 | 92 |
+| H|ltafdb|AFIB|E_Se | 77.18 | 78.12 | 90 |
+| H|ltafdb|SVT|D_PP | 3.90 | 4.09 | 70 |
+| H|ltafdb|SVT|D_Se | 19.50 | 21.99 | 70 |
+| H|ltafdb|SVT|E_PP | 9.47 | 9.43 | 70 |
+| H|ltafdb|SVT|E_Se | 22.12 | 25.00 | 70 |
+| H|ltafdb|VT|D_PP | 52.82 | 57.14 | 70 |
+| H|ltafdb|VT|D_Se | 74.43 | 77.27 | 70 |
+| H|ltafdb|VT|E_PP | 86.08 | 86.75 | 70 |
+| H|ltafdb|VT|E_Se | 65.45 | 69.09 | 70 |
+| S|AFIB|D_PP | 93.35 | 93.00 | 90 |
+| S|AFIB|D_Se | 89.52 | 90.02 |  |
+| S|AFIB|E_PP | 84.80 | 83.63 | 92 |
+| S|AFIB|E_Se | 91.84 | 91.97 |  |
+| S|AVB|D_PP | 87.90 | 87.60 |  |
+| S|AVB|D_Se | 85.65 | 86.30 |  |
+| S|AVB|E_PP | 97.45 | 97.80 |  |
+| S|AVB|E_Se | 87.42 | 87.42 |  |
+| S|SVT|D_PP | 75.54 | 75.69 | 70 |
+| S|SVT|D_Se | 78.87 | 78.12 |  |
+| S|SVT|E_PP | 85.33 | 84.37 |  |
+| S|SVT|E_Se | 80.58 | 81.19 | 70 |
+| S|VT|D_PP | 77.85 | 84.37 | 70 |
+| S|VT|D_Se | 83.20 | 82.35 |  |
+| S|VT|E_PP | 89.18 | 88.75 |  |
+| S|VT|E_Se | 77.68 | 79.50 | 82 |
+TUNE_PPLUS_DONE

@@ -13,22 +13,25 @@ Two kinds of source:
     so the reference annotations are synthesized (wfdb_ann.write_reference_annotations)
     instead of read from a shipped .atr.
 
-Three stages, each re-runnable on its own:
+Two stages. The first works one RECORD at a time, the second one DATABASE at a time:
 
-  1. inference  - every record's per-second probabilities go to <ec57_out>/_ann/<db>/<name>.npz
-                  (rhythm (T, 6) and p_noise (T,) in float16, fs, sig_len). This is the only
-                  expensive stage and it runs once per checkpoint.
-  2. decoding   - labels.decode_episodes on the npz (rc.DECODE_*), written as the readable
-                  all-class .rhi plus one '(AFIB vs (N' hypothesis file PER CLASS
-                  (wfdb_ann.write_class_annotations), next to the per-class reference files
-                  built the same way from the .atr / the synthesized labels. --decode-only
-                  redoes this stage and the next without the model.
-  3. epicmp     - one `epicmp -A` pass per (database, class) in a disposable symlink farm
-                  <ec57_out>/_work/<db>/<class>/, report <db>/<db>_<class>_report_line.out.
-                  `epicmp -A` scores nothing but the rhythm spelled '(AFIB', which is why the
-                  files are per class - one mixed-code file scored AFIB only.
+  1. per record  - predict_and_annotate: inference -> the probabilities and picked beats go
+                   to <ec57_out>/_ann/<db>/<name>.npz (rhythm (T, K) and p_noise (T,) in
+                   float16, fs, sig_len) -> decode + beat post-processing (decode_record:
+                   labels.decode_track then beats.postprocess) -> the annotations are written
+                   at once: the readable all-class .rhi, the beat hypotheses .bti and one
+                   '(AFIB vs (N' hypothesis file PER CLASS (wfdb_ann.write_class_annotations),
+                   next to the per-class reference files built the same way from the .atr /
+                   the synthesized labels. The npz is kept so --decode-only (and the sweep /
+                   the validation tuning) can redo the decoding without the model:
+                   write_hypothesis is the same decode + write, fed from the npz.
+  2. per database - score_db_reports: nothing but the WFDB tools. One `epicmp -A` pass per
+                   (database, class) in a disposable symlink farm <ec57_out>/_work/<db>/<class>/,
+                   report <db>/<db>_<class>_report_line.out; then bxb + sumstats on the beat
+                   hypotheses, report beats/<db>/<db>_QRS_report_line.out. `epicmp -A` scores
+                   nothing but the rhythm spelled '(AFIB', which is why the files are per class.
 
---sweep repeats stages 2-3 over a grid of decoding parameters (sweep_decoding).
+--sweep repeats decoding + scoring over a grid of decoding parameters (sweep_decoding).
 """
 import itertools
 import json
@@ -101,7 +104,7 @@ def classes_for_db(db_name, classes=None):
 
 
 # ---------------------------------------------------------------------------
-# Stage 1: inference -> npz
+# Per record, part 1: inference -> npz
 # ---------------------------------------------------------------------------
 
 def probs_path(ann_dir, name):
@@ -171,14 +174,21 @@ def decode_record(rhythm, p_noise, step_hz, beats=None, decode=None):
     """Stage 2 of one record: labels.decode_track -> (beat stage, when beats are stored and
     rc.DECODE_BEAT_POSTPROCESS / decode['beat_pp'] allow) -> episodes. Returns (episodes,
     beat symbols or None). `decode` = labels.decode_episodes keyword arguments plus the
-    optional 'beat_pp' (bool) and 'beat_criteria' (rc.BEAT_PP_CRITERIA-shaped dict)."""
+    optional 'beat_pp' (bool), 'beat_criteria' (rc.BEAT_PP_CRITERIA-shaped dict),
+    'beat_options', 'v_margin' and 's_margin' (beats.relabel_v / relabel_s, applied before
+    the beat stage) and 'afib_gate' (rc.AFIB_GATE_DEFAULT-shaped dict or True, the
+    record-level AF gate; None/False = off)."""
     decode = dict(decode or {})
     beat_pp = decode.pop('beat_pp', rc.DECODE_BEAT_POSTPROCESS)
     criteria = decode.pop('beat_criteria', None)
     options = decode.pop('beat_options', None)      # beats.default_options-shaped dict
     trim = decode.pop('trim', rc.DECODE_TRIM_TO_BEATS)   # {class: pad s}: beats.trim_to_beats
+    v_margin = decode.pop('v_margin', 0.0)          # beats.relabel_v: drop weak V calls
+    s_margin = decode.pop('s_margin', 0.0)          # beats.relabel_s: drop weak S calls
+    gate = decode.pop('afib_gate', rc.DECODE_AFIB_GATE)
     if len(rhythm) == 0:
         return [], None
+    beats = beats_pp.relabel_s(beats_pp.relabel_v(beats, v_margin), s_margin)
     cls, _probs = decode_track(rhythm, p_noise, step_hz=step_hz, **decode)
     symbols = None
     if beats is not None and beat_pp:
@@ -187,22 +197,66 @@ def decode_record(rhythm, p_noise, step_hz, beats=None, decode=None):
         symbols = np.asarray(beats['cls'], dtype=int)
     if beats is not None and trim:
         cls = beats_pp.trim_to_beats(cls, beats, step_hz, trim)
-    return episodes_from_track(cls, rhythm, p_noise, step_hz), symbols
+    episodes = episodes_from_track(cls, rhythm, p_noise, step_hz)
+    if gate:
+        episodes = afib_record_gate(episodes, cls, rhythm, p_noise, step_hz, gate,
+                                    redecode=lambda relaxed: _relaxed_track(
+                                        rhythm, p_noise, step_hz, beats, decode, beat_pp,
+                                        criteria, options, trim, relaxed))
+    return episodes, symbols
+
+
+def _relaxed_track(rhythm, p_noise, step_hz, beats, decode, beat_pp, criteria, options, trim,
+                   relaxed):
+    """The class track of decode_record decoded again with the AFIB acceptance knobs of
+    `relaxed` ({'min_prob': {...}, 'min_seconds': {...}, ...} merged over `decode`); the beat
+    symbols of the first pass are kept by the caller, so the beat metrics do not move."""
+    d = dict(decode)
+    for k, v in relaxed.items():
+        d[k] = dict(d.get(k, getattr(rc, {'min_prob': 'DECODE_MIN_EPISODE_PROB',
+                                          'min_seconds': 'DECODE_MIN_EPISODE_SECONDS',
+                                          'merge_gap': 'DECODE_MERGE_GAP_SECONDS'}[k])), **v) \
+            if isinstance(v, dict) else v
+    cls, _probs = decode_track(rhythm, p_noise, step_hz=step_hz, **d)
+    if beats is not None and beat_pp:
+        cls, _symbols = beats_pp.postprocess(cls, beats, step_hz, criteria, options)
+    if beats is not None and trim:
+        cls = beats_pp.trim_to_beats(cls, beats, step_hz, trim)
+    return cls
+
+
+def afib_record_gate(episodes, cls, rhythm, p_noise, step_hz, gate=True, redecode=None):
+    """Record-level AF gate (rc.AFIB_GATE_DEFAULT): a Holter-length record without one sustained,
+    confident AFIB episode has all its AFIB calls turned into SINUS (the other classes and the
+    beats are untouched). A record WITH one is AF-confirmed: when the gate carries 'relaxed'
+    (AFIB acceptance knobs, e.g. {'min_prob': {'AFIB': 0.5}}) and `redecode` is given, its
+    track is decoded again with them (brief AF in a known AF patient is accepted more readily).
+    Returns the (possibly re-cut) episodes."""
+    g = dict(rc.AFIB_GATE_DEFAULT, **(gate if isinstance(gate, dict) else {}))
+    if len(rhythm) / step_hz < g['min_record']:
+        return episodes
+    af = [e for e in episodes if e['rhythm'] == 'AFIB']
+    if not af:
+        return episodes
+    if any(e['stop'] - e['start'] >= g['sustained'] and e['prob'] >= g['min_prob'] for e in af):
+        if g.get('relaxed') and redecode is not None:
+            return episodes_from_track(redecode(g['relaxed']), rhythm, p_noise, step_hz)
+        return episodes
+    cls = np.where(cls == rc.CLASS_NAMES.index('AFIB'), rc.SINUS, cls)
+    return episodes_from_track(cls, rhythm, p_noise, step_hz)
 
 
 # ---------------------------------------------------------------------------
-# Stage 2: decoding -> per-class annotation files
+# Per record, part 2: decoding + beat post-processing -> annotation files
 # ---------------------------------------------------------------------------
 
-def write_hypothesis(ann_dir, name, classes, decode=None):
-    """Decode the stored probabilities of one record and write its all-class .rhi plus one
-    hypothesis file per class. `decode` = keyword arguments of labels.decode_episodes.
-    Returns the episodes, or None when the record has no npz yet."""
-    stored = load_probs(ann_dir, name)
-    if stored is None:
-        return None
-    rhythm, p_noise, fs, sig_len, step_hz = stored
-    beats = load_beats(ann_dir, name)
+def write_record_annotations(ann_dir, name, rhythm, p_noise, fs, sig_len, step_hz, beats,
+                             classes, decode=None):
+    """Post-process one record's probabilities (decode_record: step decoding, then the beat
+    stage) and write everything the scoring tools read: the all-class .rhi, the beat
+    hypotheses .bti (when the model has beats) and one hypothesis file per class. `decode` =
+    labels.decode_episodes keyword arguments plus beat_pp / beat_criteria / beat_options.
+    Returns the episodes."""
     episodes, symbols = decode_record(rhythm, p_noise, step_hz, beats, decode)
     wfdb_ann.write_episode_annotations(episodes, name, ann_dir, rc.RHYTHM_AI_EXTENSION, fs)
     if beats is not None:
@@ -212,6 +266,32 @@ def write_hypothesis(ann_dir, name, classes, decode=None):
         _ref, hyp = rc.class_extensions(cls)
         wfdb_ann.write_class_annotations(episodes, cls, name, ann_dir, hyp, fs, sig_len // fs)
     return episodes
+
+
+def write_hypothesis(ann_dir, name, classes, decode=None):
+    """write_record_annotations fed from the stored npz: re-decodes a record without the
+    model (--decode-only, the sweep, the validation tuning). Returns the episodes, or None
+    when the record has no npz yet."""
+    stored = load_probs(ann_dir, name)
+    if stored is None:
+        return None
+    rhythm, p_noise, fs, sig_len, step_hz = stored
+    return write_record_annotations(ann_dir, name, rhythm, p_noise, fs, sig_len, step_hz,
+                                    load_beats(ann_dir, name), classes, decode)
+
+
+def predict_and_annotate(model, path, ann_dir, name, classes, decode=None, reference=None):
+    """The whole per-record pipeline: predict -> store the npz -> decode + beat
+    post-processing -> write the hypothesis annotations, then `reference(name, fs, sig_len)`
+    (a callable writing that record's per-class reference files) when given. Returns
+    (episodes, fs, sig_len)."""
+    rhythm, p_noise, fs, sig_len, step_hz, beats = predict_record_probs(model, path)
+    save_probs(ann_dir, name, rhythm, p_noise, fs, sig_len, step_hz, beats)
+    episodes = write_record_annotations(ann_dir, name, rhythm, p_noise, fs, sig_len, step_hz,
+                                        beats, classes, decode)
+    if reference is not None:
+        reference(name, fs, sig_len)
+    return episodes, fs, sig_len
 
 
 def write_physionet_reference(src_dir, ann_dir, name, classes):
@@ -238,7 +318,7 @@ def write_eval_reference(ev, ann_dir, name, length, fs, classes):
 
 
 # ---------------------------------------------------------------------------
-# Stage 3: epicmp, one pass per class
+# Per database: the WFDB tools only - epicmp (one pass per class), bxb (beats) -> reports
 # ---------------------------------------------------------------------------
 
 def _link(src, dst):
@@ -347,6 +427,25 @@ def _print_db_rows(ec57_out, db_name):
               + "  ".join(f"{m}={r.get(m, '?')}" for m in report.EPISODE_COLUMNS[3:]))
 
 
+def score_db_reports(db_name, ec57_out, records, classes, link_record, script,
+                     beat_ref_dir=None):
+    """The database stage: no model, no decoding - only the WFDB tools over the annotation
+    files already under <ec57_out>/_ann/<db>/. epicmp per class -> the rhythm report lines,
+    then (PhysioNet only, `beat_ref_dir` = the records' directory) bxb -> the beat report.
+    Returns {class: report path or None}."""
+    if not records:
+        print(f"{db_name}: nothing to score")
+        return None
+    paths = score_classes(db_name, ec57_out, records, classes, link_record, script)
+    _print_db_rows(ec57_out, db_name)
+    if beat_ref_dir is not None:
+        try:
+            score_beats(db_name, ec57_out, records, link_record, beat_ref_dir)
+        except Exception as e:                   # beat scoring never blocks the rhythm report
+            print(f"  beat scoring skipped: {e}")
+    return paths
+
+
 # ---------------------------------------------------------------------------
 # Physionet EC57 databases
 # ---------------------------------------------------------------------------
@@ -392,8 +491,9 @@ def physionet_linker(src_dir):
 
 def decode_physionet_db(db_name, ec57_out, records=None, classes=None, decode=None,
                         references=True, quiet=False, include_excluded=False):
-    """Stage 2 for one database: hypothesis files for every stored record (and the per-class
-    references from .atr). Returns the records that have stored probabilities."""
+    """Re-decode one database from its stored npz (--decode-only, the sweep): hypothesis
+    files for every stored record (and the per-class references from .atr). Returns the
+    records that have stored probabilities."""
     src_dir, all_records = physionet_records(db_name, include_excluded=include_excluded)
     records = records if records is not None else all_records
     ann_dir = annotation_dir(ec57_out, db_name)
@@ -425,33 +525,30 @@ def score_physionet_rhythm_db(model, db_name, ec57_out, max_records=None, decode
 
     ann_dir = annotation_dir(ec57_out, db_name)
     os.makedirs(ann_dir, exist_ok=True)
+    db_classes = classes_for_db(db_name, classes)
     if decode_only:
         print(f"  --decode-only: reusing the stored probabilities in {ann_dir}")
+        ready = decode_physionet_db(db_name, ec57_out, records, classes, decode,
+                                    include_excluded=include_excluded)
     else:
+        # per record: predict -> npz -> decode + beat post-processing -> annotations
+        ready = []
         for i, name in enumerate(records, 1):
             try:
-                *probs, fs, sig_len, step_hz, beats = predict_record_probs(
-                    model, os.path.join(src_dir, name))
-                save_probs(ann_dir, name, *probs, fs, sig_len, step_hz, beats)
+                _eps, fs, sig_len = predict_and_annotate(
+                    model, os.path.join(src_dir, name), ann_dir, name, db_classes, decode,
+                    reference=lambda n, _fs, _len: write_physionet_reference(
+                        src_dir, ann_dir, n, db_classes))
+                ready.append(name)
                 if i % 20 == 0 or i == len(records):
-                    print(f"  {i}/{len(records)} records predicted (last: {name}, "
-                          f"{sig_len // fs} s)")
+                    print(f"  {i}/{len(records)} records predicted + annotated (last: "
+                          f"{name}, {sig_len // fs} s)")
             except Exception as e:
                 print(f"  error on {name}: {e}")
 
-    ready = decode_physionet_db(db_name, ec57_out, records, classes, decode,
-                                include_excluded=include_excluded)
-    if not ready:
-        print(f"{db_name}: nothing to score")
-        return None
-    paths = score_classes(db_name, ec57_out, ready, classes_for_db(db_name, classes),
-                          physionet_linker(src_dir), epicmp.SCRIPT_FULL)
-    _print_db_rows(ec57_out, db_name)
-    try:
-        score_beats(db_name, ec57_out, ready, physionet_linker(src_dir), src_dir)
-    except Exception as e:                       # beat scoring never blocks the rhythm report
-        print(f"  beat scoring skipped: {e}")
-    return paths
+    # per database: the WFDB tools -> report lines
+    return score_db_reports(db_name, ec57_out, ready, db_classes, physionet_linker(src_dir),
+                            epicmp.SCRIPT_FULL, beat_ref_dir=src_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -504,7 +601,8 @@ def eval_linker(events):
 
 def decode_rhythm_eval(events, ec57_out, classes=None, decode=None, references=True,
                        quiet=False):
-    """Stage 2 for the holdout. Returns the flat names that have stored probabilities."""
+    """Re-decode the holdout from its stored npz (--decode-only, the sweep). Returns the
+    flat names that have stored probabilities."""
     ann_dir = annotation_dir(ec57_out, RHYTHM_EVAL)
     classes = classes_for_db(RHYTHM_EVAL, classes)
     ready = []
@@ -531,33 +629,34 @@ def score_rhythm_eval(model, ec57_out, max_records=None, decode_only=False, clas
 
     ann_dir = annotation_dir(ec57_out, RHYTHM_EVAL)
     os.makedirs(ann_dir, exist_ok=True)
+    db_classes = classes_for_db(RHYTHM_EVAL, classes)
     if decode_only:
         print(f"  --decode-only: reusing the stored probabilities in {ann_dir}")
+        ready = decode_rhythm_eval(events, ec57_out, classes, decode)
     else:
-        errors = 0
+        # per event: predict -> npz -> decode + beat post-processing -> annotations
+        ready, errors = [], 0
         for i, ev in enumerate(events, 1):
             name = eval_record_name(ev)
             try:
-                *probs, fs, sig_len, step_hz, beats = predict_record_probs(model, ev['record'])
-                save_probs(ann_dir, name, *probs, fs, sig_len, step_hz, beats)
+                predict_and_annotate(
+                    model, ev['record'], ann_dir, name, db_classes, decode,
+                    reference=lambda n, fs, sig_len, ev=ev: write_eval_reference(
+                        ev, ann_dir, n, sig_len, fs, db_classes))
+                ready.append(name)
             except Exception as e:
                 errors += 1
                 if errors <= 3:
                     print(f"  error on {name}: {e}")
             if i % 500 == 0 or i == len(events):
-                print(f"  {i}/{len(events)} events predicted")
+                print(f"  {i}/{len(events)} events predicted + annotated")
         if errors:
             print(f"  {errors} events failed")
 
-    ready = decode_rhythm_eval(events, ec57_out, classes, decode)
-    if not ready:
-        print(f"{RHYTHM_EVAL}: nothing to score")
-        return None
-    # 10-60 s strips - far shorter than epicmp's default 5-minute start, hence SCRIPT_SHORT.
-    paths = score_classes(RHYTHM_EVAL, ec57_out, ready, classes_for_db(RHYTHM_EVAL, classes),
-                          eval_linker(events), epicmp.SCRIPT_SHORT)
-    _print_db_rows(ec57_out, RHYTHM_EVAL)
-    return paths
+    # per database: epicmp only (no beat reference on the holdout). 10-60 s strips - far
+    # shorter than epicmp's default 5-minute start, hence SCRIPT_SHORT.
+    return score_db_reports(RHYTHM_EVAL, ec57_out, ready, db_classes, eval_linker(events),
+                            epicmp.SCRIPT_SHORT)
 
 
 # ---------------------------------------------------------------------------

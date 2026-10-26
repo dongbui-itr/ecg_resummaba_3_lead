@@ -1,0 +1,118 @@
+{
+ "decode": {
+  "class_scale": {
+   "SINUS": 2.24,
+   "AFIB": 1.2249999999999999,
+   "SVT": 1.8625,
+   "VT": 1.5125,
+   "AVB": 1.22
+  },
+  "min_seconds": {
+   "AFIB": 3,
+   "SVT": 1,
+   "VT": 1,
+   "AVB": 3
+  },
+  "min_prob": {
+   "AFIB": 0.6,
+   "VT": 0.5,
+   "AVB": 0.6
+  },
+  "merge_gap": {
+   "AFIB": 5,
+   "SVT": 2,
+   "VT": 0,
+   "AVB": 0
+  },
+  "smooth_seconds": {
+   "SINUS": 1,
+   "AFIB": 1,
+   "SVT": 0.5,
+   "VT": 0.5,
+   "AVB": 1
+  },
+  "context_rule": {},
+  "trim": {
+   "VT": 0.1
+  },
+  "beat_pp": true,
+  "beat_criteria": {
+   "AFIB": {
+    "duration": 3.0
+   },
+   "VT": {
+    "num_beat": 3,
+    "run": 3,
+    "min_hr": 100.0
+   },
+   "SVT": {
+    "num_beat": 3,
+    "run": 3,
+    "min_hr": 100.0,
+    "min_frac": 0.5,
+    "onset_ratio": 1.25
+   },
+   "AVB": {
+    "duration": 2.5,
+    "max_hr": 65
+   },
+   "SINUS": {
+    "duration": 12
+   }
+  },
+  "beat_options": {
+   "long_invalid": 20,
+   "runs_to_rhythm": {
+    "VT": false,
+    "SVT": false
+   },
+   "s_prematurity": 0.0,
+   "s_in_afib_to_n": false
+  },
+  "v_margin": 0,
+  "s_margin": 0
+ },
+ "knobs": {
+  "scale_AFIB": 0.7,
+  "scale_SVT": 1.25,
+  "scale_VT": 1.25,
+  "scale_AVB": 1.0,
+  "min_AFIB": 3,
+  "min_SVT": 1,
+  "min_VT": 1,
+  "min_AVB": 3,
+  "prob_AFIB": 0.6,
+  "prob_SVT": 0,
+  "prob_VT": 0.5,
+  "prob_AVB": 0.6,
+  "gap_AFIB": 5,
+  "gap_SVT": 2,
+  "gap_VT": 0,
+  "smooth_AFIB": 1,
+  "smooth_SVT": 0.5,
+  "smooth_VT": 0.5,
+  "smooth_AVB": 1,
+  "ctx_AFIB": null,
+  "ctx_AVB": null,
+  "trim_SVT": null,
+  "trim_VT": 0.1,
+  "beat_pp": true,
+  "vt_hr": 100.0,
+  "svt_hr": 100.0,
+  "svt_frac": 0.5,
+  "onset": 1.25,
+  "sinus": 12,
+  "long_inv": 20,
+  "runs_vt": false,
+  "runs_svt": false,
+  "avb_dur": 2.5,
+  "avb_maxhr": 65,
+  "s_prem": 0.0,
+  "s_afib_n": false,
+  "v_margin": 0,
+  "s_margin": 0
+ },
+ "score": -148.04211237497688,
+ "shortfall": 100.32907226854793,
+ "guard": 4.773738643253864
+}

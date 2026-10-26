@@ -1,0 +1,43 @@
+2026-10-16 17:09:52.403661: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-16 17:09:52.452022: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-10-16 17:09:53.544393: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+xla          : --xla_gpu_cuda_data_dir=/usr/local/cuda
+1 GPU(s)
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1792145395.287591 1825924 gpu_device.cc:2020] Created device /job:localhost/replica:0/task:0/device:GPU:0 with 18751 MB memory:  -> device: 0, name: NVIDIA RTX A5000, pci bus id: 0000:01:00.0, compute capability: 8.6
+2026-10-16 17:09:58.997347: I external/local_xla/xla/service/service.cc:163] XLA service 0x7534b8045b40 initialized for platform CUDA (this does not guarantee that XLA will be used). Devices:
+2026-10-16 17:09:58.997377: I external/local_xla/xla/service/service.cc:171]   StreamExecutor device (0): NVIDIA RTX A5000, Compute Capability 8.6
+2026-10-16 17:09:59.164887: I tensorflow/compiler/mlir/tensorflow/utils/dump_mlir_util.cc:269] disabling MLIR crash reproducer, set env var `MLIR_CRASH_REPRODUCER_DIRECTORY` to enable.
+2026-10-16 17:09:59.730332: I external/local_xla/xla/stream_executor/cuda/cuda_dnn.cc:473] Loaded cuDNN version 92600
+2026-10-16 17:10:00.164295: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2267', 24 bytes spill stores, 24 bytes spill loads
+
+2026-10-16 17:10:00.174429: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2267', 12 bytes spill stores, 12 bytes spill loads
+
+2026-10-16 17:10:00.181590: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2267', 12 bytes spill stores, 12 bytes spill loads
+
+2026-10-16 17:10:02.899047: W external/local_xla/xla/tsl/framework/bfc_allocator.cc:382] Garbage collection: deallocate free memory regions (i.e., allocations) so that we can re-allocate a larger region to avoid OOM due to memory fragmentation. If you see this message frequently, you are running near the threshold of the available device memory and re-allocation may incur great performance overhead. You may try smaller batch sizes to observe the performance impact. Set TF_ENABLE_GPU_GARBAGE_COLLECTION=false if you'd like to disable this feature.
+I0000 00:00:1792145408.068416 1826094 device_compiler.h:196] Compiled cluster using XLA!  This line is logged at most once for the lifetime of the process.
+2026-10-16 17:10:21.712701: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2830', 12 bytes spill stores, 12 bytes spill loads
+
+2026-10-16 17:10:21.734359: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2830', 24 bytes spill stores, 24 bytes spill loads
+
+2026-10-16 17:10:21.785398: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2830', 12 bytes spill stores, 12 bytes spill loads
+
+  500/4719 records predicted
+  1000/4719 records predicted
+  1500/4719 records predicted
+  2000/4719 records predicted
+  2500/4719 records predicted
+  3000/4719 records predicted
+  3500/4719 records predicted
+  4000/4719 records predicted
+2026-10-16 17:20:35.597000: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2830', 12 bytes spill stores, 12 bytes spill loads
+
+2026-10-16 17:20:35.606742: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2830', 12 bytes spill stores, 12 bytes spill loads
+
+2026-10-16 17:20:35.621668: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2830', 24 bytes spill stores, 24 bytes spill loads
+
+  4500/4719 records predicted
+  4719/4719 records predicted
+PREDICT_DONE pplus3_e2

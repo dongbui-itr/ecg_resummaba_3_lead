@@ -1,0 +1,9 @@
+2026-10-16 13:44:39.166719: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-16 13:44:39.197580: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-10-16 13:44:39.839889: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+holter: 42 records {'ltafdb': 15, 'nsrdb': 2, 'incartdb': 9, 'svdb': 16}
+strip_val2: 4719 of 4719 events have npz
+START score -117.43 shortfall 117.4 guard 0.0
+sweep 0 scale_AFIB=           0.7 -> score -116.04 short 114.3 guard 0.9
+sweep 0 gap_SVT=             2 -> score -115.27 short 113.9 guard 0.7

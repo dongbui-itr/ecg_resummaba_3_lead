@@ -1,0 +1,28 @@
+[17:49:25] dual1m_ft2_best
+===== rhythm ltafdb: 15 records, classes ['AFIB', 'SVT', 'VT'] =====
+  error on 08: Graph execution error:
+  error on 104: Graph execution error:
+  error on 11: Graph execution error:
+  15/15 records predicted (last: 72, 87420 s)
+  ltafdb       AFIB  records=   12  E_Se=74  E_+P=95  E_F1=83.2  D_Se=98  D_+P=100  D_F1=99.0
+  ltafdb       SVT   records=   12  E_Se=7  E_+P=10  E_F1=8.2  D_Se=6  D_+P=4  D_F1=4.8
+  ltafdb       VT    records=   12  E_Se=22  E_+P=73  E_F1=33.8  D_Se=33  D_+P=62  D_F1=43.1
+===== rhythm nsrdb: 2 records, classes ['AFIB', 'SVT', 'VT', 'AVB'] =====
+  2/2 records predicted (last: 19093, 83640 s)
+  nsrdb        AFIB  records=    2  E_Se=-  E_+P=0  E_F1=-  D_Se=-  D_+P=0  D_F1=-
+  nsrdb        AVB   records=    2  E_Se=-  E_+P=-  E_F1=-  D_Se=-  D_+P=-  D_F1=-
+  nsrdb        SVT   records=    2  E_Se=-  E_+P=0  E_F1=-  D_Se=-  D_+P=0  D_F1=-
+  nsrdb        VT    records=    2  E_Se=-  E_+P=-  E_F1=-  D_Se=-  D_+P=-  D_F1=-
+===== rhythm incartdb: 9 records, classes ['AFIB', 'SVT', 'VT', 'AVB'] =====
+  9/9 records predicted (last: I64, 1800 s)
+  incartdb     AFIB  records=    9  E_Se=-  E_+P=-  E_F1=-  D_Se=-  D_+P=-  D_F1=-
+  incartdb     AVB   records=    9  E_Se=-  E_+P=-  E_F1=-  D_Se=-  D_+P=-  D_F1=-
+  incartdb     SVT   records=    9  E_Se=-  E_+P=0  E_F1=-  D_Se=-  D_+P=0  D_F1=-
+  incartdb     VT    records=    9  E_Se=-  E_+P=0  E_F1=-  D_Se=-  D_+P=0  D_F1=-
+===== rhythm svdb: 16 records, classes ['AFIB', 'SVT', 'VT', 'AVB'] =====
+  16/16 records predicted (last: 877, 1800 s)
+  svdb         AFIB  records=   16  E_Se=-  E_+P=0  E_F1=-  D_Se=-  D_+P=0  D_F1=-
+  svdb         AVB   records=   16  E_Se=-  E_+P=-  E_F1=-  D_Se=-  D_+P=-  D_F1=-
+  svdb         SVT   records=   16  E_Se=-  E_+P=0  E_F1=-  D_Se=-  D_+P=0  D_F1=-
+  svdb         VT    records=   16  E_Se=-  E_+P=0  E_F1=-  D_Se=-  D_+P=0  D_F1=-
+[17:56:20] dual1m_ft2_best HOLTER_DONE

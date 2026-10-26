@@ -78,6 +78,9 @@ def class_codes(episodes, target, n_seconds, keep_afl=False, grid_hz=None):
     return codes
 
 
+# [VI] Ghi file annotation cho MỘT lớp: chỉ ghi dấu '+' tại t = 0 và tại mỗi lần mã đổi, nên
+# các episode liên tiếp cùng mã tự gộp thành một annotation (gộp khi ghi, không đổi nội dung).
+# Record không có lớp mục tiêu vẫn được ghi một '(N' để epicmp chấm đủ mọi record.
 def write_class_annotations(episodes, target, record_name, out_dir, extension, fs, n_seconds,
                             keep_afl=False, grid_hz=None):
     """One `+` at time 0 and at every code change of class_codes(...) - consecutive equal
@@ -118,6 +121,9 @@ def write_beat_annotations(times, classes, record_name, out_dir, extension, fs):
     return int(keep.sum())
 
 
+# [VI] Đọc mốc rhythm '+' trong .atr của Physionet: mỗi mốc có hiệu lực đến mốc kế tiếp, mốc
+# cuối đến hết record. Mã không ánh xạ được (rc.PHYSIONET_AUX_TO_CLASS) -> SINUS; riêng '(AFL'
+# giữ thành lớp giả 'AFL' để pass AFIB chạy epicmp -x loại flutter khỏi phần +P.
 def atr_reference_episodes(record_path, aux_to_class=None):
     """A Physionet record's `+` rhythm marks -> episodes in seconds (decode_episodes' shape).
 

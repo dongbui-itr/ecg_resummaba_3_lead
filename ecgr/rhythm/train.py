@@ -272,10 +272,13 @@ class BeatMatchLog(tf.keras.callbacks.Callback):
 
 def train(model_name, epochs=None, batch_size=None, lr=None, patience=None,
           steps_per_epoch=None, max_windows=None, init_from=None, backbone_from=None,
-          init_matching_from=None, freeze_epochs=0, lr2=None, sampler=None, schedule=None):
+          init_matching_from=None, freeze_epochs=0, lr2=None, sampler=None, schedule=None,
+          train_only=None):
     """init_matching_from + freeze_epochs: warm start (init_matching), train only the layers
     it did not fill for `freeze_epochs` epochs at `lr`, then everything at `lr2` (default
-    lr / 5) for the remaining epochs. sampler: rc.SAMPLER; schedule: rc.LR_SCHEDULE."""
+    lr / 5) for the remaining epochs. sampler: rc.SAMPLER; schedule: rc.LR_SCHEDULE.
+    train_only: regex on layer names; every other layer is frozen for the whole run (e.g.
+    '^(pos[123]|beat_pos|type)' = the beat decoder of the dual U-Net only)."""
     setup_gpus()
     batch_size = batch_size or rc.BATCH_SIZE
     epochs = epochs or rc.EPOCHS
@@ -296,6 +299,13 @@ def train(model_name, epochs=None, batch_size=None, lr=None, patience=None,
         warm = init_matching(model, init_matching_from)
     if freeze_epochs and not warm:
         raise ValueError("--freeze-epochs needs --init-matching")
+    if train_only:
+        import re
+        kept = [layer.name for layer in _all_layers(model) if re.search(train_only, layer.name)]
+        for layer in _all_layers(model):
+            layer.trainable = layer.name in kept
+        print(f"train-only   : /{train_only}/ -> {len(kept)} layers trainable, the rest frozen "
+              f"(incl. BatchNorm statistics)")
 
     steps = rmodel.rhythm_steps(model)
     outputs = rmodel.output_names(model)
@@ -360,7 +370,7 @@ def train(model_name, epochs=None, batch_size=None, lr=None, patience=None,
                    'class_weights': weights, 'sampler': sampler,
                    'sampler_repeat': repeat, 'batch_size': batch_size, 'lr': lr, 'lr2': lr2,
                    'schedule': schedule, 'freeze_epochs': freeze_epochs,
-                   'init_from': init_from, 'backbone_from': backbone_from,
+                   'train_only': train_only, 'init_from': init_from, 'backbone_from': backbone_from,
                    'init_matching_from': init_matching_from, 'npy_dir': rc.NPY_DIR},
                   f, indent=2)
 

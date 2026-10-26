@@ -99,6 +99,8 @@ chỉ đọc nhánh V, nên template không phụ thuộc vòng vào nhánh A.
   - Loss và metric chạy được, save/load khớp, `predict_signal` trả đúng định dạng.
 - Bộ test cũ: 228 pass, 11 skip. Một test fail có sẵn từ trước, không liên quan:
   `test_evaluate.py` cần `checkpoints/resumamba_1m.keras`, file này không có trên máy.
+  (15/10/2026: `evaluate.py` beat và test đó đã được thay bằng `evaluate.py` rhythm và
+  `tests/test_evaluate.py` mới cho checkpoint `dualunet_rhythm_1m_e26`.)
 - Chạy thử trên GPU (dữ liệu thật, 2 epoch × 20 bước): pipeline thông suốt, khoảng 122 ms/bước
   ở batch 64, nghĩa là khoảng 6 phút/epoch với 2913 bước. **Chưa có kết quả train đầy đủ hay
   EC57.**

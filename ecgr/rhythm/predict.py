@@ -27,11 +27,25 @@ from .labels import decode_episodes, to_current_classes
 from .model import rhythm_steps
 
 
+def window_hop_samples(overlap_seconds=None):
+    """Samples between consecutive window starts for an overlap of `overlap_seconds` (default
+    rc.PREDICT_OVERLAP_SECONDS) between two consecutive windows: segment - overlap, rounded
+    (half up) to the probability grid of 1 / rc.SAMPLE_PROBS_HZ s = 40 ms so every window start
+    lands on a step of predict_signal's accumulators. Overlap 0 = back-to-back, 5 = half;
+    9.5 -> a 0.5 s step rounded to 0.52 s (effective overlap 9.48 s, ~19 windows per step)."""
+    overlap = rc.PREDICT_OVERLAP_SECONDS if overlap_seconds is None else overlap_seconds
+    if not 0 <= overlap < rc.SEGMENT_SECONDS:
+        raise ValueError(f"overlap must be in [0, {rc.SEGMENT_SECONDS}) s, got {overlap}")
+    grid = rc.SECOND_SAMPLES // rc.SAMPLE_PROBS_HZ                         # 10 samples
+    step_seconds = rc.SEGMENT_SECONDS - overlap
+    return max(grid, int(step_seconds * rc.SECOND_SAMPLES / grid + 0.5) * grid)
+
+
 def window_starts(length, segment=rc.SEGMENT_SAMPLES, hop=None):
-    """Starts every `hop` samples (default rc.PREDICT_HOP_SECONDS whole seconds; 10 s = no
-    overlap), second-aligned, the last one ending at the record's last second."""
+    """Window starts `hop` samples apart (default window_hop_samples(), i.e. from
+    rc.PREDICT_OVERLAP_SECONDS). The last window ends at the record's last second."""
     if hop is None:
-        hop = max(1, int(round(rc.PREDICT_HOP_SECONDS))) * rc.SECOND_SAMPLES
+        hop = window_hop_samples()
     if length <= segment:
         return [0]
     starts = list(range(0, length - segment + 1, hop))

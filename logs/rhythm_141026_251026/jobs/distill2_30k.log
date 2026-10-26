@@ -1,0 +1,41 @@
+[21:23:26] 30k: distill from beatft2_e2 teacher (KD a=0.5 T=2), ssl /media/Project/ECG/Model_Dong/ecgr_rhythm/151026_rhythm_dual_small_v4/checkpoints/dualunet_rhythm_30k/ssl_encoder.keras
+teacher      : dualunet_rhythm_1m, 988,773 params (frozen)
+EPOCH 1  val_rhythm_f1=0.7064
+EPOCH 1  beat: f1(N,S,V)=0.7521
+EPOCH 2  val_rhythm_f1=0.7406
+EPOCH 2  beat: f1(N,S,V)=0.7606
+EPOCH 3  val_rhythm_f1=0.7284
+EPOCH 3  beat: f1(N,S,V)=0.8070
+EPOCH 4  val_rhythm_f1=0.7735
+EPOCH 4  beat: f1(N,S,V)=0.8224
+EPOCH 5  val_rhythm_f1=0.8010
+EPOCH 5  beat: f1(N,S,V)=0.8260
+EPOCH 6  val_rhythm_f1=0.7987
+EPOCH 6  beat: f1(N,S,V)=0.8051
+EPOCH 7  val_rhythm_f1=0.7941
+EPOCH 7  beat: f1(N,S,V)=0.8114
+EPOCH 8  val_rhythm_f1=0.8219
+EPOCH 8  beat: f1(N,S,V)=0.8338
+EPOCH 9  val_rhythm_f1=0.8276
+EPOCH 9  beat: f1(N,S,V)=0.8365
+EPOCH 10  val_rhythm_f1=0.8063
+EPOCH 10  beat: f1(N,S,V)=0.8193
+EPOCH 11  val_rhythm_f1=0.8272
+EPOCH 11  beat: f1(N,S,V)=0.8427
+EPOCH 12  val_rhythm_f1=0.8000
+EPOCH 12  beat: f1(N,S,V)=0.8061
+EPOCH 13  val_rhythm_f1=0.8188
+EPOCH 13  beat: f1(N,S,V)=0.8002
+EPOCH 14  val_rhythm_f1=0.8215
+EPOCH 14  beat: f1(N,S,V)=0.8191
+EPOCH 15  val_rhythm_f1=0.8052
+EPOCH 15  beat: f1(N,S,V)=0.8149
+EPOCH 16  val_rhythm_f1=0.8202
+EPOCH 16  beat: f1(N,S,V)=0.8348
+EPOCH 17  val_rhythm_f1=0.8253
+EPOCH 17  beat: f1(N,S,V)=0.8340
+distillation finished; student checkpoints in /media/Project/ECG/Model_Dong/ecgr_rhythm/191026_rhythm_dual_small_distill2/checkpoints/dualunet_rhythm_30k
+[01:57:45] 30k: validation inference (overlap 1)
+[02:16:27] 30k: decoder tune on validation (own guard, SE_TOL=3)
+[02:28:12] 30k: EC57 + dataset-eval v4 (once)
+[03:04:33] DISTILL2_DONE 30k

@@ -1,0 +1,35 @@
+[21:03:01] e36rhy_R2_e05: EC57 overlap 1 s, decode /media/Project/ECG/Model_Dong/ecgr_rhythm/summary_111026/strip_eval/tune_pplus_rA_e36/tuned_decode.json
+===== rhythm mitdb: 44 records, classes ['AFIB', 'SVT', 'VT', 'AVB'] =====
+  mitdb        AFIB  records=   44  E_Se=90  E_+P=51  E_F1=65.1  D_Se=96  D_+P=73  D_F1=82.9
+  mitdb        AVB   records=   44  E_Se=100  E_+P=42  E_F1=59.2  D_Se=99  D_+P=91  D_F1=94.8
+  mitdb        SVT   records=   44  E_Se=54  E_+P=33  E_F1=41.0  D_Se=53  D_+P=39  D_F1=44.9
+  mitdb        VT    records=   44  E_Se=37  E_+P=81  E_F1=50.8  D_Se=41  D_+P=59  D_F1=48.4
+  beats mitdb: Q_Se=99.91 Q_+P=99.92 V_Se=93.37 V_+P=94.85 S_Se=60.33 S_+P=63.72 total_QRS=83978 total_VEB=5900 total_SVEB=2745 records=44
+===== rhythm nstdb: 12 records, classes ['AFIB', 'SVT', 'VT', 'AVB'] =====
+  nstdb        AFIB  records=   12  E_Se=-  E_+P=-  E_F1=-  D_Se=-  D_+P=-  D_F1=-
+  nstdb        AVB   records=   12  E_Se=-  E_+P=-  E_F1=-  D_Se=-  D_+P=-  D_F1=-
+  nstdb        SVT   records=   12  E_Se=-  E_+P=-  E_F1=-  D_Se=-  D_+P=-  D_F1=-
+  nstdb        VT    records=   12  E_Se=-  E_+P=0  E_F1=-  D_Se=-  D_+P=0  D_F1=-
+  beats nstdb: Q_Se=96.39 Q_+P=91.67 V_Se=92.35 V_+P=74.66 S_Se=77.52 S_+P=38.17 total_QRS=21462 total_VEB=2262 total_SVEB=516 records=12
+===== rhythm escdb: 90 records, classes ['SVT', 'VT'] =====
+  escdb        SVT   records=   90  E_Se=0  E_+P=0  E_F1=-  D_Se=0  D_+P=0  D_F1=-
+  escdb        VT    records=   90  E_Se=27  E_+P=96  E_F1=42.1  D_Se=31  D_+P=88  D_F1=45.8
+  beats escdb: Q_Se=99.99 Q_+P=99.95 V_Se=95.36 V_+P=95.56 S_Se=61.77 S_+P=11.25 total_QRS=759878 total_VEB=4375 total_SVEB=1075 records=90
+===== rhythm ahadb: 79 records, classes ['AFIB', 'SVT', 'VT', 'AVB'] =====
+  ahadb        AFIB  records=   79  E_Se=-  E_+P=0  E_F1=-  D_Se=-  D_+P=0  D_F1=-
+  ahadb        AVB   records=   79  E_Se=-  E_+P=0  E_F1=-  D_Se=-  D_+P=0  D_F1=-
+  ahadb        SVT   records=   79  E_Se=-  E_+P=0  E_F1=-  D_Se=-  D_+P=0  D_F1=-
+  ahadb        VT    records=   79  E_Se=-  E_+P=0  E_F1=-  D_Se=-  D_+P=0  D_F1=-
+  beats ahadb: Q_Se=99.78 Q_+P=99.75 V_Se=83.15 V_+P=98.88 S_Se=- S_+P=0.00 total_QRS=179010 total_VEB=16496 total_SVEB=0 records=79
+===== rhythm afdb: 23 records, classes ['AFIB'] =====
+  afdb         AFIB  records=   23  E_Se=92  E_+P=82  E_F1=86.7  D_Se=98  D_+P=99  D_F1=98.5
+  beats afdb: Q_Se=97.55 Q_+P=95.43 V_Se=- V_+P=0.00 S_Se=- S_+P=0.00 total_QRS=1119211 total_VEB=0 total_SVEB=0 records=23
+[21:06:48] e36rhy_R2_e05: test split
+macro F1 (per second, clean labelled seconds): 81.93
+macro F1 (per second, clean labelled seconds): 80.95
+macro F1 (per second, clean labelled seconds): 80.43
+macro F1 (per second, clean labelled seconds): 80.38
+macro F1 (per second, clean labelled seconds): 81.12
+macro F1 (per second, clean labelled seconds): 80.03
+report -> /media/Project/ECG/Model_Dong/ecgr_rhythm/summary_111026/eval/e36rhy_R2_e05/epoch_05_test_eval.txt
+[21:07:26] e36rhy_R2_e05: EC57_DONE

@@ -1,0 +1,27 @@
+[18:20:40] 1m: Holter validation ready; bar from the base model (official decode)
+Exception ignored in: <_io.TextIOWrapper name='<stdout>' mode='w' encoding='utf-8'>
+BrokenPipeError: [Errno 32] Broken pipe
+[18:20:46] 1m: v2 strip inference for the base model
+PREDICT_DONE dual1m_s1_e26
+[18:24:26] 1m: tune dual1m_s1_e26 (strip_val2 + Holter bar)
+start: shortfall 88.2, cells met 30/36, Holter below bar [('ltafdb|SVT|E', np.float64(5.2), 17.8), ('ltafdb|SVT|D', np.float64(3.7), 10.6), ('ltafdb|VT|E', np.float64(43.7), 62.1), ('ltafdb|VT|D', np.float64(48.8), 54.7), ('FP/h SVT', np.float64(0.581), 0.439)]
+**32/36 target cells met; smallest margin -12.0**
+below target: epicmp AFIB E Se 89.7<90, epicmp AFIB E +P 93.1<94, epicmp SVT E Se 77.0<89, epicmp VT D +P 85.6<86
+Holter validation below the base bar: [('FP/h SVT', np.float64(0.574), 0.439), ('FP/h VT', np.float64(0.214), 0.128)]
+-> /media/Project/ECG/Model_Dong/ecgr_rhythm/summary_111026/strip_eval/tunedH_dual1m_s1_e26.json
+[18:43:34] 1m: tune dual1m_ft2_best (strip_val2 + Holter bar)
+start: shortfall 53.2, cells met 34/36, Holter below bar [('ltafdb|SVT|E', np.float64(14.6), 17.8), ('ltafdb|SVT|D', np.float64(7.9), 10.6), ('ltafdb|VT|E', np.float64(44.7), 62.1), ('ltafdb|VT|D', np.float64(48.3), 54.7), ('FP/h SVT', np.float64(1.323), 0.439), ('FP/h VT', np.float64(0.259), 0.128)]
+**33/36 target cells met; smallest margin -9.2**
+below target: epicmp AFIB E +P 93.1<94, epicmp AFIB D +P 95.9<96, epicmp SVT E Se 79.8<89
+Holter validation below the base bar: [('ltafdb|VT|E', np.float64(58.6), 62.1), ('ltafdb|VT|D', np.float64(52.4), 54.7), ('FP/h SVT', np.float64(0.601), 0.439), ('FP/h VT', np.float64(0.271), 0.128)]
+-> /media/Project/ECG/Model_Dong/ecgr_rhythm/summary_111026/strip_eval/tunedH_dual1m_ft2_best.json
+[18:59:52] 1m: picked ft: dual1m_ft2_best
+[18:59:52] 1m: final rhythm_eval (strip protocol, real epicmp)
+## dual1m_ft2_best_H - validation, decode tuned on validation (tunedH_dual1m_ft2_best.json) (4719 events)
+**34/36 target cells met; smallest margin -9.0**
+below target: epicmp AFIB E +P 93.0<94, epicmp SVT E Se 80.0<89
+## dual1m_ft2_best_H - rhythm_eval, decode tuned on validation (tunedH_dual1m_ft2_best.json) (4909 events)
+**29/36 target cells met; smallest margin -5.6**
+below target: epicmp AFIB E +P 91.0<94, epicmp AFIB D +P 95.0<96, epicmp SVT E Se 88.0<89, epicmp VT E +P 87.0<90, epicmp VT D +P 85.0<86, sample SINUS recall 92.2<92.89, sample SVT recall 67.0<72.6
+FINAL_DONE dual1m_ft2_best_H
+[19:04:40] 1m: HOLTER_TUNE_DONE

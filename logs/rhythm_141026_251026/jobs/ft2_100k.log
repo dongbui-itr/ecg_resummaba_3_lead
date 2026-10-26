@@ -1,0 +1,62 @@
+[15:16:54] 100k: fine-tune from /media/Project/ECG/Model_Dong/ecgr_rhythm/121026_rhythm_dual_100k_ftstrip/checkpoints/dualunet_rhythm_100k/epochs/epoch_01.keras lr 5e-5
+monitor      : val_rhythm_f1, checkpoints saved from epoch 1 (epochs 1-0 measured only)
+Epoch 1/6
+EPOCH 1  val_rhythm_f1=0.8525
+Epoch 1: val_rhythm_f1 improved from None to 0.85246, saving model to /media/Project/ECG/Model_Dong/ecgr_rhythm/121026_rhythm_dual_100k_ftstrip2/checkpoints/dualunet_rhythm_100k/best_model.keras
+Epoch 1: finished saving model to /media/Project/ECG/Model_Dong/ecgr_rhythm/121026_rhythm_dual_100k_ftstrip2/checkpoints/dualunet_rhythm_100k/best_model.keras
+[1m1980/1980[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m482s[0m 230ms/step - beat_f1: 0.8731 - beat_loss: 0.2070 - channel_acc: 0.8085 - channel_loss: 0.6071 - channel_noise_f1: 0.9419 - loss: 0.6242 - rhythm_f1: 0.9235 - rhythm_loss: 0.1133 - val_beat_f1: 0.8493 - val_beat_loss: 0.1847 - val_channel_acc: 0.8155 - val_channel_loss: 0.5950 - val_channel_noise_f1: 0.9446 - val_loss: 0.5706 - val_rhythm_f1: 0.8525 - val_rhythm_loss: 0.0884 - val_beat_se: 0.9958 - val_beat_pp: 0.9928 - val_beat_type_f1: 0.8711 - learning_rate: 2.5000e-05
+Epoch 2/6
+EPOCH 2  val_rhythm_f1=0.8517
+Epoch 2: val_rhythm_f1 did not improve from 0.85246
+[1m1980/1980[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m424s[0m 214ms/step - beat_f1: 0.8728 - beat_loss: 0.2066 - channel_acc: 0.8077 - channel_loss: 0.6074 - channel_noise_f1: 0.9423 - loss: 0.6235 - rhythm_f1: 0.9234 - rhythm_loss: 0.1129 - val_beat_f1: 0.8485 - val_beat_loss: 0.1847 - val_channel_acc: 0.8145 - val_channel_loss: 0.5949 - val_channel_noise_f1: 0.9443 - val_loss: 0.5708 - val_rhythm_f1: 0.8517 - val_rhythm_loss: 0.0886 - val_beat_se: 0.9959 - val_beat_pp: 0.9927 - val_beat_type_f1: 0.8719 - learning_rate: 5.0000e-05
+Epoch 3/6
+EPOCH 3  val_rhythm_f1=0.8538
+Epoch 3: val_rhythm_f1 improved from 0.85246 to 0.85377, saving model to /media/Project/ECG/Model_Dong/ecgr_rhythm/121026_rhythm_dual_100k_ftstrip2/checkpoints/dualunet_rhythm_100k/best_model.keras
+Epoch 3: finished saving model to /media/Project/ECG/Model_Dong/ecgr_rhythm/121026_rhythm_dual_100k_ftstrip2/checkpoints/dualunet_rhythm_100k/best_model.keras
+[1m1980/1980[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m434s[0m 219ms/step - beat_f1: 0.8724 - beat_loss: 0.2061 - channel_acc: 0.8079 - channel_loss: 0.6072 - channel_noise_f1: 0.9424 - loss: 0.6227 - rhythm_f1: 0.9247 - rhythm_loss: 0.1127 - val_beat_f1: 0.8502 - val_beat_loss: 0.1845 - val_channel_acc: 0.8155 - val_channel_loss: 0.5949 - val_channel_noise_f1: 0.9443 - val_loss: 0.5701 - val_rhythm_f1: 0.8538 - val_rhythm_loss: 0.0881 - val_beat_se: 0.9958 - val_beat_pp: 0.9928 - val_beat_type_f1: 0.8705 - learning_rate: 4.2824e-05
+Epoch 4/6
+EPOCH 4  val_rhythm_f1=0.8559
+Epoch 4: val_rhythm_f1 improved from 0.85377 to 0.85592, saving model to /media/Project/ECG/Model_Dong/ecgr_rhythm/121026_rhythm_dual_100k_ftstrip2/checkpoints/dualunet_rhythm_100k/best_model.keras
+Epoch 4: finished saving model to /media/Project/ECG/Model_Dong/ecgr_rhythm/121026_rhythm_dual_100k_ftstrip2/checkpoints/dualunet_rhythm_100k/best_model.keras
+[1m1980/1980[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m448s[0m 226ms/step - beat_f1: 0.8717 - beat_loss: 0.2063 - channel_acc: 0.8090 - channel_loss: 0.6056 - channel_noise_f1: 0.9422 - loss: 0.6213 - rhythm_f1: 0.9259 - rhythm_loss: 0.1119 - val_beat_f1: 0.8502 - val_beat_loss: 0.1846 - val_channel_acc: 0.8152 - val_channel_loss: 0.5947 - val_channel_noise_f1: 0.9439 - val_loss: 0.5697 - val_rhythm_f1: 0.8559 - val_rhythm_loss: 0.0878 - val_beat_se: 0.9959 - val_beat_pp: 0.9927 - val_beat_type_f1: 0.8644 - learning_rate: 2.5500e-05
+Epoch 5/6
+EPOCH 5  val_rhythm_f1=0.8551
+Epoch 5: val_rhythm_f1 did not improve from 0.85592
+[1m1980/1980[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m491s[0m 248ms/step - beat_f1: 0.8725 - beat_loss: 0.2057 - channel_acc: 0.8088 - channel_loss: 0.6070 - channel_noise_f1: 0.9417 - loss: 0.6213 - rhythm_f1: 0.9262 - rhythm_loss: 0.1118 - val_beat_f1: 0.8497 - val_beat_loss: 0.1845 - val_channel_acc: 0.8154 - val_channel_loss: 0.5946 - val_channel_noise_f1: 0.9443 - val_loss: 0.5696 - val_rhythm_f1: 0.8551 - val_rhythm_loss: 0.0878 - val_beat_se: 0.9958 - val_beat_pp: 0.9929 - val_beat_type_f1: 0.8661 - learning_rate: 8.1759e-06
+Epoch 6/6
+EPOCH 6  val_rhythm_f1=0.8551
+Epoch 6: val_rhythm_f1 did not improve from 0.85592
+[1m1980/1980[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m466s[0m 235ms/step - beat_f1: 0.8740 - beat_loss: 0.2063 - channel_acc: 0.8080 - channel_loss: 0.6079 - channel_noise_f1: 0.9422 - loss: 0.6223 - rhythm_f1: 0.9263 - rhythm_loss: 0.1117 - val_beat_f1: 0.8492 - val_beat_loss: 0.1847 - val_channel_acc: 0.8155 - val_channel_loss: 0.5945 - val_channel_noise_f1: 0.9444 - val_loss: 0.5700 - val_rhythm_f1: 0.8551 - val_rhythm_loss: 0.0881 - val_beat_se: 0.9958 - val_beat_pp: 0.9928 - val_beat_type_f1: 0.8669 - learning_rate: 1.0000e-06
+Restoring model weights from the end of the best epoch: 4.
+training finished; checkpoints in /media/Project/ECG/Model_Dong/ecgr_rhythm/121026_rhythm_dual_100k_ftstrip2/checkpoints/dualunet_rhythm_100k
+[16:02:52] dual100k_ft2_best: validation inference (/media/Project/ECG/Model_Dong/ecgr_rhythm/121026_rhythm_dual_100k_ftstrip2/checkpoints/dualunet_rhythm_100k/best_model.keras)
+  500/3778 records predicted
+  1000/3778 records predicted
+  1500/3778 records predicted
+  2000/3778 records predicted
+  2500/3778 records predicted
+  3000/3778 records predicted
+  3500/3778 records predicted
+  3778/3778 records predicted
+PREDICT_DONE dual100k_ft2_best
+[16:13:59] dual100k_ft2_best: decode tuning
+start: shortfall 11.0, cells met 30/36
+**33/36 target cells met; smallest margin -1.0**
+below target: epicmp AFIB E Se 89.8<90, epicmp SVT E +P 87.0<88, sample SINUS recall 92.5<92.89
+-> /media/Project/ECG/Model_Dong/ecgr_rhythm/summary_111026/strip_eval/tuned_dual100k_ft2_best.json
+[16:18:08] dual100k_ft2_last: validation inference (/media/Project/ECG/Model_Dong/ecgr_rhythm/121026_rhythm_dual_100k_ftstrip2/checkpoints/dualunet_rhythm_100k/epochs/epoch_06.keras)
+  500/3778 records predicted
+  1000/3778 records predicted
+  1500/3778 records predicted
+  2000/3778 records predicted
+  2500/3778 records predicted
+  3000/3778 records predicted
+  3500/3778 records predicted
+  3778/3778 records predicted
+PREDICT_DONE dual100k_ft2_last
+[16:27:40] dual100k_ft2_last: decode tuning
+start: shortfall 10.5, cells met 31/36
+**34/36 target cells met; smallest margin -0.8**
+below target: epicmp AFIB E +P 93.7<94, sample SINUS recall 92.1<92.89
+-> /media/Project/ECG/Model_Dong/ecgr_rhythm/summary_111026/strip_eval/tuned_dual100k_ft2_last.json
+[16:31:41] 100k: CHAIN2_DONE

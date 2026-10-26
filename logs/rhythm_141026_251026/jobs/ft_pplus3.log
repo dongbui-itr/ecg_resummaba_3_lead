@@ -1,0 +1,13 @@
+[16:03:53] fine-tune from v4_scratch_best: rhythm weights as v4, beat S/V weight 2 only, lr 1e-4 cosine, 8 epochs
+train: 278,534 windows (train), labels (1250,), beat labels
+class weights: {'SINUS': np.float64(0.241), 'AFIB': np.float64(0.421), 'SVT': np.float64(0.583), 'VT': np.float64(0.891), 'AVB': np.float64(0.767)} (after sampler repeats {'SINUS': 0.73, 'AFIB': 1.14, 'SVT': 2.14, 'VT': 4.16, 'AVB': 4.01})
+eval : 65,883 windows (noisy), labels (1250,), beat labels
+EPOCH 1  val_rhythm_f1=0.8809
+Epoch 1: finished saving model to /media/Project/ECG/Model_Dong/ecgr_rhythm/161026_rhythm_dual_1m_v4_pplus3/checkpoints/dualunet_rhythm_1m/best_model.keras
+EPOCH 2  val_rhythm_f1=0.8803
+EPOCH 3  val_rhythm_f1=0.8811
+Epoch 3: finished saving model to /media/Project/ECG/Model_Dong/ecgr_rhythm/161026_rhythm_dual_1m_v4_pplus3/checkpoints/dualunet_rhythm_1m/best_model.keras
+EPOCH 4  val_rhythm_f1=0.8816
+Epoch 4: finished saving model to /media/Project/ECG/Model_Dong/ecgr_rhythm/161026_rhythm_dual_1m_v4_pplus3/checkpoints/dualunet_rhythm_1m/best_model.keras
+training finished; checkpoints in /media/Project/ECG/Model_Dong/ecgr_rhythm/161026_rhythm_dual_1m_v4_pplus3/checkpoints/dualunet_rhythm_1m
+[16:46:25] FT_PPLUS3_DONE

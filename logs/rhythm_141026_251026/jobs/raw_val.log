@@ -1,0 +1,37 @@
+2026-10-13 09:34:31.921979: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-13 09:34:31.949267: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-10-13 09:34:32.629833: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+xla          : --xla_gpu_cuda_data_dir=/usr/local/cuda
+1 GPU(s)
+val 4719 events 7613 windows
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1791858873.293946  781414 gpu_device.cc:2020] Created device /job:localhost/replica:0/task:0/device:GPU:0 with 20083 MB memory:  -> device: 0, name: NVIDIA RTX A5000, pci bus id: 0000:01:00.0, compute capability: 8.6
+2026-10-13 09:34:35.567174: I external/local_xla/xla/service/service.cc:163] XLA service 0x72b01400e810 initialized for platform CUDA (this does not guarantee that XLA will be used). Devices:
+2026-10-13 09:34:35.567200: I external/local_xla/xla/service/service.cc:171]   StreamExecutor device (0): NVIDIA RTX A5000, Compute Capability 8.6
+2026-10-13 09:34:35.649643: I tensorflow/compiler/mlir/tensorflow/utils/dump_mlir_util.cc:269] disabling MLIR crash reproducer, set env var `MLIR_CRASH_REPRODUCER_DIRECTORY` to enable.
+2026-10-13 09:34:36.015475: I external/local_xla/xla/stream_executor/cuda/cuda_dnn.cc:473] Loaded cuDNN version 92600
+2026-10-13 09:34:36.092164: I external/local_xla/xla/service/gpu/autotuning/dot_search_space.cc:208] All configs were filtered out because none of them sufficiently match the hints. Maybe the hints set does not contain a good representative set of valid configs? Working around this by using the full hints set instead.
+2026-10-13 09:34:36.092186: I external/local_xla/xla/service/gpu/autotuning/dot_search_space.cc:208] All configs were filtered out because none of them sufficiently match the hints. Maybe the hints set does not contain a good representative set of valid configs? Working around this by using the full hints set instead.
+2026-10-13 09:34:36.384285: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2267', 12 bytes spill stores, 12 bytes spill loads
+
+I0000 00:00:1791858884.376186  781550 device_compiler.h:196] Compiled cluster using XLA!  This line is logged at most once for the lifetime of the process.
+2026-10-13 09:34:48.042858: I external/local_xla/xla/service/gpu/autotuning/dot_search_space.cc:208] All configs were filtered out because none of them sufficiently match the hints. Maybe the hints set does not contain a good representative set of valid configs? Working around this by using the full hints set instead.
+2026-10-13 09:34:48.042884: I external/local_xla/xla/service/gpu/autotuning/dot_search_space.cc:208] All configs were filtered out because none of them sufficiently match the hints. Maybe the hints set does not contain a good representative set of valid configs? Working around this by using the full hints set instead.
+2026-10-13 09:34:48.267390: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2830', 24 bytes spill stores, 24 bytes spill loads
+
+2026-10-13 09:34:48.268025: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2837', 8 bytes spill stores, 8 bytes spill loads
+
+2026-10-13 09:34:48.463668: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2837', 40 bytes spill stores, 40 bytes spill loads
+
+dual1m_s1_e26 SINUS 84.25 AFIB 90.45 SVT 83.99 VT 88.57 AVB2 91.09 AVB3 91.26 margin -11.79
+dual1m_ft2_best SINUS 88.58 AFIB 91.48 SVT 82.89 VT 89.45 AVB2 90.50 AVB3 91.53 margin -10.67
+2026-10-13 09:35:08.922315: I external/local_xla/xla/service/gpu/autotuning/dot_search_space.cc:208] All configs were filtered out because none of them sufficiently match the hints. Maybe the hints set does not contain a good representative set of valid configs? Working around this by using the full hints set instead.
+2026-10-13 09:35:09.075058: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2029', 12 bytes spill stores, 12 bytes spill loads
+
+2026-10-13 09:35:16.080409: I external/local_xla/xla/service/gpu/autotuning/dot_search_space.cc:208] All configs were filtered out because none of them sufficiently match the hints. Maybe the hints set does not contain a good representative set of valid configs? Working around this by using the full hints set instead.
+dual100k SINUS 82.76 AFIB 87.59 SVT 86.25 VT 91.42 AVB2 93.88 AVB3 95.08 margin -13.28
+dual100k_ft2_last SINUS 84.49 AFIB 89.58 SVT 85.84 VT 92.22 AVB2 95.08 AVB3 96.99 margin -11.55
+dual30k SINUS 83.19 AFIB 84.33 SVT 86.82 VT 93.58 AVB2 94.15 AVB3 96.34 margin -12.85
+dual30k_ft_e3 SINUS 83.25 AFIB 88.34 SVT 82.78 VT 94.07 AVB2 94.64 AVB3 97.12 margin -12.79
+RAW_DONE

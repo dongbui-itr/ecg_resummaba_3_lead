@@ -1,0 +1,6 @@
+[12:40:49] pplus_e2: validation inference (overlap 1)
+[13:10:02] pplus_e2: decode tuning (background)
+[13:10:02] pplus_e4: validation inference (overlap 1)
+[13:44:38] pplus_e4: decode tuning (background)
+[13:44:38] pplus_e6: validation inference (overlap 1)
+stopped-after-e4

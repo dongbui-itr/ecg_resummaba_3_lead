@@ -1,0 +1,334 @@
+2026-10-08 09:42:52.836223: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-08 09:42:52.865657: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-10-08 09:42:53.457966: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+===== validation tuning: 26 rhythm records, 42 beat records, AF budget 0.4 false episodes / non-AF hour =====
+2026-10-08 09:42:54.506389: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-08 09:42:54.510943: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-08 09:42:54.510942: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-08 09:42:54.520930: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-08 09:42:54.535052: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-08 09:42:54.538670: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-08 09:42:54.540925: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-10-08 09:42:54.544693: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-10-08 09:42:54.544826: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-10-08 09:42:54.557956: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-10-08 09:42:54.569465: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-10-08 09:42:54.572058: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-10-08 09:42:54.575190: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-08 09:42:54.608686: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-10-08 09:42:54.627912: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-08 09:42:54.643653: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-08 09:42:54.643655: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-08 09:42:54.643654: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-08 09:42:54.643654: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-08 09:42:54.660822: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-10-08 09:42:54.694167: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-10-08 09:42:54.694166: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-10-08 09:42:54.694172: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-10-08 09:42:54.694172: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-10-08 09:42:54.718449: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-08 09:42:54.738914: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-08 09:42:54.766697: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-10-08 09:42:54.787681: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-10-08 09:42:55.298674: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-08 09:42:55.306422: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-08 09:42:55.307149: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-08 09:42:55.323390: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-08 09:42:55.331599: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-08 09:42:55.360403: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-08 09:42:55.375799: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-08 09:42:55.438402: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-08 09:42:55.758304: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-08 09:42:55.865925: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-08 09:42:55.866413: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-08 09:42:55.959839: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-08 09:42:55.990801: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-08 09:42:56.064280: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+ gap  min  prob alpha   E_Se   D_Se   FP/h  VT_F1 SVT_F1
+   0    3  0.00  0.00   76.2   95.3   3.20   65.2   16.5
+   0    3  0.00  0.50   75.1   94.8   1.97   61.8   16.2
+   0    3  0.60  0.00   72.5   94.9   0.71   65.2   16.5
+   0    3  0.60  0.50   71.3   94.7   0.50   61.8   16.2
+   0    3  0.70  0.00   68.7   94.9   0.08   65.2   16.5
+   0    3  0.70  0.50   67.8   94.7   0.09   61.8   16.2
+   0    3  0.80  0.00   59.3   94.7   0.03   65.1   16.5
+   0    3  0.80  0.50   61.2   94.5   0.04   61.7   16.2
+   0    3  0.90  0.00   37.2   93.4   0.00   67.8   16.5
+   0    3  0.90  0.50   37.9   93.4   0.00   66.7   16.2
+   0    5  0.00  0.00   70.4   95.2   1.88   65.1   16.5
+   0    5  0.00  0.50   68.5   94.7   0.90   61.8   16.2
+   0    5  0.60  0.00   68.9   94.9   0.65   65.1   16.5
+   0    5  0.60  0.50   67.1   94.7   0.45   61.8   16.2
+   0    5  0.70  0.00   67.3   94.9   0.08   65.1   16.5
+   0    5  0.70  0.50   65.6   94.6   0.09   61.8   16.2
+   0    5  0.80  0.00   58.1   94.7   0.03   65.0   16.5
+   0    5  0.80  0.50   60.2   94.5   0.04   61.7   16.2
+   0    5  0.90  0.00   38.4   93.4   0.00   66.9   16.5
+   0    5  0.90  0.50   38.4   93.4   0.00   66.7   16.2
+   0   10  0.00  0.00   60.0   94.9   0.73   65.9   16.5
+   0   10  0.00  0.50   58.8   94.6   0.34   62.4   16.2
+   0   10  0.60  0.00   60.0   94.8   0.40   65.9   16.5
+   0   10  0.60  0.50   58.6   94.6   0.24   62.4   16.2
+   0   10  0.70  0.00   59.8   94.8   0.05   65.9   16.5
+   0   10  0.70  0.50   57.9   94.6   0.05   62.4   16.2
+   0   10  0.80  0.00   52.9   94.6   0.02   65.8   16.5
+   0   10  0.80  0.50   53.6   94.4   0.03   62.3   16.2
+   0   10  0.90  0.00   36.7   93.3   0.00   67.7   16.5
+   0   10  0.90  0.50   38.4   93.4   0.00   65.4   16.2
+   3    3  0.00  0.00   76.2   95.6   3.18   65.2   16.5
+   3    3  0.00  0.50   75.3   95.0   1.93   61.8   16.2
+   3    3  0.60  0.00   72.2   95.0   0.50   65.1   16.5
+   3    3  0.60  0.50   71.8   94.8   0.34   61.8   16.2
+   3    3  0.70  0.00   68.0   94.9   0.06   65.1   16.5
+   3    3  0.70  0.50   68.0   94.8   0.07   61.8   16.2
+   3    3  0.80  0.00   57.4   94.8   0.02   65.0   16.5
+   3    3  0.80  0.50   58.8   94.6   0.02   61.7   16.2
+   3    3  0.90  0.00   35.1   93.3   0.00   67.7   16.5
+   3    3  0.90  0.50   35.5   93.5   0.00   66.7   16.2
+   3    5  0.00  0.00   71.1   95.5   2.27   65.1   16.5
+   3    5  0.00  0.50   69.4   94.9   1.27   61.8   16.2
+   3    5  0.60  0.00   69.2   95.0   0.45   65.0   16.5
+   3    5  0.60  0.50   67.8   94.8   0.32   61.8   16.2
+   3    5  0.70  0.00   66.8   94.9   0.06   65.0   16.5
+   3    5  0.70  0.50   65.9   94.8   0.07   61.8   16.2
+   3    5  0.80  0.00   56.5   94.8   0.02   64.9   16.5
+   3    5  0.80  0.50   57.9   94.6   0.02   61.7   16.2
+   3    5  0.90  0.00   36.2   93.3   0.00   66.8   16.5
+   3    5  0.90  0.50   36.0   93.5   0.00   66.7   16.2
+   3   10  0.00  0.00   61.6   95.2   1.06   65.8   16.5
+   3   10  0.00  0.50   60.2   94.8   0.56   62.4   16.2
+   3   10  0.60  0.00   61.4   95.0   0.30   65.8   16.5
+   3   10  0.60  0.50   60.0   94.8   0.19   62.4   16.2
+   3   10  0.70  0.00   60.2   94.9   0.04   65.8   16.5
+   3   10  0.70  0.50   59.1   94.7   0.04   62.4   16.2
+   3   10  0.80  0.00   52.0   94.7   0.02   65.7   16.5
+   3   10  0.80  0.50   53.2   94.6   0.02   62.3   16.2
+   3   10  0.90  0.00   34.6   93.3   0.00   67.5   16.5
+   3   10  0.90  0.50   36.2   93.6   0.00   65.4   16.2
+   5    3  0.00  0.00   76.9   95.8   3.18   65.2   16.5
+   5    3  0.00  0.50   75.8   95.1   1.93   61.8   16.2
+   5    3  0.60  0.00   72.0   95.1   0.46   65.1   16.5
+   5    3  0.60  0.50   71.8   94.9   0.31   61.7   16.2
+   5    3  0.70  0.00   68.9   95.0   0.05   65.1   16.5
+   5    3  0.70  0.50   68.5   94.9   0.07   61.7   16.2
+   5    3  0.80  0.00   57.2   94.8   0.02   65.0   16.5
+   5    3  0.80  0.50   56.9   94.7   0.02   61.6   16.2
+   5    3  0.90  0.00   33.9   93.3   0.00   67.7   16.5
+   5    3  0.90  0.50   33.6   93.4   0.00   66.5   16.2
+   5    5  0.00  0.00   72.5   95.7   2.35   65.1   16.5
+   5    5  0.00  0.50   71.3   95.0   1.31   61.8   16.2
+   5    5  0.60  0.00   69.4   95.1   0.41   65.0   16.5
+   5    5  0.60  0.50   68.7   94.9   0.29   61.7   16.2
+   5    5  0.70  0.00   67.8   95.0   0.05   65.0   16.5
+   5    5  0.70  0.50   66.8   94.9   0.07   61.7   16.2
+   5    5  0.80  0.00   56.0   94.8   0.02   64.9   16.5
+   5    5  0.80  0.50   56.5   94.7   0.02   61.6   16.2
+   5    5  0.90  0.00   35.1   93.4   0.00   66.8   16.5
+   5    5  0.90  0.50   34.1   93.4   0.00   66.5   16.2
+   5   10  0.00  0.00   64.0   95.4   1.18   65.8   16.5
+   5   10  0.00  0.50   62.4   94.9   0.61   62.3   16.2
+   5   10  0.60  0.00   62.6   95.0   0.27   65.8   16.5
+   5   10  0.60  0.50   61.6   94.9   0.17   62.3   16.2
+   5   10  0.70  0.00   61.9   95.0   0.03   65.8   16.5
+   5   10  0.70  0.50   60.7   94.8   0.04   62.3   16.2
+   5   10  0.80  0.00   52.0   94.8   0.02   65.7   16.5
+   5   10  0.80  0.50   52.2   94.6   0.02   62.2   16.2
+   5   10  0.90  0.00   33.6   93.3   0.00   67.5   16.5
+   5   10  0.90  0.50   34.4   93.4   0.00   65.2   16.2
+CHOSEN AF decode {'gap': 5, 'amin': 3, 'aprob': 0.6, 'alpha': 0.5}  E_Se+D_Se 166.7  FP/h 0.31
+BASELINE (step decoding only)  obj 319.5  AF FP/h 0.31
+   ltafdb   AFIB  n= 425  E Se/+P/F1  71.8/ 89.3/ 79.6   D Se/+P/F1  94.9/ 99.6/ 97.2
+   ltafdb   SVT   n= 104  E Se/+P/F1  26.9/ 11.6/ 16.2   D Se/+P/F1  22.0/  6.7/ 10.2
+   ltafdb   VT    n= 110  E Se/+P/F1  48.2/ 85.7/ 61.7   D Se/+P/F1  57.4/ 52.1/ 54.6
+ vt_hr sfrac onset sinus long  rVT rSVT     obj AF FP/h
+   120  0.50  1.25     8   10    1    1   361.2    0.30
+   120  0.50  1.50     8   10    1    1   361.2    0.30
+   120  0.50  1.25     8   20    1    1   361.2    0.30
+   120  0.50  1.50     8   20    1    1   361.2    0.30
+   120  0.30  1.25     8   10    1    1   361.1    0.30
+   120  0.30  1.50     8   10    1    1   361.1    0.30
+   120  0.30  1.25     8   20    1    1   361.1    0.30
+   120  0.30  1.50     8   20    1    1   361.1    0.30
+   120  0.30  1.25     5   10    1    1   360.4    0.31
+   120  0.30  1.25     5   20    1    1   360.4    0.31
+   120  0.30  1.50     5   10    1    1   360.4    0.31
+   120  0.30  1.50     5   20    1    1   360.4    0.31
+   120  0.50  1.25     5   10    1    1   360.4    0.31
+   120  0.50  1.25     5   20    1    1   360.4    0.31
+   120  0.50  1.50     5   10    1    1   360.4    0.31
+   120  0.50  1.50     5   20    1    1   360.4    0.31
+   120  0.30  1.25     8   10    1    0   354.6    0.30
+   120  0.30  1.50     8   10    1    0   354.6    0.30
+   120  0.50  1.25     8   10    1    0   354.6    0.30
+   120  0.50  1.50     8   10    1    0   354.6    0.30
+   120  0.30  1.25     8   20    1    0   354.6    0.30
+   120  0.30  1.50     8   20    1    0   354.6    0.30
+   120  0.50  1.25     8   20    1    0   354.6    0.30
+   120  0.50  1.50     8   20    1    0   354.6    0.30
+   120  0.30  1.25     5   10    1    0   354.1    0.31
+   120  0.30  1.25     5   20    1    0   354.1    0.31
+   120  0.30  1.50     5   10    1    0   354.1    0.31
+   120  0.30  1.50     5   20    1    0   354.1    0.31
+   120  0.50  1.25     5   10    1    0   354.1    0.31
+   120  0.50  1.25     5   20    1    0   354.1    0.31
+   120  0.50  1.50     5   10    1    0   354.1    0.31
+   120  0.50  1.50     5   20    1    0   354.1    0.31
+   100  0.50  1.25     8   10    1    1   351.7    0.32
+   100  0.50  1.50     8   10    1    1   351.7    0.32
+   100  0.50  1.25     8   20    1    1   351.7    0.32
+   100  0.50  1.50     8   20    1    1   351.7    0.32
+   100  0.30  1.25     8   10    1    1   351.7    0.32
+   100  0.30  1.50     8   10    1    1   351.7    0.32
+   100  0.30  1.25     8   20    1    1   351.7    0.32
+   100  0.30  1.50     8   20    1    1   351.7    0.32
+   100  0.30  1.25     5   10    1    1   351.1    0.33
+   100  0.30  1.25     5   20    1    1   351.1    0.33
+   100  0.30  1.50     5   10    1    1   351.1    0.33
+   100  0.30  1.50     5   20    1    1   351.1    0.33
+   100  0.50  1.25     5   10    1    1   351.1    0.33
+   100  0.50  1.25     5   20    1    1   351.1    0.33
+   100  0.50  1.50     5   10    1    1   351.1    0.33
+   100  0.50  1.50     5   20    1    1   351.1    0.33
+   100  0.30  1.25     8   10    1    0   349.7    0.30
+   100  0.30  1.50     8   10    1    0   349.7    0.30
+   100  0.50  1.25     8   10    1    0   349.7    0.30
+   100  0.50  1.50     8   10    1    0   349.7    0.30
+   100  0.30  1.25     8   20    1    0   349.7    0.30
+   100  0.30  1.50     8   20    1    0   349.7    0.30
+   100  0.50  1.25     8   20    1    0   349.7    0.30
+   100  0.50  1.50     8   20    1    0   349.7    0.30
+   100  0.30  1.25     5   10    1    0   349.1    0.31
+   100  0.30  1.25     5   20    1    0   349.1    0.31
+   100  0.30  1.50     5   10    1    0   349.1    0.31
+   100  0.30  1.50     5   20    1    0   349.1    0.31
+   100  0.50  1.25     5   10    1    0   349.1    0.31
+   100  0.50  1.25     5   20    1    0   349.1    0.31
+   100  0.50  1.50     5   10    1    0   349.1    0.31
+   100  0.50  1.50     5   20    1    0   349.1    0.31
+   120  0.50  1.25     8   10    0    1   331.0    0.29
+   120  0.50  1.50     8   10    0    1   331.0    0.29
+   120  0.50  1.25     8   20    0    1   331.0    0.29
+   120  0.50  1.50     8   20    0    1   331.0    0.29
+   120  0.30  1.25     8   10    0    1   331.0    0.29
+   120  0.30  1.50     8   10    0    1   331.0    0.29
+   120  0.30  1.25     8   20    0    1   331.0    0.29
+   120  0.30  1.50     8   20    0    1   331.0    0.29
+   120  0.30  1.25     5   10    0    1   330.3    0.30
+   120  0.30  1.25     5   20    0    1   330.3    0.30
+   120  0.30  1.50     5   10    0    1   330.3    0.30
+   120  0.30  1.50     5   20    0    1   330.3    0.30
+   120  0.50  1.25     5   10    0    1   330.3    0.30
+   120  0.50  1.25     5   20    0    1   330.3    0.30
+   120  0.50  1.50     5   10    0    1   330.3    0.30
+   120  0.50  1.50     5   20    0    1   330.3    0.30
+   100  0.50  1.25     8   10    0    1   325.0    0.31
+   100  0.50  1.50     8   10    0    1   325.0    0.31
+   100  0.50  1.25     8   20    0    1   325.0    0.31
+   100  0.50  1.50     8   20    0    1   325.0    0.31
+   100  0.30  1.25     8   10    0    1   325.0    0.31
+   100  0.30  1.50     8   10    0    1   325.0    0.31
+   100  0.30  1.25     8   20    0    1   325.0    0.31
+   100  0.30  1.50     8   20    0    1   325.0    0.31
+   100  0.30  1.25     5   10    0    1   324.4    0.31
+   100  0.30  1.25     5   20    0    1   324.4    0.31
+   100  0.30  1.50     5   10    0    1   324.4    0.31
+   100  0.30  1.50     5   20    0    1   324.4    0.31
+   100  0.50  1.25     5   10    0    1   324.4    0.31
+   100  0.50  1.25     5   20    0    1   324.4    0.31
+   100  0.50  1.50     5   10    0    1   324.4    0.31
+   100  0.50  1.50     5   20    0    1   324.4    0.31
+   120  0.30  1.25     8   10    0    0   324.3    0.29
+   120  0.30  1.50     8   10    0    0   324.3    0.29
+   120  0.50  1.25     8   10    0    0   324.3    0.29
+   120  0.50  1.50     8   10    0    0   324.3    0.29
+   120  0.30  1.25     8   20    0    0   324.3    0.29
+   120  0.30  1.50     8   20    0    0   324.3    0.29
+   120  0.50  1.25     8   20    0    0   324.3    0.29
+   120  0.50  1.50     8   20    0    0   324.3    0.29
+   120  0.30  1.25     5   10    0    0   323.9    0.30
+   120  0.30  1.25     5   20    0    0   323.9    0.30
+   120  0.30  1.50     5   10    0    0   323.9    0.30
+   120  0.30  1.50     5   20    0    0   323.9    0.30
+   120  0.50  1.25     5   10    0    0   323.9    0.30
+   120  0.50  1.25     5   20    0    0   323.9    0.30
+   120  0.50  1.50     5   10    0    0   323.9    0.30
+   120  0.50  1.50     5   20    0    0   323.9    0.30
+   100  0.30  1.25     8   10    0    0   322.9    0.29
+   100  0.30  1.50     8   10    0    0   322.9    0.29
+   100  0.50  1.25     8   10    0    0   322.9    0.29
+   100  0.50  1.50     8   10    0    0   322.9    0.29
+   100  0.30  1.25     8   20    0    0   322.9    0.29
+   100  0.30  1.50     8   20    0    0   322.9    0.29
+   100  0.50  1.25     8   20    0    0   322.9    0.29
+   100  0.50  1.50     8   20    0    0   322.9    0.29
+   100  0.30  1.25     5   10    0    0   322.4    0.30
+   100  0.30  1.25     5   20    0    0   322.4    0.30
+   100  0.30  1.50     5   10    0    0   322.4    0.30
+   100  0.30  1.50     5   20    0    0   322.4    0.30
+   100  0.50  1.25     5   10    0    0   322.4    0.30
+   100  0.50  1.25     5   20    0    0   322.4    0.30
+   100  0.50  1.50     5   10    0    0   322.4    0.30
+   100  0.50  1.50     5   20    0    0   322.4    0.30
+CHOSEN PP {'vt_hr': 120, 'svt_frac': 0.5, 'onset': 1.25, 'sinus': 8, 'long_inv': 10, 'runs_vt': True, 'runs_svt': True}  obj 361.2  AF FP/h 0.30
+   ltafdb   AFIB  n= 425  E Se/+P/F1  74.4/ 89.9/ 81.4   D Se/+P/F1  95.0/ 99.6/ 97.2
+   ltafdb   SVT   n= 104  E Se/+P/F1  31.7/ 14.2/ 19.6   D Se/+P/F1  25.3/  7.1/ 11.1
+   ltafdb   VT    n= 110  E Se/+P/F1  85.5/ 86.6/ 86.0   D Se/+P/F1  86.9/ 52.9/ 65.8
+  prem AF>N |  QRS Se     +P |    V Se     +P     F1 |    S Se     +P     F1
+  0.00    1 |   99.94  98.70 |   79.52  90.63  84.71 |   91.44  47.05  62.13
+       incartdb  S Se/+P/F1 100.00/  4.08/  7.84  (n_ref 8, n_hyp 196)
+       ltafdb    S Se/+P/F1  91.54/ 55.95/ 69.45  (n_ref 21000, n_hyp 34358)
+       nsrdb     S Se/+P/F1  83.33/  0.36/  0.72  (n_ref 30, n_hyp 6872)
+       svdb      S Se/+P/F1  90.55/ 53.24/ 67.06  (n_ref 2223, n_hyp 3781)
+  0.80    1 |   99.94  98.70 |   79.52  90.63  84.71 |   72.86  56.68  63.76
+       incartdb  S Se/+P/F1  75.00/ 31.58/ 44.44  (n_ref 8, n_hyp 19)
+       ltafdb    S Se/+P/F1  72.98/ 63.50/ 67.91  (n_ref 21000, n_hyp 24133)
+       nsrdb     S Se/+P/F1  80.00/  0.73/  1.45  (n_ref 30, n_hyp 3280)
+       svdb      S Se/+P/F1  71.70/ 64.53/ 67.93  (n_ref 2223, n_hyp 2470)
+  0.85    1 |   99.94  98.70 |   79.52  90.63  84.71 |   75.51  55.80  64.18
+       incartdb  S Se/+P/F1 100.00/ 32.00/ 48.48  (n_ref 8, n_hyp 25)
+       ltafdb    S Se/+P/F1  74.63/ 62.58/ 68.08  (n_ref 21000, n_hyp 25046)
+       nsrdb     S Se/+P/F1  83.33/  0.71/  1.41  (n_ref 30, n_hyp 3510)
+       svdb      S Se/+P/F1  83.58/ 64.20/ 72.62  (n_ref 2223, n_hyp 2894)
+  0.90    1 |   99.94  98.70 |   79.52  90.63  84.71 |   77.18  53.84  63.43
+       incartdb  S Se/+P/F1 100.00/ 17.39/ 29.63  (n_ref 8, n_hyp 46)
+       ltafdb    S Se/+P/F1  76.00/ 60.57/ 67.42  (n_ref 21000, n_hyp 26351)
+       nsrdb     S Se/+P/F1  83.33/  0.67/  1.34  (n_ref 30, n_hyp 3713)
+       svdb      S Se/+P/F1  88.12/ 60.58/ 71.80  (n_ref 2223, n_hyp 3234)
+  0.00    0 |   99.94  98.70 |   79.52  90.63  84.71 |   91.75  45.83  61.13
+       incartdb  S Se/+P/F1 100.00/  4.08/  7.84  (n_ref 8, n_hyp 196)
+       ltafdb    S Se/+P/F1  91.89/ 54.02/ 68.04  (n_ref 21000, n_hyp 35720)
+       nsrdb     S Se/+P/F1  83.33/  0.36/  0.72  (n_ref 30, n_hyp 6872)
+       svdb      S Se/+P/F1  90.55/ 53.24/ 67.06  (n_ref 2223, n_hyp 3781)
+  0.80    0 |   99.94  98.70 |   79.52  90.63  84.71 |   73.12  55.65  63.20
+       incartdb  S Se/+P/F1  75.00/ 31.58/ 44.44  (n_ref 8, n_hyp 19)
+       ltafdb    S Se/+P/F1  73.26/ 62.04/ 67.19  (n_ref 21000, n_hyp 24797)
+       nsrdb     S Se/+P/F1  80.00/  0.73/  1.45  (n_ref 30, n_hyp 3280)
+       svdb      S Se/+P/F1  71.70/ 64.53/ 67.93  (n_ref 2223, n_hyp 2470)
+  0.85    0 |   99.94  98.70 |   79.52  90.63  84.71 |   75.77  54.53  63.42
+       incartdb  S Se/+P/F1 100.00/ 32.00/ 48.48  (n_ref 8, n_hyp 25)
+       ltafdb    S Se/+P/F1  74.92/ 60.77/ 67.11  (n_ref 21000, n_hyp 25892)
+       nsrdb     S Se/+P/F1  83.33/  0.71/  1.41  (n_ref 30, n_hyp 3510)
+       svdb      S Se/+P/F1  83.58/ 64.20/ 72.62  (n_ref 2223, n_hyp 2894)
+  0.90    0 |   99.94  98.70 |   79.52  90.63  84.71 |   77.45  52.48  62.57
+       incartdb  S Se/+P/F1 100.00/ 17.39/ 29.63  (n_ref 8, n_hyp 46)
+       ltafdb    S Se/+P/F1  76.30/ 58.62/ 66.30  (n_ref 21000, n_hyp 27334)
+       nsrdb     S Se/+P/F1  83.33/  0.67/  1.34  (n_ref 30, n_hyp 3713)
+       svdb      S Se/+P/F1  88.12/ 60.58/ 71.80  (n_ref 2223, n_hyp 3234)
+CHOSEN S prematurity 0.85, S in AFIB -> N True  S F1 64.18
+tuned decode -> /media/Project/ECG/Model_Dong/ecgr_rhythm/071026_rhythm_dual_1m_s1/ec57/val_dual_e26/_ann/tuned_decode.json
+TUNE_EXIT 0

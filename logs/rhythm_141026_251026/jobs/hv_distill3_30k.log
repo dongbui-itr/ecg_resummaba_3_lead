@@ -1,0 +1,25 @@
+[11:16:23] distill3_30k
+===== rhythm ltafdb: 15 records, classes ['AFIB', 'SVT', 'VT'] =====
+  15/15 records predicted + annotated (last: 72, 87420 s)
+  ltafdb       AFIB  records=   15  E_Se=67  E_+P=97  E_F1=79.3  D_Se=93  D_+P=100  D_F1=96.4
+  ltafdb       SVT   records=   15  E_Se=8  E_+P=3  E_F1=4.4  D_Se=8  D_+P=2  D_F1=3.2
+  ltafdb       VT    records=   15  E_Se=40  E_+P=77  E_F1=52.6  D_Se=49  D_+P=60  D_F1=53.9
+===== rhythm nsrdb: 2 records, classes ['AFIB', 'SVT', 'VT', 'AVB'] =====
+  2/2 records predicted + annotated (last: 19093, 83640 s)
+  nsrdb        AFIB  records=    2  E_Se=-  E_+P=0  E_F1=-  D_Se=-  D_+P=0  D_F1=-
+  nsrdb        AVB   records=    2  E_Se=-  E_+P=-  E_F1=-  D_Se=-  D_+P=-  D_F1=-
+  nsrdb        SVT   records=    2  E_Se=-  E_+P=0  E_F1=-  D_Se=-  D_+P=0  D_F1=-
+  nsrdb        VT    records=    2  E_Se=-  E_+P=0  E_F1=-  D_Se=-  D_+P=0  D_F1=-
+===== rhythm incartdb: 9 records, classes ['AFIB', 'SVT', 'VT', 'AVB'] =====
+  9/9 records predicted + annotated (last: I64, 1800 s)
+  incartdb     AFIB  records=    9  E_Se=-  E_+P=-  E_F1=-  D_Se=-  D_+P=-  D_F1=-
+  incartdb     AVB   records=    9  E_Se=-  E_+P=-  E_F1=-  D_Se=-  D_+P=-  D_F1=-
+  incartdb     SVT   records=    9  E_Se=-  E_+P=0  E_F1=-  D_Se=-  D_+P=0  D_F1=-
+  incartdb     VT    records=    9  E_Se=-  E_+P=0  E_F1=-  D_Se=-  D_+P=0  D_F1=-
+===== rhythm svdb: 16 records, classes ['AFIB', 'SVT', 'VT', 'AVB'] =====
+  16/16 records predicted + annotated (last: 877, 1800 s)
+  svdb         AFIB  records=   16  E_Se=-  E_+P=-  E_F1=-  D_Se=-  D_+P=-  D_F1=-
+  svdb         AVB   records=   16  E_Se=-  E_+P=-  E_F1=-  D_Se=-  D_+P=-  D_F1=-
+  svdb         SVT   records=   16  E_Se=-  E_+P=0  E_F1=-  D_Se=-  D_+P=0  D_F1=-
+  svdb         VT    records=   16  E_Se=-  E_+P=0  E_F1=-  D_Se=-  D_+P=0  D_F1=-
+[11:19:40] distill3_30k HOLTER_DONE

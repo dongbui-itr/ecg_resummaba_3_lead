@@ -1,0 +1,29 @@
+{
+  "model": "rhythm_dual_1m",
+  "params": 988773,
+  "class_weights": [
+    0.2407188965869103,
+    0.37395640073248715,
+    0.5238676148349357,
+    0.8124927093364913,
+    0.6814076808517353
+  ],
+  "sampler": "stratified",
+  "sampler_repeat": {
+    "SINUS": 0.686191917862314,
+    "AFIB": 1.3664482306684143,
+    "SVT": 2.5003597294834283,
+    "VT": 4.721920289855072,
+    "AVB": 4.8079317500576435
+  },
+  "batch_size": 64,
+  "lr": 0.0001,
+  "lr2": 2e-05,
+  "schedule": "cosine",
+  "freeze_epochs": 0,
+  "train_only": "^(pos[123]|beat_pos|type)",
+  "init_from": "/media/Project/ECG/Model_Dong/ecgr_rhythm/141026_rhythm_dual_1m_v4_scratch/release/v4_scratch_best.keras",
+  "backbone_from": null,
+  "init_matching_from": null,
+  "npy_dir": "/media/Project/ECG/Model_Dong/ecgr_rhythm/161026_rhythm_dual_1m_v5ft/npy_ft"
+}

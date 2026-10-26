@@ -1,0 +1,18 @@
+[17:01:33] dual1m_ft2_best: v2 inference
+  500/941 records predicted
+  941/941 records predicted
+PREDICT_DONE dual1m_ft2_best
+[17:05:09] dual1m_ft2_best: v2 decode tuning
+start: shortfall 37.0, cells met 31/36
+**34/36 target cells met; smallest margin -1.2**
+below target: epicmp AFIB E +P 93.5<94, epicmp SVT E +P 86.8<88
+-> /media/Project/ECG/Model_Dong/ecgr_rhythm/summary_111026/strip_eval/tunedv2_dual1m_ft2_best.json
+[17:17:58] dual1m_ft2_best: final
+## dual1m_ft2_best_v2 - validation, decode tuned on validation (tunedv2_dual1m_ft2_best.json) (4719 events)
+**35/36 target cells met; smallest margin -1.0**
+below target: epicmp SVT E +P 87.0<88
+## dual1m_ft2_best_v2 - rhythm_eval, decode tuned on validation (tunedv2_dual1m_ft2_best.json) (4909 events)
+**30/36 target cells met; smallest margin -2.0**
+below target: epicmp AFIB E +P 92.0<94, epicmp AFIB D +P 95.0<96, epicmp VT E +P 89.0<90, epicmp VT D +P 85.0<86, sample SINUS recall 92.7<92.89, sample SVT recall 71.9<72.6
+FINAL_DONE dual1m_ft2_best_v2
+[17:23:59] dual1m_ft2_best: V2_DONE

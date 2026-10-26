@@ -1,0 +1,69 @@
+[14:34:25] 30k: SSL encoder (teacher v4 beat positions)
+SSL          : rhythm_dual_30k encoder 12,654 params, teacher 988,773 (frozen, beat positions only)
+masking      : 35% of time in 60-sample spans + one lead with p=0.3
+Epoch 1/12
+[1m1500/1500[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m211s[0m 126ms/step - loss: 0.7609 - nmse: 0.8790 - val_loss: 0.7631 - val_nmse: 0.8535 - learning_rate: 0.0010
+Epoch 2/12
+[1m1500/1500[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m181s[0m 121ms/step - loss: 0.7398 - nmse: 0.8547 - val_loss: 0.7621 - val_nmse: 0.8485 - learning_rate: 9.8076e-04
+Epoch 3/12
+[1m1500/1500[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m182s[0m 121ms/step - loss: 0.7361 - nmse: 0.8507 - val_loss: 0.7573 - val_nmse: 0.8458 - learning_rate: 9.2460e-04
+Epoch 4/12
+[1m1500/1500[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m183s[0m 122ms/step - loss: 0.7329 - nmse: 0.8470 - val_loss: 0.7520 - val_nmse: 0.8407 - learning_rate: 8.3606e-04
+Epoch 5/12
+[1m1500/1500[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m185s[0m 123ms/step - loss: 0.7315 - nmse: 0.8456 - val_loss: 0.7558 - val_nmse: 0.8437 - learning_rate: 7.2232e-04
+Epoch 6/12
+[1m1500/1500[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m186s[0m 124ms/step - loss: 0.7310 - nmse: 0.8448 - val_loss: 0.7517 - val_nmse: 0.8398 - learning_rate: 5.9260e-04
+Epoch 7/12
+[1m1500/1500[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m210s[0m 140ms/step - loss: 0.7294 - nmse: 0.8436 - val_loss: 0.7522 - val_nmse: 0.8380 - learning_rate: 4.5740e-04
+Epoch 8/12
+[1m1500/1500[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m194s[0m 129ms/step - loss: 0.7284 - nmse: 0.8426 - val_loss: 0.7490 - val_nmse: 0.8368 - learning_rate: 3.2768e-04
+Epoch 9/12
+[1m1500/1500[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m208s[0m 138ms/step - loss: 0.7278 - nmse: 0.8407 - val_loss: 0.7494 - val_nmse: 0.8375 - learning_rate: 2.1394e-04
+Epoch 10/12
+[1m1500/1500[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m197s[0m 132ms/step - loss: 0.7281 - nmse: 0.8427 - val_loss: 0.7492 - val_nmse: 0.8367 - learning_rate: 1.2540e-04
+Epoch 11/12
+[1m1500/1500[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m181s[0m 121ms/step - loss: 0.7290 - nmse: 0.8419 - val_loss: 0.7469 - val_nmse: 0.8367 - learning_rate: 6.9241e-05
+Epoch 12/12
+[1m1500/1500[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m138s[0m 92ms/step - loss: 0.7272 - nmse: 0.8406 - val_loss: 0.7485 - val_nmse: 0.8357 - learning_rate: 5.0000e-05
+SSL encoder -> /media/Project/ECG/Model_Dong/ecgr_rhythm/151026_rhythm_dual_small_v4/checkpoints/dualunet_rhythm_30k/ssl_encoder.keras
+[15:12:28] 30k: distill from v4 teacher (KD a=0.5 T=2)
+teacher      : dualunet_rhythm_1m, 988,773 params (frozen)
+EPOCH 1  val_rhythm_f1=0.6901
+EPOCH 2  val_rhythm_f1=0.7556
+EPOCH 3  val_rhythm_f1=0.7508
+Epoch 3: val_rhythm_f1 improved from -inf to 0.75084, saving student to /media/Project/ECG/Model_Dong/ecgr_rhythm/151026_rhythm_dual_small_v4/checkpoints/dualunet_rhythm_30k/best_model.keras
+EPOCH 4  val_rhythm_f1=0.7346
+EPOCH 5  val_rhythm_f1=0.8022
+Epoch 5: val_rhythm_f1 improved from 0.75084 to 0.80223, saving student to /media/Project/ECG/Model_Dong/ecgr_rhythm/151026_rhythm_dual_small_v4/checkpoints/dualunet_rhythm_30k/best_model.keras
+EPOCH 6  val_rhythm_f1=0.8010
+EPOCH 7  val_rhythm_f1=0.7773
+EPOCH 8  val_rhythm_f1=0.8043
+Epoch 8: val_rhythm_f1 improved from 0.80223 to 0.80433, saving student to /media/Project/ECG/Model_Dong/ecgr_rhythm/151026_rhythm_dual_small_v4/checkpoints/dualunet_rhythm_30k/best_model.keras
+EPOCH 9  val_rhythm_f1=0.8086
+Epoch 9: val_rhythm_f1 improved from 0.80433 to 0.80859, saving student to /media/Project/ECG/Model_Dong/ecgr_rhythm/151026_rhythm_dual_small_v4/checkpoints/dualunet_rhythm_30k/best_model.keras
+EPOCH 10  val_rhythm_f1=0.7976
+EPOCH 11  val_rhythm_f1=0.8032
+EPOCH 12  val_rhythm_f1=0.8059
+EPOCH 13  val_rhythm_f1=0.8040
+EPOCH 14  val_rhythm_f1=0.8236
+Epoch 14: val_rhythm_f1 improved from 0.80859 to 0.82361, saving student to /media/Project/ECG/Model_Dong/ecgr_rhythm/151026_rhythm_dual_small_v4/checkpoints/dualunet_rhythm_30k/best_model.keras
+EPOCH 15  val_rhythm_f1=0.8248
+Epoch 15: val_rhythm_f1 improved from 0.82361 to 0.82482, saving student to /media/Project/ECG/Model_Dong/ecgr_rhythm/151026_rhythm_dual_small_v4/checkpoints/dualunet_rhythm_30k/best_model.keras
+EPOCH 16  val_rhythm_f1=0.8165
+EPOCH 17  val_rhythm_f1=0.8158
+EPOCH 18  val_rhythm_f1=0.8046
+EPOCH 19  val_rhythm_f1=0.8365
+Epoch 19: val_rhythm_f1 improved from 0.82482 to 0.83652, saving student to /media/Project/ECG/Model_Dong/ecgr_rhythm/151026_rhythm_dual_small_v4/checkpoints/dualunet_rhythm_30k/best_model.keras
+EPOCH 20  val_rhythm_f1=0.8416
+Epoch 20: val_rhythm_f1 improved from 0.83652 to 0.84155, saving student to /media/Project/ECG/Model_Dong/ecgr_rhythm/151026_rhythm_dual_small_v4/checkpoints/dualunet_rhythm_30k/best_model.keras
+EPOCH 21  val_rhythm_f1=0.8365
+EPOCH 22  val_rhythm_f1=0.8331
+EPOCH 23  val_rhythm_f1=0.8353
+EPOCH 24  val_rhythm_f1=0.8229
+EPOCH 25  val_rhythm_f1=0.8202
+EPOCH 26  val_rhythm_f1=0.8272
+EPOCH 27  val_rhythm_f1=0.8412
+EPOCH 28  val_rhythm_f1=0.8259
+distillation finished; student checkpoints in /media/Project/ECG/Model_Dong/ecgr_rhythm/151026_rhythm_dual_small_v4/checkpoints/dualunet_rhythm_30k
+[21:43:24] 30k: EC57 + dataset-eval/v4
+[22:23:06] 30k: DISTILL_CHAIN_DONE

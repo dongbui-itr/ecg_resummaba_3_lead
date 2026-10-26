@@ -1,0 +1,40 @@
+[09:12:11] 30k: fine-tune all weights of distill2_30k under beatft2_e2 (KD a=0.5 T=2, lr 2e-4 cosine, 20 ep)
+student      : dualunet_rhythm_30k, 23,361 params, all weights from /media/Project/ECG/Model_Dong/ecgr_rhythm/release_dualunet_1m_e26/checkpoint/candidates/distill2_30k.keras
+teacher      : dualunet_rhythm_1m, 988,773 params (frozen)
+EPOCH 1  val_rhythm_f1=0.8259
+EPOCH 1  beat: f1(N,S,V)=0.8331
+Epoch 1: val_rhythm_f1 improved from -inf to 0.82588, saving student to /media/Project/ECG/Model_Dong/ecgr_rhythm/201026_rhythm_dual_30k_ftd/checkpoints/dualunet_rhythm_30k/best_model.keras
+EPOCH 2  val_rhythm_f1=0.8228
+EPOCH 2  beat: f1(N,S,V)=0.8354
+EPOCH 3  val_rhythm_f1=0.8305
+EPOCH 3  beat: f1(N,S,V)=0.8414
+Epoch 3: val_rhythm_f1 improved from 0.82588 to 0.83052, saving student to /media/Project/ECG/Model_Dong/ecgr_rhythm/201026_rhythm_dual_30k_ftd/checkpoints/dualunet_rhythm_30k/best_model.keras
+EPOCH 4  val_rhythm_f1=0.8292
+EPOCH 4  beat: f1(N,S,V)=0.8407
+EPOCH 5  val_rhythm_f1=0.8297
+EPOCH 5  beat: f1(N,S,V)=0.8347
+EPOCH 6  val_rhythm_f1=0.8222
+EPOCH 6  beat: f1(N,S,V)=0.8362
+EPOCH 7  val_rhythm_f1=0.8351
+EPOCH 7  beat: f1(N,S,V)=0.8397
+Epoch 7: val_rhythm_f1 improved from 0.83052 to 0.83506, saving student to /media/Project/ECG/Model_Dong/ecgr_rhythm/201026_rhythm_dual_30k_ftd/checkpoints/dualunet_rhythm_30k/best_model.keras
+EPOCH 8  val_rhythm_f1=0.8352
+EPOCH 8  beat: f1(N,S,V)=0.8390
+Epoch 8: val_rhythm_f1 improved from 0.83506 to 0.83521, saving student to /media/Project/ECG/Model_Dong/ecgr_rhythm/201026_rhythm_dual_30k_ftd/checkpoints/dualunet_rhythm_30k/best_model.keras
+EPOCH 9  val_rhythm_f1=0.8332
+EPOCH 9  beat: f1(N,S,V)=0.8421
+EPOCH 10  val_rhythm_f1=0.8274
+EPOCH 10  beat: f1(N,S,V)=0.8308
+EPOCH 11  val_rhythm_f1=0.8264
+EPOCH 11  beat: f1(N,S,V)=0.8372
+EPOCH 12  val_rhythm_f1=0.8332
+EPOCH 12  beat: f1(N,S,V)=0.8370
+EPOCH 13  val_rhythm_f1=0.8328
+EPOCH 13  beat: f1(N,S,V)=0.8394
+EPOCH 14  val_rhythm_f1=0.8344
+EPOCH 14  beat: f1(N,S,V)=0.8417
+distillation finished; student checkpoints in /media/Project/ECG/Model_Dong/ecgr_rhythm/201026_rhythm_dual_30k_ftd/checkpoints/dualunet_rhythm_30k
+[11:16:23] validation inference (overlap 1)
+[11:30:04] decoder tune on validation (own guard)
+[11:40:42] EC57 + dataset-eval v4 (once)
+[12:09:47] FT30K_DONE

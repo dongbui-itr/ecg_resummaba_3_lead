@@ -1,0 +1,28 @@
+{
+  "model": "rhythm_dual_1m",
+  "params": 988773,
+  "class_weights": [
+    0.240656380554994,
+    0.41455443123551766,
+    0.5726758104592811,
+    0.8653698698674323,
+    0.6765162559340628
+  ],
+  "sampler": "stratified",
+  "sampler_repeat": {
+    "SINUS": 0.7004742088454466,
+    "AFIB": 1.1750249792725185,
+    "SVT": 2.1358683051240437,
+    "VT": 4.043898156277437,
+    "AVB": 4.94949494949495
+  },
+  "batch_size": 64,
+  "lr": 0.001,
+  "lr2": 0.0002,
+  "schedule": "cosine",
+  "freeze_epochs": 0,
+  "init_from": null,
+  "backbone_from": null,
+  "init_matching_from": null,
+  "npy_dir": "/media/Project/ECG/Model_Dong/ecgr_rhythm/npy_250hz_10s_3lead_10sec"
+}

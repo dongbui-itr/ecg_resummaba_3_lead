@@ -1,0 +1,24 @@
+2026-10-20 05:53:07.613848: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-20 05:53:07.642115: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-10-20 05:53:08.275081: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+xla          : --xla_gpu_cuda_data_dir=/usr/local/cuda
+1 GPU(s)
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1792450389.191107 1230782 gpu_device.cc:2020] Created device /job:localhost/replica:0/task:0/device:GPU:0 with 18216 MB memory:  -> device: 0, name: NVIDIA RTX A5000, pci bus id: 0000:01:00.0, compute capability: 8.6
+2026-10-20 05:53:11.123915: I external/local_xla/xla/service/service.cc:163] XLA service 0x73e438052c20 initialized for platform CUDA (this does not guarantee that XLA will be used). Devices:
+2026-10-20 05:53:11.123939: I external/local_xla/xla/service/service.cc:171]   StreamExecutor device (0): NVIDIA RTX A5000, Compute Capability 8.6
+2026-10-20 05:53:11.195168: I tensorflow/compiler/mlir/tensorflow/utils/dump_mlir_util.cc:269] disabling MLIR crash reproducer, set env var `MLIR_CRASH_REPRODUCER_DIRECTORY` to enable.
+2026-10-20 05:53:11.536603: I external/local_xla/xla/stream_executor/cuda/cuda_dnn.cc:473] Loaded cuDNN version 92600
+I0000 00:00:1792450395.241530 1230913 device_compiler.h:196] Compiled cluster using XLA!  This line is logged at most once for the lifetime of the process.
+  500/4719 records predicted
+  1000/4719 records predicted
+  1500/4719 records predicted
+  2000/4719 records predicted
+  2500/4719 records predicted
+  3000/4719 records predicted
+  3500/4719 records predicted
+  4000/4719 records predicted
+  4500/4719 records predicted
+  4719/4719 records predicted
+PREDICT_DONE distill2_100k

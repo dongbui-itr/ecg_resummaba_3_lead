@@ -1,0 +1,18 @@
+{
+  "verified": true,
+  "counts": {
+    "train": 65035,
+    "eval": 14638,
+    "test": 1966,
+    "rhythm_test_dir": 1966
+  },
+  "overlap_counts": {
+    "train_x_eval": 0,
+    "train_x_rhythm_test_dir": 0,
+    "eval_x_rhythm_test_dir": 0,
+    "train_x_held_out": 0,
+    "eval_x_held_out": 0,
+    "test_not_in_rhythm_test_dir": 0
+  },
+  "overlap_studyids": {}
+}

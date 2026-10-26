@@ -1,0 +1,27 @@
+{
+  "model": "rhythm_dual_100k",
+  "params": 80189,
+  "stage": "distill",
+  "teacher": "/media/Project/ECG/Model_Dong/ecgr_rhythm/141026_rhythm_dual_1m_v4_scratch/release/v4_scratch_best.keras",
+  "ssl_from": "/media/Project/ECG/Model_Dong/ecgr_rhythm/151026_rhythm_dual_small_v4/checkpoints/dualunet_rhythm_100k/ssl_encoder.keras",
+  "kd_alpha": 0.5,
+  "kd_temperature": 2.0,
+  "class_weights": [
+    0.2407188965869103,
+    0.420926139743122,
+    0.5827103728108364,
+    0.8906215557927479,
+    0.7669939707688409
+  ],
+  "sampler": "stratified",
+  "sampler_repeat": {
+    "SINUS": 0.7257994104057017,
+    "AFIB": 1.1407601572739188,
+    "SVT": 2.137524557956778,
+    "VT": 4.156638013371538,
+    "AVB": 4.0138344477749595
+  },
+  "batch_size": 64,
+  "lr": 0.001,
+  "npy_dir": "/media/Project/ECG/Model_Dong/ecgr_rhythm/npy_curated_v4_131026"
+}

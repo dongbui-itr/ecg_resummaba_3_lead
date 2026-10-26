@@ -93,7 +93,9 @@ BEAT_TYPE_RADIUS_STEPS = 5                        # 40 ms
 BEAT_HEAT_POS_WEIGHT = 3.0                        # positives are ~6 % of the steps
 BEAT_TYPE_LOSS_WEIGHT = 1.0
 BEAT_LOSS_WEIGHT = 1.0
-BEAT_CLASS_WEIGHTS = (0.15, 1.0, 4.0, 3.0)          # none (unused), N, S, V
+BEAT_CLASS_WEIGHTS = (tuple(float(v) for v in os.environ['ECGR_RHYTHM_BEAT_CLASS_WEIGHTS'].split(','))
+                      if os.environ.get('ECGR_RHYTHM_BEAT_CLASS_WEIGHTS') else
+                      (0.15, 1.0, 4.0, 3.0))                # none (unused), N, S, V
 BEAT_MATCH_TOLERANCE_SECONDS = 0.15               # bxb's window, for the beat-level metric
 BEAT_MATCH_WINDOWS = 2048                         # eval windows the per-epoch beat matcher sees
 
@@ -564,6 +566,13 @@ DECODE_CLASS_SCALE = {'SINUS': 2.24, 'AFIB': 1.75, 'SVT': 1.49, 'VT': 1.21, 'AVB
 # and floor 0.6 - AF episode Se 71.5 %, duration Se 92.9 %, 0.15 false AF episodes per non-AF
 # hour, well inside the 0.4 budget.
 DECODE_MIN_EPISODE_PROB = {'AFIB': 0.6}
+# Isolated short episodes (labels.enforce_context): {class: (max_seconds, context_seconds,
+# min_context_prob)} - an episode shorter than max_seconds whose class has a mean probability
+# below min_context_prob over the context_seconds before and after it (the episode itself left
+# out) goes like a too-short one. Rhythm output only. Off by default; mitdb false AF episodes
+# are ~9 s single-window islands with p(AF) ~0.12 around them, true ones sit in AF context
+# (~0.54) - 2026-10-12, overlap 1 s.
+DECODE_CONTEXT_RULE = {}
 
 # Beat-level rhythm post-processing (rhythm/beats.py) - the production pipeline's second stage
 # (docs/rhythm-post-process-analysis.md of the Bioflux library) re-done on this model's own
@@ -600,23 +609,35 @@ BEAT_PP_S_IN_AFIB_TO_N = True
 BEAT_PP_S_PREMATURITY = 0.0
 # Boundary trimming after the beat stage (beats.trim_to_beats): {class: pad seconds}, {} = off.
 DECODE_TRIM_TO_BEATS = {}
+# Record-level AF gate (ec57.decode_record, Holter-length records only): a record keeps its AFIB
+# episodes only when at least one of them is sustained ('sustained' seconds, the 30 s clinical AF
+# definition) with a mean AFIB probability >= 'min_prob'; otherwise every AFIB call becomes SINUS.
+# Designed on validation (ltafdb/nsrdb/incartdb/svdb): false AF in non-AF records comes in bursts
+# < 30 s, while every AF record carries a sustained confident episode. None = off; the decode
+# override 'afib_gate' sets it per run. Records shorter than 'min_record' seconds (strips) are untouched.
+AFIB_GATE_DEFAULT = {'sustained': 30.0, 'min_prob': 0.6, 'min_record': 600.0, 'relaxed': None}
+DECODE_AFIB_GATE = AFIB_GATE_DEFAULT   # on since 2026-10-19 (mitdb AFIB E +P 61 -> 89)
+# 'relaxed': AFIB acceptance knobs used again inside an AF-confirmed record, e.g.
+# {'min_prob': {'AFIB': 0.5}}; None = the confirmed record keeps its first-pass episodes.
 RHYTHM_BEAT_AI_EXTENSION = 'bti'     # hypothesis beat annotation (N/S/V at R) for bxb
 
-# Whole-record inference (predict.predict_signal): window hop (10 = back-to-back windows; 5 =
-# every step voted by two windows) and test-time variants averaged ('id', 'flip', 'swap').
-# The model input stays one 10 s window either way. Env overrides for the validation sweep.
-# 5 s + all three variants, chosen on the validation records (2026-10-01, checkpoint
+# Whole-record inference (predict.predict_signal): PREDICT_OVERLAP_SECONDS = how many seconds
+# two consecutive 10 s windows share (0 = back-to-back windows; 5 = half overlap, every step
+# voted by two windows; 9.5 = windows 0.5 s apart, ~20 votes). The step between window starts
+# is SEGMENT_SECONDS - overlap (predict.window_starts). Test-time variants averaged: 'id',
+# 'flip', 'swap'. The model input stays one 10 s window either way. Env overrides for the
+# validation sweep. 5 s overlap + all three variants, chosen on the validation records (2026-10-01, checkpoint
 # 300926_rhythm_u500_af): AF episode Se 62 -> 67 %, duration Se 92 %, false AF episodes 0.28
 # -> 0.10 per non-AF hour (with DECODE_MIN_EPISODE_PROB AFIB 0.7, re-picked for it); ltafdb VT
 # duration F1 -4. Costs 6x the inference of the plain setting.
-PREDICT_HOP_SECONDS = float(os.environ.get("ECGR_RHYTHM_PREDICT_HOP", 5))
+PREDICT_OVERLAP_SECONDS = float(os.environ.get("ECGR_RHYTHM_PREDICT_OVERLAP", 5))
 PREDICT_TTA = tuple(os.environ.get("ECGR_RHYTHM_PREDICT_TTA", "id,flip,swap").split(','))
 # Where windows overlap, each window's rows are weighted by their position before averaging:
 # weight = floor + (1 - floor) * sin(pi * (row + 0.5) / rows) (a Hann-like taper, 1 at the
 # centre). 0 = off (plain mean, every table before 2026-10-08). XAI on the dual U-Net
 # (2026-10-08): per-second macro F1 92.9 at the window centre vs 86 at either edge (SVT/VT
 # -13..-20 pts), so a second near a window edge should defer to a window where it is central.
-# Combine with a smaller ECGR_RHYTHM_PREDICT_HOP so every second has a central window.
+# Combine with a larger ECGR_RHYTHM_PREDICT_OVERLAP so every second has a central window.
 PREDICT_TAPER_FLOOR = float(os.environ.get("ECGR_RHYTHM_PREDICT_TAPER", 0))
 
 # Per-sample models ('rhythm' output (SEGMENT_SAMPLES, NUM_CLASSES), the UNet family): whole-

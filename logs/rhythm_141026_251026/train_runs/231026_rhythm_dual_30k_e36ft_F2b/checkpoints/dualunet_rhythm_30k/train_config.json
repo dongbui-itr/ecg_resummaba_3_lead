@@ -1,0 +1,28 @@
+{
+  "model": "rhythm_dual_30k",
+  "params": 23361,
+  "stage": "distill",
+  "teacher": "/media/Project/ECG/Model_Dong/ecgr_rhythm/release_dualunet_1m_e26/checkpoint/candidates/beatft2_e2.keras",
+  "ssl_from": "none",
+  "init_from": "/media/Project/ECG/Model_Dong/ecgr_rhythm/231026_rhythm_dual_30k_e36ft_F2/checkpoints/dualunet_rhythm_30k/epochs/epoch_07.keras",
+  "kd_alpha": 0.7,
+  "kd_temperature": 2.0,
+  "class_weights": [
+    0.2407,
+    0.5609601279567905,
+    0.5238676148349357,
+    0.8125094764457846,
+    0.681409144487119
+  ],
+  "sampler": "stratified",
+  "sampler_repeat": {
+    "SINUS": 0.686191917862314,
+    "AFIB": 1.3664482306684143,
+    "SVT": 2.5003597294834283,
+    "VT": 4.721920289855072,
+    "AVB": 4.8079317500576435
+  },
+  "batch_size": 64,
+  "lr": 7.4e-05,
+  "npy_dir": "/media/Project/ECG/Model_Dong/ecgr_rhythm/161026_rhythm_dual_1m_v5ft/npy_ft"
+}

@@ -11,6 +11,7 @@
   --ok: #1f8a4c; --warn: #b7791f; --bad: #c0392b; --chip: #eef2f8; --hl: rgba(255, 196, 0, .22);
   --c0: #3b8a5a; --c1: #e07b00; --c2: #2a6fdb; --c3: #d1343b; --c4: #8e5bd6;
   --gmin: rgba(226, 104, 104, .16); --gmaj: rgba(214, 64, 64, .42); --paper: #fffafa;
+  --c5: #8a8f99;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -27,6 +28,7 @@
   --gmin: rgba(255, 120, 120, .09); --gmaj: rgba(255, 120, 120, .26); --paper: #1a1e26;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }                 /* .layout's display: grid would win otherwise */
 html, body { margin: 0; background: var(--bg); color: var(--ink);
   font: 13px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 header { display: flex; align-items: center; gap: 12px; padding: 8px 16px; border-bottom: 1px solid var(--line);
@@ -66,6 +68,10 @@ button.small { padding: 1px 6px; font-size: 12px; }
 .plot { position: relative; width: 100%; }
 .plot canvas { display: block; width: 100%; }
 .plot canvas.ly { position: absolute; left: 0; top: 0; pointer-events: none; }
+header .tabs { margin: 0; }
+.score td.bad { color: var(--bad); font-weight: 650; }
+.grid3 { display: grid; grid-template-columns: auto 1fr 1fr 1fr 1fr; gap: 3px 6px; align-items: center; font-size: 12px; }
+.grid3 input { width: 100%; min-width: 0; }
 .fbrowse { max-height: 210px; overflow: auto; border: 1px solid var(--line); border-radius: 5px; margin: 4px 0; font-size: 12px; }
 .fbrowse div { padding: 2px 6px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fbrowse div:hover { background: var(--chip); }
@@ -105,12 +111,13 @@ pre { font-size: 11px; overflow: auto; max-height: 260px; background: var(--bg);
 <body>
 <header>
   <h1>Rhythm XAI Lab</h1>
+  <div class="tabs" id="viewTabs"><button data-v="xai" class="on">XAI</button><button data-v="pred">Predict vs Label</button></div>
   <div class="ck" id="ckpt">dual U-Net</div>
   <button class="small" id="themeBtn" title="Đổi giao diện sáng/tối">◐</button>
   <div id="status">sẵn sàng</div>
 </header>
 
-<div class="layout">
+<div class="layout" id="viewXai">
 <aside>
   <!-- SOURCE ------------------------------------------------------------------------------>
   <div class="card">
@@ -353,6 +360,79 @@ pre { font-size: 11px; overflow: auto; max-height: 260px; background: var(--bg);
   <div class="card" id="batchCard" hidden>
     <h2>Kết quả nhiều window <span class="sub" id="batchSub"></span></h2>
     <div class="tbl" id="batchTable"></div>
+  </div>
+</main>
+</div>
+
+<!-- PREDICT vs LABEL ------------------------------------------------------------------------>
+<div class="layout" id="viewPred" hidden>
+<aside>
+  <div class="card">
+    <h2>1. Record</h2>
+    <div class="row"><label>DB</label><select id="pDb" style="flex:1;min-width:0"></select></div>
+    <div class="row"><label>Record</label><select id="pRec" style="flex:1;min-width:0"></select>
+      <input id="pQ" placeholder="lọc" style="width:60px"></div>
+    <div class="row"><input id="pPath" placeholder="hoặc đường dẫn record" style="flex:1;min-width:0"><button class="small" id="pOpen">Mở</button></div>
+    <div class="row"><label>Annotation (label)</label><select id="pAnn"></select></div>
+    <div class="row"><label>Lead 1</label><select id="pL0"></select><label>2</label><select id="pL1"></select><label>3</label><select id="pL2"></select></div>
+    <div class="hint" id="pInfo"></div>
+  </div>
+  <div class="card">
+    <h2>2. Model</h2>
+    <div class="row"><select id="pModel" style="width:100%"></select></div>
+    <div class="row"><label>Overlap (s)</label><input type="number" id="pOv" min="0" max="9.5" step="0.5" value="5">
+      <label>Taper</label><input type="number" id="pTaper" min="0" max="1" step="0.05" value="0"></div>
+    <div class="row"><label>TTA</label><select id="pTta"><option value="id">id</option><option value="id,flip">id, flip</option>
+      <option value="id,flip,swap">id, flip, swap</option></select></div>
+    <div class="row"><button class="primary" id="pRun">Chạy predict</button><span class="hint" id="pRunHint"></span></div>
+    <div class="hint">Checkpoint: chạy model trên cả record (CPU; ~3 s / 30 phút, vài phút / 24 h), kết quả được cache. npz EC57: xác suất đã lưu của lần chấm EC57, mở ngay; overlap / TTA / lead là của lần chạy đó.</div>
+  </div>
+  <div class="card">
+    <h2>3. Post-process <span class="sub">đổi là decode lại ngay</span></h2>
+    <div class="row"><select id="pPreset" style="width:100%"></select></div>
+    <div class="row"><label>Beat PP</label><select id="pBeatPP"><option value="">theo preset</option><option value="1">bật</option><option value="0">tắt</option></select>
+      <label>AF gate</label><select id="pGate"><option value="">theo preset</option><option value="1">bật</option><option value="0">tắt</option></select></div>
+    <div class="row"><label>Ngưỡng NOISE</label><input type="number" id="pNoise" step="0.05" min="0" max="1" placeholder="preset" style="width:70px">
+      <label>V margin</label><input type="number" id="pVm" step="0.05" placeholder="0" style="width:56px">
+      <label>S margin</label><input type="number" id="pSm" step="0.05" placeholder="0" style="width:56px"></div>
+    <div class="grid3" id="pClsKnobs"></div>
+    <div class="hint">Ô trống = giá trị của preset. min p = xác suất trung bình tối thiểu để giữ một episode; min s = độ dài tối thiểu.</div>
+  </div>
+  <div class="card">
+    <h2>Điểm <span class="sub" id="pScoreSub"></span></h2>
+    <div class="tbl score" id="pScores"><div class="empty">chưa chạy</div></div>
+  </div>
+</aside>
+<main>
+  <div class="card">
+    <h2>Toàn record <span class="sub" id="pOvSub">label · predict (sau post-process) · argmax thô · đỏ = sai · nhấp để nhảy</span></h2>
+    <div class="plot"><canvas id="pvOv" height="64"></canvas></div>
+    <div class="toolbar" style="margin-top:6px">
+      <label>Nhảy tới</label><select id="pJump"></select>
+      <button class="small" id="pJumpPrev">◀ trước</button><button class="small" id="pJumpNext">sau ▶</button>
+      <span class="hint" id="pJumpHint"></span>
+    </div>
+  </div>
+  <div class="card">
+    <h2 id="pTitle">Tín hiệu <span class="sub">chọn record rồi chạy predict</span></h2>
+    <div class="toolbar">
+      <label>Bắt đầu (s)</label><input type="number" id="pStart" value="0" min="0" step="1" style="width:90px">
+      <button class="small" data-pstep="-1">◀◀</button><button class="small" data-pstep="-0.5">◀</button>
+      <button class="small" data-pstep="0.5">▶</button><button class="small" data-pstep="1">▶▶</button>
+      <label>Khung</label><select id="pSpan"><option>10</option><option selected>20</option><option>30</option><option>60</option></select><label>s</label>
+      <span class="hint" id="pClock"></span>
+    </div>
+    <div class="toolbar">
+      <label>Layer</label>
+      <label><input type="checkbox" id="pLyGrid" checked> lưới AAMI</label>
+      <label><input type="checkbox" id="pLySig" checked> tín hiệu</label>
+      <label><input type="checkbox" id="pLyLab" checked> nhãn</label>
+      <label>Biên độ</label><select id="pGain"><option value="5">5 mm/mV</option><option value="10" selected>10 mm/mV</option><option value="20">20 mm/mV</option></select>
+      <label>Beat model</label><select id="pBeatView"><option value="pp">sau post-process</option><option value="raw">thô (beat head)</option></select>
+      <div class="legend" id="pLegend"></div>
+    </div>
+    <div class="plot" id="pPlot"><canvas id="pvGrid" height="400"></canvas><canvas id="pvSig" class="ly" height="400"></canvas><canvas id="pvLab" class="ly" height="400"></canvas><div class="cursor"></div></div>
+    <div class="notes" id="pNotes">Hàng trên: |◀ label ▶| = episode rhythm theo annotation, |◀ predict ▶| = episode sau post-process (dải đỏ = giây sai). Beat: chữ trên = annotation (vòng đỏ = model bỏ sót), chữ dưới = model (khung đỏ = beat thừa, gạch đỏ = sai lớp).</div>
   </div>
 </main>
 </div>
@@ -611,8 +691,8 @@ function ecgHr() {
   const R = S.res;
   return { atr: hrSeries(R.info.ref_beats), model: hrSeries(R.runs.mod.beats) };
 }
-function drawHr(c, G) {
-  const HR = ecgHr(), y0 = G.hr0, y1 = G.hr1;
+function drawHr(c, G, HR = ecgHr()) {
+  const y0 = G.hr0, y1 = G.hr1;
   const all = [...HR.atr.seg, ...HR.model.seg].map(s => s.bpm);
   let lo = all.length ? Math.min(...all) : 60, hi = all.length ? Math.max(...all) : 100;
   lo = Math.max(0, Math.floor((lo - 5) / 20) * 20); hi = Math.ceil((hi + 5) / 20) * 20;
@@ -1267,6 +1347,414 @@ function parseCsv(text) {
   return data.map(r => r.slice(0, 3));
 }
 
+// ================================================================================== Predict vs Label
+// One record through a checkpoint (or an EC57 run's stored npz), decoded with a chosen
+// post-processing, against its annotation. Server: ecgr/rhythm/xai_predict.py.
+const P = { dbs: [], dir: '', info: null, res: null, sig: null, sigKey: '', err: [], booted: false, knobsSet: false };
+const P_TOP = 72;                                   // rows above the lanes: label, predict, error, ann beats
+const CLS6 = () => S.meta.classes.concat(['NOISE']);
+const pcol = k => k >= 0 ? clsColor(k) : css('--muted');
+function fmtClock(s) {
+  s = Math.max(0, s); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
+  return (h ? h + ':' + String(m).padStart(2, '0') : String(m)) + ':' + x.toFixed(1).padStart(4, '0');
+}
+function lowerBound(a, v) { let lo = 0, hi = a.length; while (lo < hi) { const m = (lo + hi) >> 1; if (a[m] < v) lo = m + 1; else hi = m; } return lo; }
+function pLeads() { return [0, 1, 2].map(j => $('#pL' + j).value === '' ? null : +$('#pL' + j).value); }
+function pSpan() { return +$('#pSpan').value; }
+const pStored = () => $('#pModel').value.startsWith('st:');
+
+function setView(v) {
+  $$('#viewTabs button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
+  $('#viewXai').hidden = v !== 'xai'; $('#viewPred').hidden = v !== 'pred';
+  try { localStorage.setItem('xai-view', v); } catch (e) {}
+  if (v === 'pred') { if (!P.booted) return predBoot(); drawPredAll(); }
+  else { drawAll(); drawOverview(); }
+}
+
+async function predBoot(openPath, start) {
+  P.booted = true;
+  try {
+    const [dbs, presets] = await Promise.all([api('/api/pred/dbs'), api('/api/pred/presets')]);
+    P.dbs = dbs;
+    $('#pDb').innerHTML = dbs.map((d, i) => `<option value="${i}">${esc(d.name)}</option>`).join('');
+    const mi = dbs.findIndex(d => d.name === 'mitdb'); if (mi >= 0) $('#pDb').value = mi;
+    $('#pPreset').innerHTML = presets.map(p => `<option value="${esc(p.id)}">${esc(p.label)}</option>`).join('');
+    const C4 = ['AFIB', 'SVT', 'VT', 'AVB'];
+    $('#pClsKnobs').innerHTML = '<span></span>' + C4.map(c => `<b style="color:${clsColor(S.meta.classes.indexOf(c))}">${c}</b>`).join('') +
+      '<label>min p</label>' + C4.map(c => `<input type="number" step="0.05" min="0" max="1" data-mp="${c}" placeholder="–">`).join('') +
+      '<label>min s</label>' + C4.map(c => `<input type="number" step="1" min="0" data-ms="${c}" placeholder="–">`).join('');
+    $('#pLegend').innerHTML = CLS6().map((n, k) => `<span style="--c:${clsColor(k)}">${n}</span>`).join('');
+    $('#pJump').innerHTML = '<option value="err">giây sai (predict ≠ label)</option>' +
+      CLS6().map((n, k) => `<option value="p${k}">predict: ${n}</option>`).join('') +
+      S.meta.classes.map((n, k) => `<option value="r${k}">label: ${n}</option>`).join('');
+    predWire();
+    if (openPath) { await pOpenRecord(openPath, start); return; }
+    await pBrowse(dbs[+$('#pDb').value].dir, true);
+  } catch (e) { status('lỗi: ' + e.message); }
+}
+
+async function pBrowse(dir, openFirst) {
+  const r = await api(`/api/browse?dir=${encodeURIComponent(dir)}&q=${encodeURIComponent($('#pQ').value.trim())}`);
+  P.dir = r.dir;
+  const db = P.dbs[+$('#pDb').value];
+  const up = db && r.parent && r.dir.replace(/\/$/, '') !== db.dir.replace(/\/$/, '') ? `<option value="d:${esc(r.parent)}">‥ (lên)</option>` : '';
+  $('#pRec').innerHTML = up +
+    r.dirs.map(d => `<option value="d:${esc(d.path)}">▸ ${esc(d.name)}</option>`).join('') +
+    r.records.map(x => `<option value="r:${esc(x.path)}">${esc(x.name)}${x.ann.includes('atr') ? '' : x.ann.length ? ' · .' + esc(x.ann[0]) : ' · (không ann)'}</option>`).join('');
+  const cur = P.info && [...$('#pRec').options].find(o => o.value === 'r:' + P.info.path);
+  if (cur) $('#pRec').value = cur.value;
+  if (openFirst) { const o = [...$('#pRec').options].find(o => o.value.startsWith('r:')); if (o) { $('#pRec').value = o.value; await pOpenRecord(o.value.slice(2)); } }
+}
+
+async function pOpenRecord(path, start) {
+  try {
+    const fi = await api('/api/fileinfo?path=' + encodeURIComponent(path));
+    P.info = fi; P.res = null; P.sig = null; P.sigKey = '';
+    $('#pPath').value = fi.path;
+    const dir = dirname(fi.path);                     // a typed / linked record: show its folder
+    if (P.dir.replace(/\/$/, '') !== dir) {
+      const di = P.dbs.findIndex(d => d.dir.replace(/\/$/, '') === dir);
+      if (di >= 0) $('#pDb').value = di;
+      await pBrowse(dir);
+    }
+    const opts = '<option value="">— (trống)</option>' + fi.sig_name.map((n, k) =>
+      `<option value="${k}">${k}: ${esc(n || 'ch' + k)}</option>`).join('');
+    for (let j = 0; j < 3; j++) { $('#pL' + j).innerHTML = opts; $('#pL' + j).value = j < fi.n_sig ? String(j) : ''; }
+    $('#pAnn').innerHTML = '<option value="">(không dùng: .hea)</option>' + fi.ann_exts.map(e => `<option>${esc(e)}</option>`).join('');
+    $('#pAnn').value = fi.ann;
+    const dur = fi.seconds >= 3600 ? (fi.seconds / 3600).toFixed(2) + ' h' : fi.seconds >= 120 ? (fi.seconds / 60).toFixed(1) + ' phút' : fi.seconds.toFixed(1) + ' s';
+    $('#pInfo').textContent = `${fi.name} · ${fi.fs} Hz · ${fi.n_sig} kênh (${fi.sig_name.join(', ')}) · ${dur}` +
+      (fi.comments.length ? '\n' + fi.comments.slice(0, 4).join('\n') : '');
+    const src = await api('/api/pred/sources?path=' + encodeURIComponent(fi.path));
+    const prev = $('#pModel').value;
+    $('#pModel').innerHTML =
+      (src.stored.length ? '<optgroup label="npz EC57 đã lưu (mở ngay)">' + src.stored.map(r => `<option value="st:${esc(r.ec57_out)}">${esc(r.label)}</option>`).join('') + '</optgroup>' : '') +
+      '<optgroup label="Checkpoint (chạy model)">' + src.checkpoints.map(c => `<option value="ck:${esc(c.path)}">${esc(c.label)}${c.loaded ? '  ★ (đang nạp)' : ''}</option>`).join('') + '</optgroup>';
+    const has = v => [...$('#pModel').options].some(o => o.value === v);
+    if (prev && has(prev)) $('#pModel').value = prev;
+    else {          // default: this service's --ec57-out run if it stored the record, else its checkpoint
+      const e57 = S.meta.ec57_out && src.stored.find(r => r.ec57_out.replace(/\/$/, '') === S.meta.ec57_out.replace(/\/$/, ''));
+      const ck = src.checkpoints.find(c => c.loaded);
+      if (e57) $('#pModel').value = 'st:' + e57.ec57_out; else if (ck) $('#pModel').value = 'ck:' + ck.path;
+    }
+    if (!P.knobsSet) {
+      P.knobsSet = true;
+      $('#pOv').value = src.defaults.overlap; $('#pTaper').value = src.defaults.taper;
+      const t = src.defaults.tta.join(','); if ([...$('#pTta').options].some(o => o.value === t)) $('#pTta').value = t;
+    }
+    pModelChanged();
+    $('#pStart').value = start != null ? start : 0;
+    drawPredAll();
+    if (fi.seconds > 7200 && !pStored()) { $('#pRunHint').textContent = `record ${(fi.seconds / 3600).toFixed(1)} h: bấm Chạy predict`; pSetStart(+$('#pStart').value); }
+    else await pRun();
+  } catch (e) { status('lỗi: ' + e.message); }
+}
+
+function pModelChanged() {
+  const st = pStored();
+  for (const id of ['#pOv', '#pTaper', '#pTta']) $(id).disabled = st;
+}
+
+function pReq() {
+  const m = $('#pModel').value, pp = { preset: $('#pPreset').value };
+  if ($('#pBeatPP').value !== '') pp.beat_pp = $('#pBeatPP').value === '1';
+  if ($('#pGate').value !== '') pp.afib_gate = $('#pGate').value === '1';
+  for (const [id, k] of [['#pNoise', 'noise_threshold'], ['#pVm', 'v_margin'], ['#pSm', 's_margin']]) if ($(id).value !== '') pp[k] = +$(id).value;
+  pp.min_prob = {}; pp.min_seconds = {};
+  $$('[data-mp]').forEach(i => { if (i.value !== '') pp.min_prob[i.dataset.mp] = +i.value; });
+  $$('[data-ms]').forEach(i => { if (i.value !== '') pp.min_seconds[i.dataset.ms] = +i.value; });
+  return { path: P.info.path, ann: $('#pAnn').value, leads: pLeads(),
+    source: m.startsWith('st:') ? { kind: 'stored', ec57_out: m.slice(3) } : { kind: 'model', checkpoint: m.slice(3) },
+    predict: { overlap: +$('#pOv').value, tta: $('#pTta').value.split(','), taper: +$('#pTaper').value }, pp };
+}
+
+let pSeq = 0;
+async function pRun() {
+  if (!P.info) return;
+  const my = ++pSeq;
+  $('#pRunHint').textContent = 'đang chạy…';
+  try {
+    const r = await api('/api/pred/run', pReq());
+    if (my !== pSeq) return;
+    P.res = r;
+    $('#pRunHint').textContent = `${r.cached ? 'stage 1 từ cache' : 'predict ' + r.predict_elapsed + ' s'} · tổng ${r.elapsed} s`;
+    status(`${r.name}: ${r.how}`);
+    P.err = r.pred.per_second.map((p, s) => r.ref.per_second[s] >= 0 && p !== r.ref.per_second[s]);
+    pRenderScores();
+    pSetStart(+$('#pStart').value);
+  } catch (e) { if (my === pSeq) { $('#pRunHint').textContent = ''; status('lỗi: ' + e.message); } }
+}
+
+function pRenderScores() {
+  const R = P.res, sc = R.scores, f = v => v == null ? '–' : v.toFixed(1), bad = v => v != null && v < 80 ? 'bad' : '';
+  let h = '<table><tr><th>giây</th><th>label</th><th>Se</th><th>+P</th><th>Se thô</th><th>+P thô</th></tr>';
+  sc.seconds.rows.forEach((x, k) => {
+    const y = sc.raw_seconds.rows[k];
+    if (!x.ref_s && !x.pred_s && !y.pred_s) return;
+    h += `<tr><td style="color:${clsColor(k)}">${x.cls}</td><td>${x.ref_s}</td><td class="${bad(x.se)}">${f(x.se)}</td><td class="${bad(x.ppv)}">${f(x.ppv)}</td><td>${f(y.se)}</td><td>${f(y.ppv)}</td></tr>`;
+  });
+  h += `</table><div class="hint">khớp ${f(sc.seconds.agree)} % của ${sc.seconds.known} giây có label (argmax thô ${f(sc.raw_seconds.agree)} %) · NOISE ${sc.seconds.noise_s} s. "thô" = argmax xác suất, chưa decode.</div>`;
+  const b = sc.beats;
+  if (b) h += '<table style="margin-top:6px"><tr><th>beat</th><th>label</th><th>model</th><th>Se</th><th>+P</th></tr>' +
+    `<tr><td>QRS</td><td>${b.ref}</td><td>${b.pred}</td><td class="${bad(b.qrs_se)}">${f(b.qrs_se)}</td><td class="${bad(b.qrs_ppv)}">${f(b.qrs_ppv)}</td></tr>` +
+    ['V', 'S'].map(c => `<tr><td>${c}</td><td>${b[c].ref}</td><td>${b[c].pred}</td><td class="${bad(b[c].se)}">${f(b[c].se)}</td><td class="${bad(b[c].ppv)}">${f(b[c].ppv)}</td></tr>`).join('') +
+    '</table><div class="hint">ghép beat ±150 ms (đơn giản hoá của bxb); V / S tính trên beat ghép được, beat sau post-process</div>';
+  else h += '<div class="hint">không có beat để so (annotation không có beat hoặc model không có beat head)</div>';
+  $('#pScores').innerHTML = h;
+  $('#pScoreSub').textContent = `label: ${R.ref.source}`;
+}
+
+function pSetStart(v) {
+  const n = P.res ? P.res.seconds : (P.info ? Math.floor(P.info.seconds) : 0), sp = pSpan();
+  v = Math.max(0, Math.min(Math.max(0, n - sp), Math.round(v * 10) / 10));
+  $('#pStart').value = v;
+  $('#pClock').textContent = `${fmtClock(v)} – ${fmtClock(v + sp)}`;
+  drawPredOverview(); pLoadSignal();
+}
+let pSigT = null;
+function pLoadSignal() {
+  if (!P.info) return;
+  const mk = () => ({ path: P.info.path, start: +$('#pStart').value, span: pSpan(), leads: pLeads() });
+  const req = mk(), key = JSON.stringify(req);
+  if (key === P.sigKey && P.sig) { drawPredFrame(); return; }
+  clearTimeout(pSigT);
+  pSigT = setTimeout(async () => {
+    try {
+      const s = await api('/api/pred/signal', req);
+      if (JSON.stringify(mk()) !== key) return;                    // moved on meanwhile
+      P.sig = s; P.sigKey = key; drawPredFrame();
+    } catch (e) { status('lỗi: ' + e.message); }
+  }, 100);
+}
+
+function drawPredAll() { drawPredOverview(); drawPredFrame(); }
+
+// whole record: label / predict / raw argmax per second, error strip, the frame shown
+const OV_X0 = 70;
+function drawPredOverview() {
+  const R = P.res; if (!R || $('#viewPred').hidden) return;
+  const c = prep($('#pvOv')), n = R.seconds, W = Math.max(10, c.w - OV_X0 - 6);
+  const rows = [['label', R.ref.per_second, 2], ['predict', R.pred.per_second, 16], ['argmax thô', R.pred.raw, 30]];
+  c.g.fillStyle = css('--muted'); c.g.textAlign = 'right';
+  for (const [name, , y] of rows) c.g.fillText(name, OV_X0 - 6, y + 10);
+  c.g.fillText('sai', OV_X0 - 6, 52);
+  for (let x = 0; x < W; x++) {
+    const s0 = Math.floor(x * n / W), s1 = Math.max(s0 + 1, Math.floor((x + 1) * n / W));
+    for (const [, a, y] of rows) { const v = a[s0]; if (v >= 0) { c.g.fillStyle = clsColor(v); c.g.fillRect(OV_X0 + x, y, 1, 12); } }
+    for (let s = s0; s < s1; s++) if (P.err[s]) { c.g.fillStyle = css('--bad'); c.g.fillRect(OV_X0 + x, 45, 1, 7); break; }
+  }
+  const st = +$('#pStart').value, px = s => OV_X0 + W * s / n;
+  c.g.strokeStyle = css('--ink'); c.g.lineWidth = 2;
+  c.g.strokeRect(px(st), 1, Math.max(3, px(st + pSpan()) - px(st)), 53);
+  c.g.fillStyle = css('--muted'); c.g.textAlign = 'left'; c.g.fillText('0', OV_X0, 63);
+  c.g.textAlign = 'right'; c.g.fillText(fmtClock(n), OV_X0 + W, 63);
+  $('#pOvSub').textContent = `${R.name} · ${fmtClock(n)} · ${R.how} · nhấp để nhảy`;
+}
+
+// frame geometry: 25 mm/s along time; lanes in whole 5 mm blocks at `gain` mm/mV. A frame longer
+// than the canvas fits at true scale keeps 25 mm/s but its millimetres get narrower than tall
+// (the hint says so) - the vertical mm never drops below 3.2 px so the trace stays readable.
+function pGeom() {
+  const w = $('#pvGrid').clientWidth, sp = P.sig.span, g = +$('#pGain').value;
+  const pxmmX = (w - RM - LM) / (sp * MM_PER_S), pxmmY = Math.max(pxmmX, 3.2);
+  const lanes = []; let y = P_TOP;
+  for (let L = 0; L < 3; L++) {
+    const a = P.sig.signal[L]; let lo = Infinity, hi = -Infinity;
+    for (const v of a) { if (v < lo) lo = v; if (v > hi) hi = v; }
+    const flat = !(hi - lo > 1e-6), minMm = flat ? 10 : Math.ceil((g + 4) / 5) * 5;
+    const mm = Math.min(50, Math.max(minMm, Math.ceil(((flat ? 0 : hi - lo) * g + 4) / 5) * 5));
+    lanes.push({ y0: y, h: mm * pxmmY, mid: flat ? 0 : (hi + lo) / 2, sc: g * pxmmY, flat });
+    y += mm * pxmmY;
+  }
+  return { sp, g, pxmmX, pxmmY, lanes, t0: P.sig.start, yLanes: y, yBeat: y + BOT_H - 3,
+           hr0: y + BOT_H + 4, hr1: y + BOT_H + HR_H - 14, H: y + BOT_H + HR_H };
+}
+function pPrep(cv, G) { const c = prep(cv); c.tx = t => LM + (c.w - RM - LM) * t / G.sp; return c; }
+function drawPredFrame() {
+  if (!P.sig || $('#viewPred').hidden) return;
+  const G = pGeom();
+  for (const id of ['#pvGrid', '#pvSig', '#pvLab']) $(id).setAttribute('height', Math.round(G.H));
+  $('#pvSig').style.display = $('#pLySig').checked ? '' : 'none';
+  $('#pvLab').style.display = $('#pLyLab').checked ? '' : 'none';
+  pDrawGrid(G); pDrawSig(G); pDrawLab(G);
+  const sq = Math.abs(G.pxmmY - G.pxmmX) < 0.05;
+  $('#pTitle').innerHTML = `Tín hiệu <span class="sub">${esc(P.info.name)} · ${fmtClock(G.t0)} – ${fmtClock(G.t0 + G.sp)} · ô nhỏ 0.04 s × ${fmtNum(1 / G.g)} mV, ô lớn 0.2 s × ${fmtNum(5 / G.g)} mV${sq ? '' : ' (khung dài: ô không vuông)'}</span>`;
+}
+const fmtNum = v => (+v.toFixed(2)).toString();
+function pDrawGrid(G) {
+  const c = pPrep($('#pvGrid'), G); if (!$('#pLyGrid').checked) return;
+  const y0 = P_TOP, y1 = G.yLanes, cols = G.sp * MM_PER_S, rows = Math.round((y1 - y0) / G.pxmmY);
+  c.g.fillStyle = css('--paper'); c.g.fillRect(c.x0, y0, c.x1 - c.x0, y1 - y0);
+  for (const major of [false, true]) {
+    c.g.strokeStyle = css(major ? '--gmaj' : '--gmin'); c.g.lineWidth = major ? 1 : .7; c.g.beginPath();
+    const vx = (s, e) => { const x = Math.round(c.x0 + s) + .5; c.g.moveTo(x, y0); c.g.lineTo(x, y1); };
+    if (major && 5 * G.pxmmX < 3) { for (let s = 0; s <= G.sp; s++) vx(s * MM_PER_S * G.pxmmX); }   // 1 s lines only
+    else if (major || G.pxmmX >= 2) for (let k = 0; k <= cols; k++) if ((k % 5 === 0) === major) vx(k * G.pxmmX);
+    if (major || G.pxmmY >= 2) for (let k = 0; k <= rows; k++) if ((k % 5 === 0) === major) {
+      const y = Math.round(y0 + k * G.pxmmY) + .5; c.g.moveTo(c.x0, y); c.g.lineTo(c.x1, y);
+    }
+    c.g.stroke();
+  }
+}
+function pDrawSig(G) {
+  const c = pPrep($('#pvSig'), G), names = P.sig.lead_names || [], calW = 5 * Math.max(G.pxmmX, 1.4);
+  for (let L = 0; L < 3; L++) {
+    const ln = G.lanes[L], ym = ln.y0 + ln.h / 2, xl = LM - 16 - calW;
+    c.g.fillStyle = css('--muted'); c.g.textAlign = 'right';
+    c.g.fillText('lead ' + (L + 1), xl, ym - 2); if (names[L]) c.g.fillText(names[L], xl, ym + 11);
+    if (!ln.flat) {   // 1 mV x 0.2 s calibration pulse
+      const xb = LM - 8, xa = xb - calW, yb = ym + 0.5 * G.g * G.pxmmY, yt = yb - G.g * G.pxmmY;
+      c.g.strokeStyle = css('--ecg'); c.g.lineWidth = 1.2; c.g.beginPath();
+      c.g.moveTo(xa - 4, yb); c.g.lineTo(xa, yb); c.g.lineTo(xa, yt); c.g.lineTo(xb, yt); c.g.lineTo(xb, yb); c.g.lineTo(xb + 3, yb); c.g.stroke();
+    } else { c.g.textAlign = 'left'; c.g.fillText('(lead trống)', c.x0 + 6, ym + 4); continue; }
+    const y = P.sig.signal[L];
+    c.g.save(); c.g.beginPath(); c.g.rect(c.x0, ln.y0, c.x1 - c.x0, ln.h); c.g.clip();
+    c.g.strokeStyle = css('--ecg'); c.g.lineWidth = G.sp > 30 ? .8 : 1.1; c.g.beginPath();
+    for (let i = 0; i < y.length; i++) { const X = c.tx(i / P.sig.fs), Y = ym - (y[i] - ln.mid) * ln.sc; i ? c.g.lineTo(X, Y) : c.g.moveTo(X, Y); }
+    c.g.stroke(); c.g.restore();
+  }
+  if (P.res) drawHr(c, G, pHr(G));
+}
+function pBeatsIn(t, a, b) { return [lowerBound(t, a), lowerBound(t, b)]; }
+function pHr(G) {
+  const R = P.res, a = G.t0, b = G.t0 + G.sp;
+  const sel = t => { const [i, j] = pBeatsIn(t, a, b); return t.slice(i, j).map(x => ({ t: x - a })); };
+  return { atr: hrSeries(sel(R.ref.beat_t)), model: hrSeries(sel(R.pred.beat_t)) };
+}
+// |<-- label -->| : an episode clipped to the frame; an open end (episode goes on outside the
+// frame) has no bar and a fading tail instead of the head
+function arrow(c, xa, xb, y, col, label, openL, openR) {
+  const g = c.g, hw = 4, hl = Math.min(7, Math.max(2, (xb - xa) / 3));
+  g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 1.6;
+  g.beginPath(); g.moveTo(xa + (openL ? 0 : hl), y); g.lineTo(xb - (openR ? 0 : hl), y); g.stroke();
+  const head = (x, dir) => { g.beginPath(); g.moveTo(x, y); g.lineTo(x - dir * hl, y - hw); g.lineTo(x - dir * hl, y + hw); g.closePath(); g.fill(); };
+  if (openL) { g.fillText('…', xa + 1, y - 2); } else { head(xa, -1); g.fillRect(xa - .75, y - 6, 1.5, 12); }
+  if (openR) { g.textAlign = 'right'; g.fillText('…', xb - 1, y - 2); g.textAlign = 'left'; } else { head(xb, 1); g.fillRect(xb - .75, y - 6, 1.5, 12); }
+  if (label) {
+    const w = g.measureText(label).width + 8;
+    if (xb - xa > w + 2 * hl + 6) {
+      const xm = (xa + xb) / 2;
+      g.fillStyle = css('--panel'); g.fillRect(xm - w / 2, y - 7, w, 14);
+      g.fillStyle = col; g.textAlign = 'center'; g.fillText(label, xm, y + 4); g.textAlign = 'left';
+    }
+  }
+}
+function pDrawLab(G) {
+  const c = pPrep($('#pvLab'), G), R = P.res; if (!R) return;
+  const t0 = G.t0, t1 = t0 + G.sp, X = t => c.tx(t - t0), y1 = G.yLanes, bcol = BEAT_COL();
+  const rowRef = 10, rowPred = 30, rowErr = 44, rowBeat = 64;
+  c.g.fillStyle = css('--muted'); c.g.textAlign = 'right';
+  c.g.fillText('label', LM - 6, rowRef + 4); c.g.fillText('predict', LM - 6, rowPred + 4);
+  c.g.fillText('sai', LM - 6, rowErr + 5); c.g.fillText($('#pAnn').value ? 'beat .' + $('#pAnn').value : 'beat ann', LM - 6, rowBeat);
+  const drawEps = (eps, y, labelOf, dash) => {
+    for (const e of eps) {
+      if (e.stop <= t0 || e.start >= t1) continue;
+      const col = pcol(e.cls);
+      c.g.textAlign = 'left';
+      arrow(c, X(Math.max(e.start, t0)), X(Math.min(e.stop, t1)), y, col, labelOf(e), e.start < t0, e.stop > t1);
+      if (e.start > t0) {     // where the episode starts, through the lanes
+        c.g.save(); c.g.strokeStyle = col; c.g.globalAlpha = .5; c.g.setLineDash(dash); c.g.lineWidth = 1;
+        c.g.beginPath(); c.g.moveTo(X(e.start) + .5, y + 7); c.g.lineTo(X(e.start) + .5, y1); c.g.stroke(); c.g.restore();
+      }
+    }
+  };
+  drawEps(R.ref.episodes, rowRef, e => e.code, [5, 3]);
+  drawEps(R.pred.episodes, rowPred, e => `${e.rhythm} ${e.prob.toFixed(2)}`, [2, 3]);
+  c.g.fillStyle = css('--bad');
+  for (let s = Math.floor(t0); s < Math.ceil(t1); s++) if (P.err[s]) {
+    const a = X(Math.max(s, t0)), b = X(Math.min(s + 1, t1)); c.g.fillRect(a, rowErr, b - a, 4);
+  }
+  // annotation beats: symbol as written, red ring = no model beat within 150 ms
+  c.g.textAlign = 'center';
+  const [ri, rj] = pBeatsIn(R.ref.beat_t, t0, t1);
+  for (let i = ri; i < rj; i++) {
+    const x = X(R.ref.beat_t[i]);
+    c.g.fillStyle = bcol[R.ref.beat_cls[i]] || css('--muted'); c.g.fillText(R.ref.beat_sym[i], x, rowBeat);
+    c.g.fillRect(x - .5, P_TOP, 1, 4);
+    if (!R.ref.beat_hit[i]) { c.g.strokeStyle = css('--bad'); c.g.lineWidth = 1.5; c.g.beginPath(); c.g.arc(x, rowBeat - 4, 7, 0, 7); c.g.stroke(); }
+  }
+  // model beats: red box = no annotated beat (extra), red underline = class differs from the label
+  const pcls = $('#pBeatView').value === 'raw' ? R.pred.beat_raw : R.pred.beat_cls;
+  const [pi, pj] = pBeatsIn(R.pred.beat_t, t0, t1);
+  for (let i = pi; i < pj; i++) {
+    const x = X(R.pred.beat_t[i]), ch = pcls[i], m = R.pred.beat_match[i];
+    c.g.fillStyle = bcol[ch] || css('--muted'); c.g.fillText(ch, x, G.yBeat);
+    c.g.fillRect(x - .5, y1 - 4, 1, 4);
+    if (m < 0) { c.g.strokeStyle = css('--bad'); c.g.lineWidth = 1.5; c.g.strokeRect(x - 6, G.yBeat - 11, 12, 14); }
+    else { const rc = R.ref.beat_cls[m]; if ('NSV'.includes(rc) && rc !== ch) { c.g.fillStyle = css('--bad'); c.g.fillRect(x - 5, G.yBeat + 2, 10, 2); } }
+  }
+  c.g.fillStyle = css('--muted'); c.g.textAlign = 'right'; c.g.fillText('beat model', LM - 6, G.yBeat);
+}
+
+function pJump(dir) {
+  const R = P.res; if (!R) return;
+  const v = $('#pJump').value, sp = pSpan(), here = +$('#pStart').value + sp / 4;
+  let starts;
+  if (v === 'err') { starts = []; P.err.forEach((e, s) => { if (e && !P.err[s - 1]) starts.push(s); }); }
+  else { const k = +v.slice(1); starts = (v[0] === 'p' ? R.pred.episodes : R.ref.episodes).filter(e => e.cls === k).map(e => e.start); }
+  const pick = dir > 0 ? starts.find(s => s > here + 0.5) : [...starts].reverse().find(s => s < here - 0.5);
+  $('#pJumpHint').textContent = `${starts.length} vị trí` + (pick == null ? ' · hết' : ` · ${starts.indexOf(pick) + 1}/${starts.length}`);
+  if (pick != null) pSetStart(pick - sp / 4);
+}
+
+function pTip(ev) {
+  const R = P.res, cur = $('#pPlot .cursor'), tip = $('#tip');
+  if (!R || !P.sig) return;
+  const r = $('#pvGrid').getBoundingClientRect(), sp = P.sig.span;
+  const rel = (ev.clientX - r.left - LM) / (r.width - LM - RM) * sp;
+  if (rel < 0 || rel > sp) { cur.style.display = 'none'; tip.style.display = 'none'; return; }
+  cur.style.left = (ev.clientX - r.left) + 'px'; cur.style.display = 'block';
+  const t = P.sig.start + rel, s = Math.floor(t), N = CLS6();
+  const at = eps => eps.find(e => e.start <= t && t < e.stop);
+  const re = at(R.ref.episodes), pe = at(R.pred.episodes);
+  let h = `<b>${fmtClock(t)}</b> (${t.toFixed(2)} s)`;
+  h += `<br>label: ${re ? `<b style="color:${pcol(re.cls)}">${esc(re.code)}</b> ${fmtClock(re.start)} – ${fmtClock(re.stop)}` : '–'}`;
+  h += `<br>predict: ${pe ? `<b style="color:${pcol(pe.cls)}">${pe.rhythm}</b> p ${pe.prob.toFixed(2)} · ${fmtClock(pe.start)} – ${fmtClock(pe.stop)}` : '–'}`;
+  if (R.pred.raw[s] >= 0) h += `<br>argmax thô giây ${s}: <span style="color:${clsColor(R.pred.raw[s])}">${N[R.pred.raw[s]]}</span> ${R.pred.pmax[s]}`;
+  const near = (arr, w) => { const i = lowerBound(arr, t); let best = -1; for (const k of [i - 1, i]) if (k >= 0 && k < arr.length && Math.abs(arr[k] - t) <= w && (best < 0 || Math.abs(arr[k] - t) < Math.abs(arr[best] - t))) best = k; return best; };
+  const rb = near(R.ref.beat_t, 0.25), pb = near(R.pred.beat_t, 0.25);
+  if (rb >= 0) h += `<br>beat label: <b>${esc(R.ref.beat_sym[rb])}</b> @ ${R.ref.beat_t[rb].toFixed(2)} s${R.ref.beat_hit[rb] ? '' : ' · <span style="color:var(--bad)">model bỏ sót</span>'}`;
+  if (pb >= 0) h += `<br>beat model: <b>${R.pred.beat_cls[pb]}</b> (thô ${R.pred.beat_raw[pb]}, conf ${R.pred.beat_conf[pb]}) @ ${R.pred.beat_t[pb].toFixed(2)} s${R.pred.beat_match[pb] < 0 ? ' · <span style="color:var(--bad)">beat thừa</span>' : ''}`;
+  const i = Math.min(P.sig.signal[0].length - 1, Math.floor(rel * P.sig.fs));
+  h += '<br>' + [0, 1, 2].map(L => `L${L + 1} ${fmt(P.sig.signal[L][i], 3)} mV`).join(' · ');
+  tip.innerHTML = h; tip.style.display = 'block';
+  tip.style.left = Math.min(window.innerWidth - 370, ev.clientX + 14) + 'px'; tip.style.top = (ev.clientY + 14) + 'px';
+}
+
+function predWire() {
+  $('#pDb').onchange = () => pBrowse(P.dbs[+$('#pDb').value].dir, true);
+  let qT = null; $('#pQ').oninput = () => { clearTimeout(qT); qT = setTimeout(() => pBrowse(P.dir), 300); };
+  $('#pRec').onchange = () => { const v = $('#pRec').value; if (v.startsWith('d:')) pBrowse(v.slice(2)); else if (v) pOpenRecord(v.slice(2)); };
+  const openTyped = () => { const p = $('#pPath').value.trim(); if (p) pOpenRecord(p); };
+  $('#pOpen').onclick = openTyped; $('#pPath').addEventListener('keydown', e => { if (e.key === 'Enter') openTyped(); });
+  $('#pAnn').onchange = pRun;
+  for (const id of ['#pL0', '#pL1', '#pL2']) $(id).onchange = () => { if (!pStored()) pRun(); pLoadSignal(); };
+  $('#pModel').onchange = () => { pModelChanged(); pRun(); };
+  for (const id of ['#pOv', '#pTaper', '#pTta']) $(id).onchange = () => { $('#pRunHint').textContent = 'đổi tham số predict: bấm Chạy predict'; };
+  $('#pRun').onclick = pRun;
+  let ppT = null;
+  const ppChanged = () => { clearTimeout(ppT); ppT = setTimeout(pRun, 250); };
+  for (const id of ['#pPreset', '#pBeatPP', '#pGate', '#pNoise', '#pVm', '#pSm']) $(id).addEventListener('change', ppChanged);
+  $$('[data-mp], [data-ms]').forEach(i => i.addEventListener('change', ppChanged));
+  $('#pStart').onchange = () => pSetStart(+$('#pStart').value);
+  $$('[data-pstep]').forEach(b => b.onclick = () => pSetStart(+$('#pStart').value + +b.dataset.pstep * pSpan()));
+  $('#pSpan').onchange = () => pSetStart(+$('#pStart').value);
+  for (const id of ['#pLyGrid', '#pLySig', '#pLyLab', '#pGain', '#pBeatView']) $(id).addEventListener('change', drawPredFrame);
+  $('#pJumpPrev').onclick = () => pJump(-1); $('#pJumpNext').onclick = () => pJump(1);
+  $('#pvOv').addEventListener('click', ev => {
+    const R = P.res; if (!R) return;
+    const r = ev.target.getBoundingClientRect(), W = r.width - OV_X0 - 6;
+    pSetStart((ev.clientX - r.left - OV_X0) / W * R.seconds - pSpan() / 2);
+  });
+  $('#pPlot').addEventListener('mousemove', pTip);
+  $('#pPlot').addEventListener('mouseleave', () => { $('#pPlot .cursor').style.display = 'none'; $('#tip').style.display = 'none'; });
+  document.addEventListener('keydown', e => {
+    if ($('#viewPred').hidden || ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+    if (e.key === 'ArrowRight') pSetStart(+$('#pStart').value + pSpan() / 2);
+    if (e.key === 'ArrowLeft') pSetStart(+$('#pStart').value - pSpan() / 2);
+  });
+}
+
 async function init() {
   try { S.meta = await api('/api/meta'); S.findings = await api('/api/findings'); }
   catch (e) { status('không kết nối được server: ' + e.message); return; }
@@ -1334,14 +1822,24 @@ async function init() {
     const cur = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
     document.documentElement.dataset.theme = cur === 'dark' ? 'light' : 'dark';
     try { localStorage.setItem('xai-theme', document.documentElement.dataset.theme); } catch (e) {}
-    drawAll(); drawDetail(); drawOverview(); drawScan();
+    drawAll(); drawDetail(); drawOverview(); drawScan(); drawPredAll();
   };
   try { const t = localStorage.getItem('xai-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
-  window.addEventListener('resize', () => { drawAll(); drawDetail(); drawOverview(); drawScan(); });
+  window.addEventListener('resize', () => { drawAll(); drawDetail(); drawOverview(); drawScan(); drawPredAll(); });
+  $$('#viewTabs button').forEach(b => b.onclick = () => setView(b.dataset.v));
   setupCursor();
   if (S.meta.eval_available) { $('#evCat').value = 'SINUS'; evList().catch(() => {}); }
   await loadRecords();
   const qs = new URLSearchParams(location.search);              // deep link: ?file=<record>&start=<s>
+  let view = qs.get('view');                                    // or ?view=pred&rec=<record>&start=<s>
+  if (!view && !qs.get('file')) try { view = localStorage.getItem('xai-view'); } catch (e) {}
+  if (view === 'pred') {
+    $$('#viewTabs button').forEach(b => b.classList.toggle('on', b.dataset.v === 'pred'));
+    $('#viewXai').hidden = true; $('#viewPred').hidden = false;
+    if (qs.has('span')) $('#pSpan').value = qs.get('span');
+    await predBoot(qs.get('rec'), qs.has('start') ? +qs.get('start') : null);
+    return;
+  }
   if (qs.get('file')) {
     if (await openFile(qs.get('file'))) {
       if (qs.has('start')) setFStart(+qs.get('start'));

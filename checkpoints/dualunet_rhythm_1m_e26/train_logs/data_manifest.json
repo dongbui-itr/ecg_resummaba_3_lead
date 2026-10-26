@@ -1,0 +1,368 @@
+{
+  "inventory": {
+    "sources": {
+      "rhythm-2": {
+        "events": 4558,
+        "kept": 3492,
+        "held_out": 1066,
+        "duplicate": 0,
+        "skipped_types": {}
+      },
+      "rhythm-3": {
+        "events": 686,
+        "kept": 468,
+        "held_out": 218,
+        "duplicate": 0,
+        "skipped_types": {}
+      },
+      "afib-2": {
+        "events": 7962,
+        "kept": 6129,
+        "held_out": 1833,
+        "duplicate": 0,
+        "skipped_types": {}
+      },
+      "sinus-2": {
+        "events": 1055,
+        "kept": 993,
+        "held_out": 62,
+        "duplicate": 0,
+        "skipped_types": {}
+      },
+      "sinus-3": {
+        "events": 24036,
+        "kept": 22789,
+        "held_out": 1247,
+        "duplicate": 0,
+        "skipped_types": {}
+      },
+      "sinus-4p": {
+        "events": 1262,
+        "kept": 1227,
+        "held_out": 35,
+        "duplicate": 0,
+        "skipped_types": {}
+      },
+      "sinus-4": {
+        "events": 14736,
+        "kept": 14276,
+        "held_out": 460,
+        "duplicate": 0,
+        "skipped_types": {
+          "OTHERS": 1331
+        }
+      },
+      "dataset-5": {
+        "events": 41011,
+        "kept": 34313,
+        "held_out": 6698,
+        "duplicate": 0,
+        "skipped_types": {
+          "OTHERS": 14326,
+          "ARTIFACT": 3
+        }
+      },
+      "dataset-1": {
+        "events": 103904,
+        "kept": 98748,
+        "held_out": 5156,
+        "duplicate": 0,
+        "skipped_types": {
+          "OTHERS": 41845,
+          "ARTIFACT": 7
+        }
+      },
+      "dataset-4": {
+        "events": 89852,
+        "kept": 67800,
+        "held_out": 7288,
+        "duplicate": 14764,
+        "skipped_types": {
+          "OTHERS": 66539,
+          "ARTIFACT": 9
+        }
+      },
+      "ptbxl": {
+        "records": 21799,
+        "kept": {
+          "train": {
+            "SINUS": 7536,
+            "AFIB": 1243,
+            "SVT": 23,
+            "AVB": 20
+          },
+          "eval": {
+            "AFIB": 156,
+            "SINUS": 939,
+            "AVB": 3,
+            "SVT": 5
+          }
+        },
+        "windows_per_record": 2,
+        "plain_cap": 3000,
+        "plain_kept": 3000,
+        "skipped": {
+          "reserved_fold": 2198,
+          "several_classes": 10,
+          "ambiguous": 143,
+          "plain_over_cap": 9523
+        },
+        "studies": {
+          "train": 7785,
+          "eval": 1000
+        }
+      },
+      "physionet_train": {
+        "ltafdb": {
+          "train": {
+            "records": 69,
+            "windows": 41915,
+            "categories": {
+              "sinus": 2389,
+              "sinus_ectopy": 2345,
+              "AF_edge": 3029,
+              "AF_ectopy": 12254,
+              "VT": 498,
+              "AF": 9460,
+              "sinus_pac": 4976,
+              "SVT": 1401,
+              "sinus_tachy": 986,
+              "sinus_brady": 4577
+            }
+          },
+          "eval": {
+            "records": 15,
+            "windows": 7779,
+            "categories": {
+              "sinus_brady": 778,
+              "sinus": 540,
+              "sinus_pac": 914,
+              "sinus_ectopy": 626,
+              "SVT": 223,
+              "AF_ectopy": 2127,
+              "AF": 1656,
+              "AF_edge": 336,
+              "sinus_tachy": 433,
+              "VT": 146
+            }
+          }
+        },
+        "nsrdb": {
+          "train": {
+            "records": 16,
+            "windows": 4533,
+            "categories": {
+              "sinus": 960,
+              "sinus_tachy": 1166,
+              "sinus_brady": 2400,
+              "sinus_ectopy": 1,
+              "SVT": 6
+            }
+          },
+          "eval": {
+            "records": 2,
+            "windows": 483,
+            "categories": {
+              "sinus": 120,
+              "sinus_tachy": 62,
+              "sinus_brady": 300,
+              "sinus_ectopy": 1
+            }
+          }
+        },
+        "svdb": {
+          "train": {
+            "records": 62,
+            "windows": 399,
+            "categories": {
+              "SVT": 253,
+              "VT": 146
+            }
+          },
+          "eval": {
+            "records": 16,
+            "windows": 143,
+            "categories": {
+              "SVT": 110,
+              "VT": 33
+            }
+          }
+        },
+        "incartdb": {
+          "train": {
+            "records": 66,
+            "windows": 8503,
+            "categories": {
+              "sinus": 2597,
+              "sinus_tachy": 1093,
+              "sinus_ectopy": 2212,
+              "sinus_brady": 1857,
+              "SVT": 33,
+              "VT": 81,
+              "sinus_pac": 300,
+              "AF": 300,
+              "AF_ectopy": 30
+            }
+          },
+          "eval": {
+            "records": 9,
+            "windows": 1166,
+            "categories": {
+              "sinus": 388,
+              "sinus_ectopy": 234,
+              "sinus_tachy": 140,
+              "sinus_brady": 168,
+              "VT": 234,
+              "SVT": 2
+            }
+          }
+        }
+      },
+      "challenge2020": {
+        "kept": {
+          "train": {
+            "SINUS": 9454,
+            "AFIB": 1773,
+            "AVB": 57
+          },
+          "eval": {
+            "SINUS": 1615,
+            "AFIB": 298,
+            "AVB": 15
+          }
+        },
+        "skipped": {
+          "shorter_than_10s": 74,
+          "paroxysmal_or_ambiguous": 176,
+          "several_classes": 6,
+          "plain_over_cap": 7206
+        }
+      }
+    },
+    "sinus_cap": {
+      "per_study": 3,
+      "dropped": 17799,
+      "hard_extra": 41377
+    },
+    "studies": {
+      "train": 46487,
+      "eval": 11698,
+      "held_out": 4154,
+      "rhythm_test": 1966,
+      "ptbxl": {
+        "train": 19224,
+        "eval": 2958
+      }
+    }
+  },
+  "splits": {
+    "train": {
+      "windows": 294806,
+      "events": 281395,
+      "seconds": {
+        "SINUS": 2278026,
+        "AFIB": 457652,
+        "SVT": 131933,
+        "VT": 30517,
+        "AVB": 40797,
+        "IGNORE": 9135
+      },
+      "stats": {
+        "events_used": 278235,
+        "windows": 294806,
+        "dead": 2974,
+        "beat_runs": 23661,
+        "run_not_found": 32,
+        "header_span_missing": 6451,
+        "header_span": 44995,
+        "no_beat_annotation": 40212,
+        "errors": 154,
+        "error:KeyError": 154
+      }
+    },
+    "eval": {
+      "windows": 65883,
+      "events": 62236,
+      "seconds": {
+        "SINUS": 515862,
+        "AFIB": 87219,
+        "SVT": 31302,
+        "VT": 8161,
+        "AVB": 13343,
+        "IGNORE": 2943
+      },
+      "stats": {
+        "events_used": 61912,
+        "windows": 65883,
+        "dead": 280,
+        "beat_runs": 5944,
+        "run_not_found": 8,
+        "header_span": 11391,
+        "header_span_missing": 1636,
+        "no_beat_annotation": 6062,
+        "errors": 36,
+        "error:KeyError": 36
+      }
+    },
+    "test": {
+      "windows": 7233,
+      "events": 4909,
+      "seconds": {
+        "SINUS": 11361,
+        "AFIB": 29425,
+        "SVT": 16556,
+        "VT": 3306,
+        "AVB": 11682,
+        "IGNORE": 0
+      },
+      "stats": {
+        "no_beat_annotation": 4909,
+        "events_used": 4908,
+        "windows": 7233,
+        "run_not_found": 1
+      }
+    }
+  },
+  "segment_samples": 2500,
+  "in_channels": 3,
+  "sampling_rate": 250,
+  "output_seconds": 10,
+  "class_names": [
+    "SINUS",
+    "AFIB",
+    "SVT",
+    "VT",
+    "AVB"
+  ],
+  "ignore_label": 255,
+  "signal_dtype": "float16",
+  "labels_dtype": "uint8",
+  "sample_labels": true,
+  "sources": [
+    "rhythm-2",
+    "rhythm-3",
+    "afib-2",
+    "sinus-2",
+    "sinus-3",
+    "sinus-4p",
+    "sinus-4",
+    "dataset-5",
+    "dataset-1",
+    "dataset-4",
+    "ptbxl",
+    "ltafdb",
+    "nsrdb",
+    "svdb",
+    "incartdb",
+    "challenge2020"
+  ],
+  "limit": null,
+  "class_weights": [
+    0.240656380554994,
+    0.5369193263593596,
+    1.0,
+    2.079245642987797,
+    1.7983019064648482
+  ],
+  "beat_labels": true
+}

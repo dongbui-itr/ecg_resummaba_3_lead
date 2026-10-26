@@ -511,8 +511,12 @@ def test_predict_signal_covers_every_second(small_model, synthetic_record):
     assert rhythm.shape == (29 * hz, rc.NUM_CLASSES) and p_noise.shape == (29 * hz,)
     np.testing.assert_allclose(rhythm.sum(-1), 1.0, atol=1e-3)     # overlap averaged, not summed
     assert window_starts(7300, hop=2500) == [0, 2500, 4750]          # back-to-back
-    hop = int(round(rc.PREDICT_HOP_SECONDS)) * rc.SECOND_SAMPLES
+    from ecgr.rhythm.predict import window_hop_samples
+    hop = int(round(rc.SEGMENT_SECONDS - rc.PREDICT_OVERLAP_SECONDS)) * rc.SECOND_SAMPLES
     assert window_starts(7300) == window_starts(7300, hop=hop)
+    assert window_hop_samples(0) == rc.SEGMENT_SAMPLES                # no overlap
+    assert window_hop_samples(5) == rc.SEGMENT_SAMPLES // 2           # half overlap
+    assert window_hop_samples(9.5) == 130                              # 0.5 s -> 0.52 s grid
     assert [w['start'] for w in windows] == [s // rc.SECOND_SAMPLES for s in window_starts(7300)]
     if _quality(small_model) == 'lead':
         assert all(w['lead'] in rc.LEAD_CLASSES for w in windows)

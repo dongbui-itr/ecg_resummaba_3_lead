@@ -1,0 +1,18 @@
+[22:23:06] 30k: tune from v4_distill_30k (lr 2e-4, KD a=0.3, 15 epochs)
+student      : dualunet_rhythm_30k, 23,361 params, encoder from /media/Project/ECG/Model_Dong/ecgr_rhythm/151026_rhythm_dual_small_v4/release/v4_distill_30k.keras
+teacher      : dualunet_rhythm_1m, 988,773 params (frozen)
+EPOCH 1  val_rhythm_f1=0.8223
+EPOCH 2  val_rhythm_f1=0.8356
+EPOCH 3  val_rhythm_f1=0.8352
+EPOCH 4  val_rhythm_f1=0.8393
+EPOCH 5  val_rhythm_f1=0.8309
+EPOCH 6  val_rhythm_f1=0.8408
+EPOCH 7  val_rhythm_f1=0.8323
+EPOCH 8  val_rhythm_f1=0.8376
+EPOCH 9  val_rhythm_f1=0.8389
+EPOCH 10  val_rhythm_f1=0.8347
+EPOCH 11  val_rhythm_f1=0.8367
+EPOCH 12  val_rhythm_f1=0.8376
+distillation finished; student checkpoints in /media/Project/ECG/Model_Dong/ecgr_rhythm/151026_rhythm_dual_small_v4_tune/checkpoints/dualunet_rhythm_30k
+[00:39:30] 30k: EC57 + dataset-eval/v4
+[01:18:43] 30k: TUNE_CHAIN_DONE

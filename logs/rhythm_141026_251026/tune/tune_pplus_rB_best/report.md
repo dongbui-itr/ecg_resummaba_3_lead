@@ -1,0 +1,88 @@
+# tune_pplus rB_best: validation only (Holter eval side + strip_val2), overlap as stored
+
+score -148.52  target shortfall 143.8  guard violation 0.5
+
+## knobs changed from official
+
+- scale_AFIB: 1.0 -> 1.25
+- scale_SVT: 1.0 -> 1.25
+- scale_VT: 1.0 -> 1.25
+- min_AVB: 2 -> 5
+- prob_SVT: 0 -> 0.5
+- prob_VT: 0 -> 0.5
+- prob_AVB: 0 -> 0.6
+- gap_AFIB: 3 -> 10
+- gap_SVT: 0 -> 2
+- gap_VT: 0 -> 1
+- smooth_VT: 1 -> 0.5
+- smooth_AVB: 1 -> 5
+- trim_VT: None -> 0.1
+- svt_frac: 0.3 -> 0.5
+- onset: 1.25 -> 1.5
+- sinus: 8.0 -> 12
+- long_inv: 10.0 -> 20
+- avb_maxhr: 60.0 -> 65
+- s_margin: 0 -> 0.1
+
+## validation metrics (official -> tuned)
+
+| metric | official | tuned | target |
+|---|---|---|---|
+| B|all|QRS|PP | 97.19 | 97.19 | 99.8 |
+| B|all|QRS|Se | 99.90 | 99.90 |  |
+| B|all|S|PP | 41.14 | 48.94 | 72 |
+| B|all|S|Se | 81.90 | 79.10 |  |
+| B|all|V|PP | 92.63 | 92.22 | 95 |
+| B|all|V|Se | 70.05 | 70.63 |  |
+| B|incartdb|QRS|PP | 99.68 | 99.68 |  |
+| B|incartdb|QRS|Se | 99.53 | 99.53 |  |
+| B|incartdb|V|PP | 99.49 | 99.49 |  |
+| B|incartdb|V|Se | 76.22 | 76.41 |  |
+| B|ltaf+inc|S|PP | 51.18 | 56.40 | 40 |
+| B|ltaf+inc|S|Se | 82.63 | 79.83 |  |
+| B|ltafdb|QRS|PP | 98.91 | 98.91 |  |
+| B|ltafdb|QRS|Se | 99.90 | 99.90 |  |
+| B|ltafdb|S|PP | 51.46 | 56.69 |  |
+| B|ltafdb|S|Se | 82.63 | 79.82 |  |
+| B|ltafdb|V|PP | 91.79 | 91.35 |  |
+| B|ltafdb|V|Se | 68.19 | 68.83 |  |
+| B|nsrdb|QRS|PP | 81.29 | 81.29 |  |
+| B|nsrdb|QRS|Se | 100.00 | 100.00 |  |
+| B|svdb|QRS|PP | 99.86 | 99.86 |  |
+| B|svdb|QRS|Se | 99.97 | 99.97 |  |
+| B|svdb|S|PP | 57.34 | 58.68 | 72 |
+| B|svdb|S|Se | 74.99 | 72.20 |  |
+| B|svdb|V|PP | 92.07 | 91.43 |  |
+| B|svdb|V|Se | 89.97 | 90.30 |  |
+| FPH|AFIB | 1.10 | 0.68 |  |
+| FPH|AVB | 0.02 | 0.00 |  |
+| FPH|SVT | 2.00 | 0.75 |  |
+| FPH|VT | 0.09 | 0.10 |  |
+| H|ltafdb|AFIB|D_PP | 99.73 | 99.67 | 90 |
+| H|ltafdb|AFIB|D_Se | 91.10 | 94.28 | 98 |
+| H|ltafdb|AFIB|E_PP | 99.17 | 95.59 | 92 |
+| H|ltafdb|AFIB|E_Se | 69.88 | 73.18 | 90 |
+| H|ltafdb|SVT|D_PP | 2.09 | 3.68 | 70 |
+| H|ltafdb|SVT|D_Se | 12.45 | 14.52 | 70 |
+| H|ltafdb|SVT|E_PP | 3.43 | 7.73 | 70 |
+| H|ltafdb|SVT|E_Se | 13.46 | 15.38 | 70 |
+| H|ltafdb|VT|D_PP | 60.00 | 67.92 | 70 |
+| H|ltafdb|VT|D_Se | 39.20 | 40.91 | 70 |
+| H|ltafdb|VT|E_PP | 87.50 | 96.97 | 70 |
+| H|ltafdb|VT|E_Se | 27.27 | 30.00 | 70 |
+| S|AFIB|D_PP | 96.62 | 96.42 | 90 |
+| S|AFIB|D_Se | 83.58 | 84.45 |  |
+| S|AFIB|E_PP | 90.92 | 90.23 | 92 |
+| S|AFIB|E_Se | 86.17 | 85.98 |  |
+| S|AVB|D_PP | 86.64 | 86.64 |  |
+| S|AVB|D_Se | 87.37 | 88.22 |  |
+| S|AVB|E_PP | 96.08 | 96.78 |  |
+| S|AVB|E_Se | 88.29 | 88.61 |  |
+| S|SVT|D_PP | 73.60 | 74.93 | 70 |
+| S|SVT|D_Se | 78.31 | 78.26 |  |
+| S|SVT|E_PP | 82.50 | 83.29 |  |
+| S|SVT|E_Se | 72.62 | 73.07 | 70 |
+| S|VT|D_PP | 71.77 | 75.36 | 70 |
+| S|VT|D_Se | 80.81 | 80.43 |  |
+| S|VT|E_PP | 81.58 | 81.77 |  |
+| S|VT|E_Se | 69.48 | 70.62 | 82 |

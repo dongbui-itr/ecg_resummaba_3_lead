@@ -35,7 +35,7 @@ import wfdb
 
 from . import beats as B
 from . import config as rc
-from .ec57 import load_beats, load_probs, prior_scale
+from .ec57 import decode_record, load_beats, load_probs, prior_scale
 from .labels import decode_track, episodes_from_track
 
 RHYTHM_DBS = ('ltafdb', 'nsrdb', 'incartdb')       # rhythm cells (nsrdb/incartdb: AF FP only)
@@ -252,6 +252,34 @@ def _score_symbols(args):
             tot[k] += np.array(m[k])
             per_db.setdefault(db, {k2: np.zeros(4, int) for k2 in tot})[k] += np.array(m[k])
     return (prem, af_n), tot, per_db
+
+
+def score_decode(args):
+    """One FULL decode dict (ec57.run(decode=...) shape: decode_track keywords plus beat_pp /
+    beat_criteria / beat_options / v_margin) over the stored records, through the very
+    ec57.decode_record the evaluation runs. args = (label, decode, rhythm records, beat
+    records, ann_root). Returns (label, rhythm rows, AF false episodes per non-AF hour,
+    beat counts {QRS, V, S}). Rhythm is scored on RHYTHM_DBS records only, beats on every
+    record with reference beats (bxb-like, first 5 minutes skipped)."""
+    label, decode, recs, beat_recs, ann_root = args
+    dbs = sorted({r[0] for r in recs})
+    tot = {(db, c): np.zeros(6) for db in dbs for c in CLASSES}
+    pred_s = {(db, c): 0 for db in dbs for c in CLASSES}
+    beat_tot = {k: np.zeros(4, int) for k in ('QRS', 'V', 'S')}
+    fp_af, nonaf_h = 0, 0.0
+    rhythm_set = set(recs)
+    for rec in sorted(set(recs) | set(beat_recs)):
+        db, r, p, hz, beats, ref, (rt, rcl) = _load(rec, ann_root)
+        eps, sym = decode_record(r, p, hz, beats, decode)
+        if rec in rhythm_set:
+            f, h = _accumulate(tot, pred_s, db, _episode_masks(eps, len(ref['AFIB'])), ref)
+            fp_af += f
+            nonaf_h += h
+        if rec in beat_recs and beats is not None and sym is not None and len(rt):
+            m = match_beats(rt, rcl, np.asarray(beats['t']), np.asarray(sym))
+            for k in beat_tot:
+                beat_tot[k] += np.array(m[k])
+    return label, _rows(tot, pred_s), fp_af / max(nonaf_h, 1e-9), beat_tot
 
 
 def pp_point(pp):

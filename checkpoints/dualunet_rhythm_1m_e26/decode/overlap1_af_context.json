@@ -1,0 +1,67 @@
+{
+  "smooth_seconds": {
+    "AFIB": 3
+  },
+  "min_prob": {
+    "AFIB": 0.7,
+    "SVT": 0.6,
+    "VT": 0.6
+  },
+  "beat_options": {
+    "s_prematurity": 0.85
+  },
+  "_chosen": {
+    "point": {
+      "smooth": {
+        "AFIB": 3
+      },
+      "af_prob": 0.7,
+      "svt_prob": 0.6,
+      "vt_prob": 0.6,
+      "v_margin": 0.0,
+      "s_prem": 0.85
+    },
+    "overlap": 1.0,
+    "reference_overlap": 5.0,
+    "reaches_reference": false,
+    "worst_deficit": 2.26,
+    "af_fp_per_hour": 0.198,
+    "cells": {
+      "ltafdb AFIB E_F1": 81.87284452364774,
+      "ltafdb AFIB D_F1": 97.24820685380324,
+      "ltafdb SVT E_F1": 16.507936507936506,
+      "ltafdb SVT D_F1": 8.32639467110741,
+      "ltafdb VT E_F1": 61.061531235321745,
+      "ltafdb VT D_F1": 54.495912806539515,
+      "beats V_F1": 83.59484648258243,
+      "beats S_F1": 63.43429232326153,
+      "beats QRS_F1": 99.29876742474812
+    },
+    "reference_cells": {
+      "ltafdb AFIB E_F1": 80.14384793218599,
+      "ltafdb AFIB D_F1": 97.23296035434421,
+      "ltafdb SVT E_F1": 17.647058823529413,
+      "ltafdb SVT D_F1": 10.589651022864018,
+      "ltafdb VT E_F1": 61.904761904761905,
+      "ltafdb VT D_F1": 54.696132596685075,
+      "beats V_F1": 84.71523686353405,
+      "beats S_F1": 62.36278633505782,
+      "beats QRS_F1": 99.31374632917738
+    },
+    "af_rule": "AFIB gap bridge 3 s; drop AFIB episodes < 20 s with mean p(AF) < 0.3 over 60 s each side (model rhythm only)",
+    "note": "AFIB rule chosen looking at mitdb/afdb (EC57 test set) at user request, 2026-10-12"
+  },
+  "merge_gap": {
+    "AFIB": 3,
+    "SVT": 0,
+    "VT": 0,
+    "AVB": 0
+  },
+  "context_rule": {
+    "AFIB": [
+      20,
+      60,
+      0.3
+    ]
+  }
+}

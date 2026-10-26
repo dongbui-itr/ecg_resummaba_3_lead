@@ -1,0 +1,109 @@
+[14:55:53] dual30k_ft_e3: validation inference
+2026-10-12 14:55:53.922172: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-12 14:55:53.947785: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-10-12 14:55:54.597163: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+xla          : --xla_gpu_cuda_data_dir=/usr/local/cuda
+1 GPU(s)
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1791791756.560524 3165334 gpu_device.cc:2020] Created device /job:localhost/replica:0/task:0/device:GPU:0 with 18674 MB memory:  -> device: 0, name: NVIDIA RTX A5000, pci bus id: 0000:01:00.0, compute capability: 8.6
+2026-10-12 14:55:58.512690: I external/local_xla/xla/service/service.cc:163] XLA service 0x7fe6f8014910 initialized for platform CUDA (this does not guarantee that XLA will be used). Devices:
+2026-10-12 14:55:58.512715: I external/local_xla/xla/service/service.cc:171]   StreamExecutor device (0): NVIDIA RTX A5000, Compute Capability 8.6
+2026-10-12 14:55:58.590707: I tensorflow/compiler/mlir/tensorflow/utils/dump_mlir_util.cc:269] disabling MLIR crash reproducer, set env var `MLIR_CRASH_REPRODUCER_DIRECTORY` to enable.
+2026-10-12 14:55:58.928195: I external/local_xla/xla/stream_executor/cuda/cuda_dnn.cc:473] Loaded cuDNN version 92600
+I0000 00:00:1791791768.161392 3165790 device_compiler.h:196] Compiled cluster using XLA!  This line is logged at most once for the lifetime of the process.
+  500/3778 records predicted
+  1000/3778 records predicted
+  1500/3778 records predicted
+  2000/3778 records predicted
+  2500/3778 records predicted
+  3000/3778 records predicted
+  3500/3778 records predicted
+[15:09:50] dual30k_ft_e3: validation inference
+2026-10-12 15:09:50.568205: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-12 15:09:50.770424: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-10-12 15:09:51.699022: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+xla          : --xla_gpu_cuda_data_dir=/usr/local/cuda
+1 GPU(s)
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1791792593.470364   15654 gpu_device.cc:2020] Created device /job:localhost/replica:0/task:0/device:GPU:0 with 20860 MB memory:  -> device: 0, name: NVIDIA RTX A5000, pci bus id: 0000:01:00.0, compute capability: 8.6
+2026-10-12 15:09:56.094834: I external/local_xla/xla/service/service.cc:163] XLA service 0x7fe21c004910 initialized for platform CUDA (this does not guarantee that XLA will be used). Devices:
+2026-10-12 15:09:56.094865: I external/local_xla/xla/service/service.cc:171]   StreamExecutor device (0): NVIDIA RTX A5000, Compute Capability 8.6
+2026-10-12 15:09:56.176458: I tensorflow/compiler/mlir/tensorflow/utils/dump_mlir_util.cc:269] disabling MLIR crash reproducer, set env var `MLIR_CRASH_REPRODUCER_DIRECTORY` to enable.
+2026-10-12 15:09:56.617884: I external/local_xla/xla/stream_executor/cuda/cuda_dnn.cc:473] Loaded cuDNN version 92600
+I0000 00:00:1791792606.045749   16086 device_compiler.h:196] Compiled cluster using XLA!  This line is logged at most once for the lifetime of the process.
+  132/132 records predicted
+PREDICT_DONE dual30k_ft_e3
+[15:10:26] dual30k_ft_e3: decode tuning
+start: shortfall 26.7, cells met 29/36
+  round 1: scale_AFIB = 0.7 -> shortfall 26.68, met 29/36
+  round 1: scale_AFIB = 0.75 -> shortfall 25.82, met 29/36
+  round 1: scale_AFIB = 0.8 -> shortfall 25.21, met 29/36
+  round 1: scale_AFIB = 0.85 -> shortfall 23.77, met 29/36
+  round 1: scale_AFIB = 0.9 -> shortfall 23.13, met 29/36
+  round 1: scale_AFIB = 1.0 -> shortfall 21.50, met 29/36
+  round 1: scale_AFIB = 1.25 -> shortfall 21.43, met 31/36
+  round 1: scale_VT = 1.0 -> shortfall 21.27, met 31/36
+  round 1: gap_AFIB = 0 -> shortfall 20.42, met 31/36
+  round 1: smooth_SINUS = 0.5 -> shortfall 20.09, met 31/36
+  round 1: smooth_SVT = 2 -> shortfall 19.84, met 31/36
+  round 1: smooth_VT = 0.04 -> shortfall 19.74, met 31/36
+  round 1: trim_AVB = None -> shortfall 19.71, met 31/36
+  round 1: trim_AVB = 1.0 -> shortfall 19.71, met 31/36
+  round 2: min_SVT = 0.5 -> shortfall 19.63, met 31/36
+  round 2: min_VT = 1 -> shortfall 19.61, met 31/36
+  round 2: min_AVB = 1 -> shortfall 19.60, met 31/36
+  round 2: prob_AFIB = 0.6 -> shortfall 18.62, met 29/36
+  round 2: smooth_SINUS = 0.04 -> shortfall 18.57, met 29/36
+  round 2: smooth_SINUS = 1 -> shortfall 18.33, met 29/36
+  round 3: scale_AFIB = 1.5 -> shortfall 18.32, met 31/36
+  round 3: min_AFIB = 2 -> shortfall 18.29, met 31/36
+  round 3: smooth_VT = 1 -> shortfall 18.26, met 31/36
+  random 54: {'min_VT': 0.5} -> shortfall 18.24, met 31/36
+## VALIDATION (strip_val), tuned decode - /media/Project/ECG/Model_Dong/ecgr_rhythm/summary_111026/strip_eval/val_npz/dual30k_ft_e3 (3778 events)
+
+**epicmp, segment to segment (inside the mark)** - ours vs target (E Se / E +P / D Se / D +P)
+
+| class | E Se | E +P | D Se | D +P | target |
+|---|---|---|---|---|---|
+| AFIB | 90 | 92 ! | 89 | 96 | 90/94/88/96 |
+| SVT | 89 ! | 85 ! | 74 | 83 | 89/88/60/78 |
+| VT | 86 | 92 | 83 | 84 ! | 81/90/62/86 |
+| AVB | 35 | 100 | 43 | 93 | 25/77/31/65 |
+
+**sample to sample (row %, inside the mark)**
+
+| true \ pred | SINUS | AFIB | SVT | VT | AVB | NOISE | target diag |
+|---|---|---|---|---|---|---|---|
+| SINUS | 89.61 | 3.69 | 2.67 | 0.39 | 3.62 | 0.01 | 92.89 |
+| AFIB | 7.67 | 88.68 | 3.29 | 0.34 | 0.00 | 0.00 | 88.07 |
+| SVT | 18.06 | 6.69 | 73.62 | 1.58 | 0.00 | 0.05 | 72.6 |
+| VT | 13.50 | 2.41 | 1.45 | 82.63 | 0.00 | 0.00 | 69.37 |
+| AVB2 | 57.91 | 0.89 | 0.16 | 0.00 | 41.02 | 0.01 | 26.58 |
+| AVB3 | 52.83 | 0.68 | 0.00 | 0.00 | 46.49 | 0.00 | 30.69 |
+
+**event level (one label per event)**
+
+| true \ pred | AFIB | SVT | VT | AVB | (none inside mark) |
+|---|---|---|---|---|---|
+| AFIB | 1487 | 69 | 7 | 6 | 106 |
+| SVT | 87 | 863 | 13 | 0 | 73 |
+| VT | 26 | 9 | 296 | 0 | 28 |
+| AVB2 | 29 | 11 | 3 | 577 | 379 |
+| AVB3 | 11 | 25 | 1 | 258 | 161 |
+
+| class | Se | PPV | F1 | target Se / PPV / F1 |
+|---|---|---|---|---|
+| AFIB | 94.8 | 90.7 | 92.7 | 86.6/80.3/83.3 |
+| SVT | 89.6 | 88.3 | 89.0 | 86.6/81.1/83.8 |
+| VT | 89.4 | 92.5 | 90.9 | 70.1/53.3/60.6 |
+| AVB | 91.3 | 99.3 | 95.1 | 40.2/62.5/48.9 |
+| AVB2 row Se | 93.1 | | | 22.6 |
+| AVB3 row Se | 87.5 | | | 19.9 |
+
+**31/36 target cells met; smallest margin -3.3**
+below target: epicmp AFIB E +P 91.7<94, epicmp SVT E Se 88.8<89, epicmp SVT E +P 84.9<88, epicmp VT D +P 84.1<86, sample SINUS recall 89.6<92.89
+
+-> /media/Project/ECG/Model_Dong/ecgr_rhythm/summary_111026/strip_eval/tuned_dual30k_ft_e3.json
+[15:16:04] dual30k_ft_e3: CHAIN_DONE

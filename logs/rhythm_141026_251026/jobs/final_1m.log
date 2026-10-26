@@ -1,0 +1,125 @@
+picked ft2_best (/media/Project/ECG/Model_Dong/ecgr_rhythm/121026_rhythm_dual_1m_ftstrip2/checkpoints/dualunet_rhythm_1m/best_model.keras)
+2026-10-12 16:40:44.647513: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-12 16:40:44.678873: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-10-12 16:40:45.331877: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+xla          : --xla_gpu_cuda_data_dir=/usr/local/cuda
+1 GPU(s)
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1791798046.189377 1973836 gpu_device.cc:2020] Created device /job:localhost/replica:0/task:0/device:GPU:0 with 18597 MB memory:  -> device: 0, name: NVIDIA RTX A5000, pci bus id: 0000:01:00.0, compute capability: 8.6
+2026-10-12 16:40:48.423909: I external/local_xla/xla/service/service.cc:163] XLA service 0x781d5c002780 initialized for platform CUDA (this does not guarantee that XLA will be used). Devices:
+2026-10-12 16:40:48.423931: I external/local_xla/xla/service/service.cc:171]   StreamExecutor device (0): NVIDIA RTX A5000, Compute Capability 8.6
+2026-10-12 16:40:48.521135: I tensorflow/compiler/mlir/tensorflow/utils/dump_mlir_util.cc:269] disabling MLIR crash reproducer, set env var `MLIR_CRASH_REPRODUCER_DIRECTORY` to enable.
+2026-10-12 16:40:48.907371: I external/local_xla/xla/stream_executor/cuda/cuda_dnn.cc:473] Loaded cuDNN version 92600
+2026-10-12 16:40:49.168091: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2267', 24 bytes spill stores, 24 bytes spill loads
+
+2026-10-12 16:40:49.185732: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2267', 12 bytes spill stores, 12 bytes spill loads
+
+2026-10-12 16:40:49.196114: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2267', 12 bytes spill stores, 12 bytes spill loads
+
+2026-10-12 16:40:51.842244: W external/local_xla/xla/tsl/framework/bfc_allocator.cc:382] Garbage collection: deallocate free memory regions (i.e., allocations) so that we can re-allocate a larger region to avoid OOM due to memory fragmentation. If you see this message frequently, you are running near the threshold of the available device memory and re-allocation may incur great performance overhead. You may try smaller batch sizes to observe the performance impact. Set TF_ENABLE_GPU_GARBAGE_COLLECTION=false if you'd like to disable this feature.
+I0000 00:00:1791798055.283990 1983093 device_compiler.h:196] Compiled cluster using XLA!  This line is logged at most once for the lifetime of the process.
+2026-10-12 16:41:09.732023: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2830', 24 bytes spill stores, 24 bytes spill loads
+
+2026-10-12 16:41:09.751201: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2830', 12 bytes spill stores, 12 bytes spill loads
+
+2026-10-12 16:41:09.772298: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2830', 12 bytes spill stores, 12 bytes spill loads
+
+  500/4909 records predicted
+  1000/4909 records predicted
+  1500/4909 records predicted
+  2000/4909 records predicted
+  2500/4909 records predicted
+  3000/4909 records predicted
+  3500/4909 records predicted
+  4000/4909 records predicted
+  4500/4909 records predicted
+  4909/4909 records predicted
+## dual1m_ft2_best - validation, decode tuned on validation (tuned_dual1m_ft2_best.json) (3778 events)
+
+**epicmp, segment to segment (inside the mark)** - ours vs target (E Se / E +P / D Se / D +P)
+
+| class | E Se | E +P | D Se | D +P | target |
+|---|---|---|---|---|---|
+| AFIB | 91 | 94 | 88 | 96 | 90/94/88/96 |
+| SVT | 90 | 88 | 74 | 86 | 89/88/60/78 |
+| VT | 84 | 93 | 81 | 87 | 81/90/62/86 |
+| AVB | 30 | 99 | 35 | 94 | 25/77/31/65 |
+
+**sample to sample (row %, inside the mark)**
+
+| true \ pred | SINUS | AFIB | SVT | VT | AVB | NOISE | target diag |
+|---|---|---|---|---|---|---|---|
+| SINUS | 93.87 | 1.67 | 1.68 | 0.31 | 2.47 | 0.00 | 92.89 |
+| AFIB | 8.84 | 88.37 | 2.57 | 0.22 | 0.00 | 0.00 | 88.07 |
+| SVT | 15.99 | 9.03 | 73.65 | 1.32 | 0.00 | 0.00 | 72.6 |
+| VT | 14.31 | 1.43 | 3.39 | 80.87 | 0.00 | 0.00 | 69.37 |
+| AVB2 | 69.90 | 0.38 | 0.12 | 0.00 | 29.60 | 0.00 | 26.58 |
+| AVB3 | 53.71 | 0.91 | 0.00 | 0.00 | 45.39 | 0.00 | 30.69 |
+
+**event level (one label per event)**
+
+| true \ pred | AFIB | SVT | VT | AVB | (none inside mark) |
+|---|---|---|---|---|---|
+| AFIB | 1485 | 59 | 17 | 8 | 109 |
+| SVT | 64 | 888 | 11 | 0 | 58 |
+| VT | 9 | 14 | 308 | 0 | 38 |
+| AVB2 | 16 | 10 | 10 | 584 | 435 |
+| AVB3 | 10 | 9 | 1 | 275 | 176 |
+
+| class | Se | PPV | F1 | target Se / PPV / F1 |
+|---|---|---|---|---|
+| AFIB | 94.6 | 93.8 | 94.2 | 86.6/80.3/83.3 |
+| SVT | 92.2 | 90.6 | 91.4 | 86.6/81.1/83.8 |
+| VT | 93.1 | 88.8 | 90.9 | 70.1/53.3/60.6 |
+| AVB | 93.9 | 99.1 | 96.4 | 40.2/62.5/48.9 |
+| AVB2 row Se | 94.2 | | | 22.6 |
+| AVB3 row Se | 93.2 | | | 19.9 |
+
+**36/36 target cells met; smallest margin +0.0**
+
+## dual1m_ft2_best - rhythm_eval, decode tuned on validation (tuned_dual1m_ft2_best.json) (4909 events)
+
+**epicmp, segment to segment (inside the mark)** - ours vs target (E Se / E +P / D Se / D +P)
+
+| class | E Se | E +P | D Se | D +P | target |
+|---|---|---|---|---|---|
+| AFIB | 94 | 92 ! | 92 | 95 ! | 90/94/88/96 |
+| SVT | 84 ! | 93 | 66 | 91 | 89/88/60/78 |
+| VT | 71 ! | 87 ! | 71 | 84 ! | 81/90/62/86 |
+| AVB | 31 | 99 | 34 | 95 | 25/77/31/65 |
+
+**sample to sample (row %, inside the mark)**
+
+| true \ pred | SINUS | AFIB | SVT | VT | AVB | NOISE | target diag |
+|---|---|---|---|---|---|---|---|
+| SINUS | 95.47 | 1.21 | 1.32 | 0.14 | 1.86 | 0.00 | 92.89 |
+| AFIB | 5.28 | 91.55 | 3.04 | 0.13 | 0.00 | 0.00 | 88.07 |
+| SVT | 26.25 | 5.46 | 65.94 | 2.34 | 0.00 | 0.01 | 72.6 |
+| VT | 20.79 | 7.85 | 0.70 | 70.66 | 0.00 | 0.00 | 69.37 |
+| AVB2 | 71.11 | 0.60 | 0.00 | 0.00 | 28.21 | 0.09 | 26.58 |
+| AVB3 | 49.71 | 0.65 | 0.00 | 0.00 | 49.64 | 0.00 | 30.69 |
+
+**event level (one label per event)**
+
+| true \ pred | AFIB | SVT | VT | AVB | (none inside mark) |
+|---|---|---|---|---|---|
+| AFIB | 1609 | 41 | 15 | 8 | 59 |
+| SVT | 86 | 1676 | 41 | 0 | 224 |
+| VT | 23 | 11 | 405 | 0 | 100 |
+| AVB2 | 17 | 2 | 10 | 657 | 478 |
+| AVB3 | 9 | 2 | 4 | 293 | 191 |
+
+| class | Se | PPV | F1 | target Se / PPV / F1 |
+|---|---|---|---|---|
+| AFIB | 96.2 | 92.3 | 94.2 | 86.6/80.3/83.3 |
+| SVT | 93.0 | 96.8 | 94.8 | 86.6/81.1/83.8 |
+| VT | 92.3 | 85.3 | 88.6 | 70.1/53.3/60.6 |
+| AVB | 95.6 | 99.2 | 97.3 | 40.2/62.5/48.9 |
+| AVB2 row Se | 95.8 | | | 22.6 |
+| AVB3 row Se | 95.1 | | | 19.9 |
+
+**29/36 target cells met; smallest margin -10.0**
+below target: epicmp AFIB E +P 92.0<94, epicmp AFIB D +P 95.0<96, epicmp SVT E Se 84.0<89, epicmp VT E Se 71.0<81, epicmp VT E +P 87.0<90, epicmp VT D +P 84.0<86, sample SVT recall 65.9<72.6
+
+FINAL_DONE dual1m_ft2_best

@@ -1,0 +1,247 @@
+Checkpoint: /media/Project/ECG/Model_Dong/ecgr_rhythm/161026_rhythm_dual_1m_v4_pplus3/checkpoints/dualunet_rhythm_1m/epochs/epoch_01.keras
+
+TEST - as recorded - epoch_01
+=============================
+rows = reference, columns = predicted (seconds)
+           SINUS     AFIB      SVT       VT      AVB
+SINUS    1202325    23356    58447    11480   144392
+AFIB      157150  3388386   118520     4538     8848
+SVT       279489   247086  1480989    50046        0
+VT         30757    45725     9244   314806     5409
+AVB       113163    20546     1410        0  1325138
+
+class      support       Se       +P       F1
+SINUS      1440000    83.49    67.44    74.61
+AFIB       3677442    92.14    90.96    91.55
+SVT        2057610    71.98    88.76    79.49
+VT          405941    77.55    82.65    80.02
+AVB        1460257    90.75    89.31    90.02
+macro F1 (per second, clean labelled seconds): 83.14
+
+per strip (10 s window, raw argmax - no post-processing; a NOISE window finds nothing):
+class         TP      FN      FP       Se       +P
+AFIB        2758     186     353    93.68    88.65
+SVT         2010     387     178    83.85    91.86
+VT           496      55      71    90.02    87.48
+AVB         1235     106      24    92.10    98.09
+
+channel output (per 2 s)
+========================
+rows = reference, columns = predicted (2 s segments)
+           NOISE      CH1      CH2      CH3
+NOISE          0        0        0        0
+CH1            1     7706     1201     1422
+CH2            0      880     6358     1617
+CH3            1     1564     1698    13717
+
+class      support       Se       +P       F1
+NOISE            0      nan     0.00      nan
+CH1          10330    74.60    75.92    75.25
+CH2           8855    71.80    68.68    70.21
+CH3          16980    80.78    81.86    81.32
+lead accuracy 76.82 | NOISE: 0 of 36,165 2 s segments, Se nan +P 0.00 | same lead when both readable 76.82
+
+TEST - noise at 18 dB SNR - epoch_01
+====================================
+rows = reference, columns = predicted (seconds)
+           SINUS     AFIB      SVT       VT      AVB
+SINUS    1197179    28357    58883    11771   141607
+AFIB      150791  3358861   132606     5948    12986
+SVT       279920   256970  1467241    49116        0
+VT         31069    49401    12632   308311     4026
+AVB       116545    24645     2178      625  1312082
+
+class      support       Se       +P       F1
+SINUS      1437797    83.26    67.43    74.51
+AFIB       3661192    91.74    90.33    91.03
+SVT        2053247    71.46    87.67    78.74
+VT          405439    76.04    82.05    78.93
+AVB        1456075    90.11    89.21    89.66
+macro F1 (per second, clean labelled seconds): 82.58
+
+per strip (10 s window, raw argmax - no post-processing; a NOISE window finds nothing):
+class         TP      FN      FP       Se       +P
+AFIB        2736     208     377    92.93    87.89
+SVT         2008     389     195    83.77    91.15
+VT           488      63      87    88.57    84.87
+AVB         1218     123      23    90.83    98.15
+
+channel output (per 2 s)
+========================
+rows = reference, columns = predicted (2 s segments)
+           NOISE      CH1      CH2      CH3
+NOISE        110        0        0        0
+CH1           13     7373     1772     2433
+CH2           11     1725     6727     2349
+CH3           30     1839     1804     9979
+
+class      support       Se       +P       F1
+NOISE          110   100.00    67.07    80.29
+CH1          11591    63.61    67.41    65.46
+CH2          10812    62.22    65.29    63.72
+CH3          13652    73.10    67.60    70.24
+lead accuracy 66.89 | NOISE: 110 of 36,165 2 s segments, Se 100.00 +P 67.07 | same lead when both readable 66.88
+
+TEST - noise at 12 dB SNR - epoch_01
+====================================
+rows = reference, columns = predicted (seconds)
+           SINUS     AFIB      SVT       VT      AVB
+SINUS    1191085    28904    57679    12396   142430
+AFIB      158538  3325649   138652     5956    19397
+SVT       279973   256759  1458730    52109        0
+VT         32917    46983    12427   308192     3636
+AVB       113413    24042     2414      995  1311474
+
+class      support       Se       +P       F1
+SINUS      1432494    83.15    67.07    74.25
+AFIB       3648192    91.16    90.31    90.73
+SVT        2047571    71.24    87.35    78.48
+VT          404155    76.26    81.18    78.64
+AVB        1452338    90.30    88.80    89.54
+macro F1 (per second, clean labelled seconds): 82.33
+
+per strip (10 s window, raw argmax - no post-processing; a NOISE window finds nothing):
+class         TP      FN      FP       Se       +P
+AFIB        2721     223     370    92.43    88.03
+SVT         2018     379     206    84.19    90.74
+VT           491      60      87    89.11    84.95
+AVB         1218     123      29    90.83    97.67
+
+channel output (per 2 s)
+========================
+rows = reference, columns = predicted (2 s segments)
+           NOISE      CH1      CH2      CH3
+NOISE        170       56       46       69
+CH1           81     8305     1395     1769
+CH2           68     1474     7451     1799
+CH3           88     1615     1451    10328
+
+class      support       Se       +P       F1
+NOISE          341    49.85    41.77    45.45
+CH1          11550    71.90    72.53    72.22
+CH2          10792    69.04    72.04    70.51
+CH3          13482    76.61    73.96    75.26
+lead accuracy 72.60 | NOISE: 341 of 36,165 2 s segments, Se 49.85 +P 41.77 | same lead when both readable 73.30
+
+TEST - noise at 6 dB SNR - epoch_01
+===================================
+rows = reference, columns = predicted (seconds)
+           SINUS     AFIB      SVT       VT      AVB
+SINUS    1035696    26300    52652    11009   129778
+AFIB      144783  2832089   134028     6794    14552
+SVT       230814   201145  1272031    43188        0
+VT         28270    43197    10274   267851     2600
+AVB        91571    18613     1959      355  1129076
+
+class      support       Se       +P       F1
+SINUS      1255435    82.50    67.64    74.33
+AFIB       3132246    90.42    90.73    90.57
+SVT        1747178    72.80    86.48    79.05
+VT          352192    76.05    81.36    78.62
+AVB        1241574    90.94    88.49    89.70
+macro F1 (per second, clean labelled seconds): 82.46
+
+per strip (10 s window, raw argmax - no post-processing; a NOISE window finds nothing):
+class         TP      FN      FP       Se       +P
+AFIB        2385     559     326    81.01    87.97
+SVT         1819     578     196    75.89    90.27
+VT           426     125      81    77.31    84.02
+AVB         1089     252      20    81.21    98.20
+
+channel output (per 2 s)
+========================
+rows = reference, columns = predicted (2 s segments)
+           NOISE      CH1      CH2      CH3
+NOISE       6096      942      763      874
+CH1          965     6165      724      813
+CH2          793      713     5751      926
+CH3         1026      882      839     7893
+
+class      support       Se       +P       F1
+NOISE         8675    70.27    68.65    69.45
+CH1           8667    71.13    70.85    70.99
+CH2           8183    70.28    71.20    70.74
+CH3          10640    74.18    75.13    74.65
+lead accuracy 71.63 | NOISE: 8,675 of 36,165 2 s segments, Se 70.27 +P 68.65 | same lead when both readable 80.18
+
+TEST - noise at 0 dB SNR - epoch_01
+===================================
+rows = reference, columns = predicted (seconds)
+           SINUS     AFIB      SVT       VT      AVB
+SINUS     628415    18846    31832     6268    81856
+AFIB       86490  1621571    73823     3409     7101
+SVT       113859   103296   703195    24358        0
+VT         14107    22917     7405   148013     2422
+AVB        53990     9304      771      212   628540
+
+class      support       Se       +P       F1
+SINUS       767217    81.91    70.07    75.53
+AFIB       1792394    90.47    91.31    90.89
+SVT         944708    74.44    86.07    79.83
+VT          194864    75.96    81.21    78.50
+AVB         692817    90.72    87.31    88.98
+macro F1 (per second, clean labelled seconds): 82.74
+
+per strip (10 s window, raw argmax - no post-processing; a NOISE window finds nothing):
+class         TP      FN      FP       Se       +P
+AFIB        1123    1821     139    38.15    88.99
+SVT          828    1569      96    34.54    89.61
+VT           203     348      42    36.84    82.86
+AVB          477     864       9    35.57    98.15
+
+channel output (per 2 s)
+========================
+rows = reference, columns = predicted (2 s segments)
+           NOISE      CH1      CH2      CH3
+NOISE      19901      161      182      239
+CH1          161     3405      506      513
+CH2          147      385     3359      607
+CH3          170      586      653     5190
+
+class      support       Se       +P       F1
+NOISE        20483    97.16    97.65    97.41
+CH1           4585    74.26    75.05    74.65
+CH2           4498    74.68    71.47    73.04
+CH3           6599    78.65    79.25    78.95
+lead accuracy 88.08 | NOISE: 20,483 of 36,165 2 s segments, Se 97.16 +P 97.65 | same lead when both readable 78.62
+
+TEST - noise at -6 dB SNR - epoch_01
+====================================
+rows = reference, columns = predicted (seconds)
+           SINUS     AFIB      SVT       VT      AVB
+SINUS     570661    17121    30037     5618    76968
+AFIB       80939  1444871    75572     3809     6828
+SVT       100325    86069   638717    22410        0
+VT         12626    22373     6094   131780     2652
+AVB        48139     8129      529       43   561065
+
+class      support       Se       +P       F1
+SINUS       700405    81.48    70.22    75.43
+AFIB       1612019    89.63    91.53    90.57
+SVT         847521    75.36    85.05    79.92
+VT          175525    75.08    80.52    77.70
+AVB         617905    90.80    86.65    88.68
+macro F1 (per second, clean labelled seconds): 82.46
+
+per strip (10 s window, raw argmax - no post-processing; a NOISE window finds nothing):
+class         TP      FN      FP       Se       +P
+AFIB         932    2012     121    31.66    88.51
+SVT          683    1714      87    28.49    88.70
+VT           180     371      33    32.67    84.51
+AVB          396     945       8    29.53    98.02
+
+channel output (per 2 s)
+========================
+rows = reference, columns = predicted (2 s segments)
+           NOISE      CH1      CH2      CH3
+NOISE      21745       58       50       93
+CH1           61     3039      519      508
+CH2           59      377     2914      637
+CH3           75      625      670     4735
+
+class      support       Se       +P       F1
+NOISE        21946    99.08    99.11    99.10
+CH1           4127    73.64    74.14    73.89
+CH2           3987    73.09    70.17    71.60
+CH3           6105    77.56    79.27    78.41
+lead accuracy 89.68 | NOISE: 21,946 of 36,165 2 s segments, Se 99.08 +P 99.11 | same lead when both readable 76.21

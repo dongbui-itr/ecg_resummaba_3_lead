@@ -1,0 +1,62 @@
+[23:54:29] R1: rhythm-decoder-only fine-tune, AFIB weight 0.7916
+train-only   : /^(rhythm|rr_)/ -> 30 layers, 4,977 params trainable
+student      : dualunet_rhythm_30k, 23,361 params, all weights from /media/Project/ECG/Model_Dong/ecgr_rhythm/201026_rhythm_dual_30k_A/release/e36.keras
+KD           : alpha 0.5, T 2.0; class weights {'SINUS': np.float64(0.241), 'AFIB': np.float64(0.561), 'SVT': np.float64(0.524), 'VT': np.float64(0.813), 'AVB': np.float64(0.681)}
+EPOCH 1  val_rhythm_f1=0.8376
+EPOCH 1  beat: f1(N,S,V)=0.8493
+Epoch 1: val_rhythm_f1 improved from -inf to 0.83761, saving student to /media/Project/ECG/Model_Dong/ecgr_rhythm/241026_rhythm_dual_30k_e36rhy_R1/checkpoints/dualunet_rhythm_30k/best_model.keras
+EPOCH 2  val_rhythm_f1=0.8387
+EPOCH 2  beat: f1(N,S,V)=0.8493
+Epoch 2: val_rhythm_f1 improved from 0.83761 to 0.83874, saving student to /media/Project/ECG/Model_Dong/ecgr_rhythm/241026_rhythm_dual_30k_e36rhy_R1/checkpoints/dualunet_rhythm_30k/best_model.keras
+EPOCH 3  val_rhythm_f1=0.8398
+EPOCH 3  beat: f1(N,S,V)=0.8493
+Epoch 3: val_rhythm_f1 improved from 0.83874 to 0.83976, saving student to /media/Project/ECG/Model_Dong/ecgr_rhythm/241026_rhythm_dual_30k_e36rhy_R1/checkpoints/dualunet_rhythm_30k/best_model.keras
+EPOCH 4  val_rhythm_f1=0.8391
+EPOCH 4  beat: f1(N,S,V)=0.8493
+EPOCH 5  val_rhythm_f1=0.8371
+EPOCH 5  beat: f1(N,S,V)=0.8493
+EPOCH 6  val_rhythm_f1=0.8377
+EPOCH 6  beat: f1(N,S,V)=0.8493
+EPOCH 7  val_rhythm_f1=0.8398
+EPOCH 7  beat: f1(N,S,V)=0.8493
+Epoch 7: val_rhythm_f1 improved from 0.83976 to 0.83981, saving student to /media/Project/ECG/Model_Dong/ecgr_rhythm/241026_rhythm_dual_30k_e36rhy_R1/checkpoints/dualunet_rhythm_30k/best_model.keras
+EPOCH 8  val_rhythm_f1=0.8385
+EPOCH 8  beat: f1(N,S,V)=0.8493
+EPOCH 9  val_rhythm_f1=0.8392
+EPOCH 9  beat: f1(N,S,V)=0.8493
+EPOCH 10  val_rhythm_f1=0.8387
+EPOCH 10  beat: f1(N,S,V)=0.8493
+distillation finished; student checkpoints in /media/Project/ECG/Model_Dong/ecgr_rhythm/241026_rhythm_dual_30k_e36rhy_R1/checkpoints/dualunet_rhythm_30k
+[00:48:30] FT_DONE R1
+[00:48:30] R2: rhythm-decoder-only fine-tune, AFIB weight 1.0554
+train-only   : /^(rhythm|rr_)/ -> 30 layers, 4,977 params trainable
+student      : dualunet_rhythm_30k, 23,361 params, all weights from /media/Project/ECG/Model_Dong/ecgr_rhythm/201026_rhythm_dual_30k_A/release/e36.keras
+KD           : alpha 0.5, T 2.0; class weights {'SINUS': np.float64(0.241), 'AFIB': np.float64(0.748), 'SVT': np.float64(0.524), 'VT': np.float64(0.813), 'AVB': np.float64(0.681)}
+EPOCH 1  val_rhythm_f1=0.8384
+EPOCH 1  beat: f1(N,S,V)=0.8493
+Epoch 1: val_rhythm_f1 improved from -inf to 0.83842, saving student to /media/Project/ECG/Model_Dong/ecgr_rhythm/241026_rhythm_dual_30k_e36rhy_R2/checkpoints/dualunet_rhythm_30k/best_model.keras
+EPOCH 2  val_rhythm_f1=0.8359
+EPOCH 2  beat: f1(N,S,V)=0.8493
+EPOCH 3  val_rhythm_f1=0.8336
+EPOCH 3  beat: f1(N,S,V)=0.8493
+EPOCH 4  val_rhythm_f1=0.8358
+EPOCH 4  beat: f1(N,S,V)=0.8493
+EPOCH 5  val_rhythm_f1=0.8391
+EPOCH 5  beat: f1(N,S,V)=0.8493
+Epoch 5: val_rhythm_f1 improved from 0.83842 to 0.83912, saving student to /media/Project/ECG/Model_Dong/ecgr_rhythm/241026_rhythm_dual_30k_e36rhy_R2/checkpoints/dualunet_rhythm_30k/best_model.keras
+EPOCH 6  val_rhythm_f1=0.8359
+EPOCH 6  beat: f1(N,S,V)=0.8493
+EPOCH 7  val_rhythm_f1=0.8385
+EPOCH 7  beat: f1(N,S,V)=0.8493
+EPOCH 8  val_rhythm_f1=0.8393
+EPOCH 8  beat: f1(N,S,V)=0.8493
+Epoch 8: val_rhythm_f1 improved from 0.83912 to 0.83925, saving student to /media/Project/ECG/Model_Dong/ecgr_rhythm/241026_rhythm_dual_30k_e36rhy_R2/checkpoints/dualunet_rhythm_30k/best_model.keras
+EPOCH 9  val_rhythm_f1=0.8394
+EPOCH 9  beat: f1(N,S,V)=0.8493
+Epoch 9: val_rhythm_f1 improved from 0.83925 to 0.83939, saving student to /media/Project/ECG/Model_Dong/ecgr_rhythm/241026_rhythm_dual_30k_e36rhy_R2/checkpoints/dualunet_rhythm_30k/best_model.keras
+EPOCH 10  val_rhythm_f1=0.8394
+EPOCH 10  beat: f1(N,S,V)=0.8493
+Epoch 10: val_rhythm_f1 improved from 0.83939 to 0.83943, saving student to /media/Project/ECG/Model_Dong/ecgr_rhythm/241026_rhythm_dual_30k_e36rhy_R2/checkpoints/dualunet_rhythm_30k/best_model.keras
+distillation finished; student checkpoints in /media/Project/ECG/Model_Dong/ecgr_rhythm/241026_rhythm_dual_30k_e36rhy_R2/checkpoints/dualunet_rhythm_30k
+[01:37:14] FT_DONE R2
+[01:37:14] RHY_ALL_DONE

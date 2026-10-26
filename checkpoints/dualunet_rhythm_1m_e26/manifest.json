@@ -1,0 +1,252 @@
+{
+  "checkpoint": "best_model.keras",
+  "sha256": "15e35e5dc623d234540dac8633607ec62a08f2ab821ae168f8ac07ed2dd4ec90",
+  "run_tag": "071026_rhythm_dual_1m_s1",
+  "epoch": "26 / 34 (early stop on val_rhythm_f1)",
+  "produced": "2026-10-08, moved into this project 2026-10-15",
+  "model": "rhythm_dual_1m",
+  "params": 988773,
+  "contract": {
+    "input": [
+      2500,
+      3
+    ],
+    "sampling_rate_hz": 250,
+    "seconds": 10,
+    "normalisation": "z-score per lead",
+    "outputs": {
+      "beat": [
+        1250,
+        4
+      ],
+      "rhythm": [
+        1250,
+        5
+      ],
+      "channel": [
+        5,
+        4
+      ]
+    },
+    "beat_classes": [
+      "none",
+      "N",
+      "S",
+      "V"
+    ],
+    "rhythm_classes": [
+      "SINUS",
+      "AFIB",
+      "SVT",
+      "VT",
+      "AVB"
+    ],
+    "channel_classes": [
+      "NOISE",
+      "CH1",
+      "CH2",
+      "CH3"
+    ],
+    "notes": "AFIB includes AFL; AVB = AVB2 + AVB3 (on mitdb the AVB2 cell)"
+  },
+  "training": {
+    "sampler": "stratified",
+    "batch_size": 64,
+    "lr": 0.001,
+    "schedule": "cosine",
+    "class_weights": [
+      0.240656380554994,
+      0.41455443123551766,
+      0.5726758104592811,
+      0.8653698698674323,
+      0.6765162559340628
+    ],
+    "npy_dir": "/media/Project/ECG/Model_Dong/ecgr_rhythm/npy_250hz_10s_3lead_10sec"
+  },
+  "evaluation_official": {
+    "script": "evaluate.py (CONFIG defaults)",
+    "decode": "config defaults (ecgr/rhythm/config.py DECODE_* / BEAT_PP_*), decision 2026-10-08",
+    "predict": "overlap 5 s between consecutive 10 s windows, TTA id,flip,swap",
+    "rhythm_epicmp": [
+      {
+        "db": "afdb",
+        "class": "AFIB",
+        "records": "23",
+        "E_Se": "93",
+        "E_+P": "92",
+        "E_F1": "92.5",
+        "D_Se": "96",
+        "D_+P": "99",
+        "D_F1": "97.5"
+      },
+      {
+        "db": "escdb",
+        "class": "SVT",
+        "records": "90",
+        "E_Se": "9",
+        "E_+P": "15",
+        "E_F1": "11.2",
+        "D_Se": "6",
+        "D_+P": "2",
+        "D_F1": "3.0"
+      },
+      {
+        "db": "escdb",
+        "class": "VT",
+        "records": "90",
+        "E_Se": "69",
+        "E_+P": "100",
+        "E_F1": "81.7",
+        "D_Se": "62",
+        "D_+P": "97",
+        "D_F1": "75.6"
+      },
+      {
+        "db": "mitdb",
+        "class": "AFIB",
+        "records": "44",
+        "E_Se": "86",
+        "E_+P": "75",
+        "E_F1": "80.1",
+        "D_Se": "92",
+        "D_+P": "94",
+        "D_F1": "93.0"
+      },
+      {
+        "db": "mitdb",
+        "class": "AVB",
+        "records": "44",
+        "E_Se": "100",
+        "E_+P": "44",
+        "E_F1": "61.1",
+        "D_Se": "100",
+        "D_+P": "95",
+        "D_F1": "97.4"
+      },
+      {
+        "db": "mitdb",
+        "class": "SVT",
+        "records": "44",
+        "E_Se": "69",
+        "E_+P": "46",
+        "E_F1": "55.2",
+        "D_Se": "58",
+        "D_+P": "46",
+        "D_F1": "51.3"
+      },
+      {
+        "db": "mitdb",
+        "class": "VT",
+        "records": "44",
+        "E_Se": "65",
+        "E_+P": "73",
+        "E_F1": "68.8",
+        "D_Se": "68",
+        "D_+P": "46",
+        "D_F1": "54.9"
+      },
+      {
+        "db": "rhythm_eval",
+        "class": "AFIB",
+        "records": "4909",
+        "E_Se": "96",
+        "E_+P": "80",
+        "E_F1": "87.3",
+        "D_Se": "89",
+        "D_+P": "62",
+        "D_F1": "73.1"
+      },
+      {
+        "db": "rhythm_eval",
+        "class": "AVB",
+        "records": "4909",
+        "E_Se": "87",
+        "E_+P": "83",
+        "E_F1": "85.0",
+        "D_Se": "75",
+        "D_+P": "47",
+        "D_F1": "57.8"
+      },
+      {
+        "db": "rhythm_eval",
+        "class": "SVT",
+        "records": "4909",
+        "E_Se": "87",
+        "E_+P": "77",
+        "E_F1": "81.7",
+        "D_Se": "57",
+        "D_+P": "70",
+        "D_F1": "62.8"
+      },
+      {
+        "db": "rhythm_eval",
+        "class": "VT",
+        "records": "4909",
+        "E_Se": "80",
+        "E_+P": "72",
+        "E_F1": "75.8",
+        "D_Se": "57",
+        "D_+P": "62",
+        "D_F1": "59.4"
+      }
+    ],
+    "beats_bxb": [
+      {
+        "db": "afdb",
+        "records": "23",
+        "Q_Se": "97.56",
+        "Q_+P": "95.49",
+        "V_Se": "-",
+        "V_+P": "0.00",
+        "S_Se": "-",
+        "S_+P": "0.00"
+      },
+      {
+        "db": "ahadb",
+        "records": "79",
+        "Q_Se": "99.89",
+        "Q_+P": "99.87",
+        "V_Se": "87.56",
+        "V_+P": "97.39",
+        "S_Se": "-",
+        "S_+P": "0.00"
+      },
+      {
+        "db": "escdb",
+        "records": "90",
+        "Q_Se": "99.99",
+        "Q_+P": "99.97",
+        "V_Se": "97.76",
+        "V_+P": "95.55",
+        "S_Se": "69.40",
+        "S_+P": "22.24"
+      },
+      {
+        "db": "mitdb",
+        "records": "44",
+        "Q_Se": "99.96",
+        "Q_+P": "99.96",
+        "V_Se": "96.88",
+        "V_+P": "93.17",
+        "S_Se": "57.60",
+        "S_+P": "63.55"
+      },
+      {
+        "db": "nstdb",
+        "records": "12",
+        "Q_Se": "97.62",
+        "Q_+P": "91.63",
+        "V_Se": "88.90",
+        "V_+P": "91.16",
+        "S_Se": "86.63",
+        "S_+P": "39.66"
+      }
+    ]
+  },
+  "decode_files": {
+    "decode/validation_tuned.json": "chosen on the validation records (ltafdb/nsrdb/incartdb/svdb eval side); better on validation and escdb VT, worse on mitdb VT / SVEB - experimental",
+    "decode/overlap1_validation_tuned.json": "for PREDICT_OVERLAP_SECONDS = 1 (tune_overlap.py); its S prematurity gate costs mitdb S Se (record 232) - experimental",
+    "decode/overlap1_af_context.json": "overlap 1 s + AFIB context rule {AFIB: [20 s, 60 s, 0.3]} (rhythm output only): mitdb AFIB E Se/+P 79/90, afdb kept on target; chosen looking at EC57 - experimental"
+  },
+  "train_logs": "train_logs/ (history.csv, confusion_log.txt, data_manifest.json); tensorboard under /media/Project/ECG/Model_Dong/ecgr_rhythm/071026_rhythm_dual_1m_s1/logs"
+}

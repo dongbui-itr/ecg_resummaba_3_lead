@@ -1,125 +1,148 @@
-"""The local evaluation script: its CONFIG block, its preflight, its table.
-
-The scoring itself is covered by tests/test_ec57.py. What is worth pinning here is that the
-script refuses to start on a missing prerequisite - the whole reason it exists is that those
-failures otherwise surface as an empty report an hour later - and that the acceptance targets
-are applied to the right metrics and only to the databases that have them.
-"""
+"""evaluate.py, the released rhythm checkpoint and the web viewer - no GPU, no PhysioNet data."""
+import asyncio
+import hashlib
+import json
 import os
+import subprocess
 import sys
 
+import numpy as np
 import pytest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-
-import evaluate  # noqa: E402
+CKPT_DIR = os.path.join(ROOT, 'checkpoints', 'dualunet_rhythm_1m_e26')
+sys.path.insert(0, ROOT)
 
 
-def test_config_block_is_a_valid_run():
-    """The committed CONFIG must be runnable as it stands: real paths, legal enum values."""
-    assert evaluate.CHECKPOINTS, "CHECKPOINTS must name at least one file"
-    for path in evaluate.CHECKPOINTS:
-        assert os.path.exists(evaluate.resolve(path)), f"{path} is not in the repo"
-    assert evaluate.LEAD_MODE in ('native', 'single', 'auto', 'duplicate')
-    assert evaluate.LEAD_FILL in ('zero', 'duplicate')
-    assert evaluate.MIN_RUN >= 1 and evaluate.S_BOOST > 0
-    assert isinstance(evaluate.DATABASES, list)
-    from ecgr import config
-    assert set(evaluate.DATABASES) <= set(config.EC57_DBS)
-    # the script's defaults must be the project's defaults, or a bare run measures something
-    # other than what `python -m ecgr ec57` would
-    assert evaluate.LEAD_MODE == config.EC57_LEAD_MODE
-    assert evaluate.LEAD_FILL == config.LEAD_FILL_MODE
+def test_checkpoint_folder_is_complete_and_matches_its_hash():
+    for name in ('best_model.keras', 'train_config.json', 'manifest.json', 'SHA256',
+                 'TRAINING_LOG.md'):
+        assert os.path.exists(os.path.join(CKPT_DIR, name)), name
+    with open(os.path.join(CKPT_DIR, 'manifest.json')) as f:
+        manifest = json.load(f)
+    h = hashlib.sha256(open(os.path.join(CKPT_DIR, 'best_model.keras'), 'rb').read()).hexdigest()
+    assert h == manifest['sha256'] == open(os.path.join(CKPT_DIR, 'SHA256')).read().split()[0]
+    assert manifest['contract']['input'] == [2500, 3]
+    for rel in manifest['decode_files']:
+        assert os.path.exists(os.path.join(CKPT_DIR, rel)), rel
 
 
-def test_resolve_makes_config_paths_independent_of_the_cwd():
-    assert evaluate.resolve('checkpoints/x.keras').startswith(ROOT)
-    assert evaluate.resolve('/tmp/x.keras') == '/tmp/x.keras'
+def test_evaluate_config_points_at_the_release():
+    import evaluate
+    assert os.path.exists(evaluate.resolve(evaluate.CHECKPOINT))
+    assert os.path.exists(evaluate.resolve(evaluate.TRAIN_CONFIG))
+    assert evaluate.DECODE is None                       # official = the config defaults
+    assert 0 <= evaluate.PREDICT_OVERLAP_SECONDS < 10
 
 
-def test_targets_cover_the_acceptance_criteria():
-    assert evaluate.TARGETS['mitdb'] == {'Q_Se': 99.95, 'Q_+P': 99.95,
-                                         'S_Se': 43.0, 'S_+P': 80.0}
-    assert evaluate.TARGETS['dataset-v4-beat'] == {'S_Se': 88.0, 'S_+P': 92.0}
-    assert 'nstdb' not in evaluate.TARGETS      # no target => never marked
-    for db, targets in evaluate.TARGETS.items():
-        assert set(targets) <= set(evaluate.METRICS)
+def test_export_environment_reaches_the_rhythm_config():
+    """In a fresh interpreter: the CONFIG block must be what ecgr.rhythm.config resolves."""
+    code = ("import evaluate; evaluate.PREDICT_OVERLAP_SECONDS = 9.5; evaluate.export_environment();"
+            "from ecgr.rhythm import config as rc; from ecgr.rhythm.predict import window_hop_samples;"
+            "print(rc.PREDICT_OVERLAP_SECONDS, window_hop_samples(), rc.EC57_DIR)")
+    out = subprocess.run([sys.executable, '-c', code], cwd=ROOT, capture_output=True, text=True,
+                         env=dict(os.environ, CUDA_VISIBLE_DEVICES='', TF_CPP_MIN_LOG_LEVEL='3'))
+    assert out.returncode == 0, out.stderr[-2000:]
+    overlap, hop, ec57_dir = out.stdout.split()[-3:]
+    assert float(overlap) == 9.5 and int(hop) == 130            # 0.5 s step -> 0.52 s grid
+    assert ec57_dir == os.path.join(ROOT, 'eval_results', 'dualunet_rhythm_1m_e26', 'ec57')
 
 
-def test_preflight_rejects_a_missing_checkpoint(tmp_path, monkeypatch, capsys):
-    from ecgr import config
-    monkeypatch.setattr(config, 'PHYSIONET_DIR', str(tmp_path))
-    with pytest.raises(SystemExit) as exc:
-        evaluate.preflight(checkpoints=[str(tmp_path / 'nope.keras')], databases=[],
-                           score_v4=False, bxb_only=True)
-    assert exc.value.code == 2
-    assert 'checkpoint not found' in capsys.readouterr().err
+@pytest.mark.parametrize('name', ['validation_tuned.json', 'overlap1_validation_tuned.json',
+                                  'overlap1_af_context.json'])
+def test_released_decode_files_decode(name):
+    from ecgr.rhythm import config as rc, ec57, tune
+    decode = tune.load_decode(os.path.join(CKPT_DIR, 'decode', name))
+    hz, n = rc.SAMPLE_PROBS_HZ, 120
+    rhythm = np.zeros((n * hz, rc.NUM_CLASSES), np.float32)
+    rhythm[:, rc.SINUS] = 1.0
+    rhythm[40 * hz:90 * hz] = 0.0
+    rhythm[40 * hz:90 * hz, 1] = 1.0                    # 50 s of AFIB
+    t = np.arange(0.4, n, 0.8)
+    beats = dict(t=t, cls=np.ones(len(t), int), conf=np.ones(len(t), np.float32),
+                 probs=np.tile([0.9, 0.05, 0.05], (len(t), 1)).astype(np.float32))
+    episodes, symbols = ec57.decode_record(rhythm, np.zeros(n * hz), hz, beats, decode)
+    af = [e for e in episodes if e['rhythm'] == 'AFIB']
+    assert len(af) == 1 and 39 <= af[0]['start'] <= 41 and 89 <= af[0]['stop'] <= 91
+    assert len(symbols) == len(t)
 
 
-def test_preflight_rejects_an_empty_checkpoint_list(tmp_path, monkeypatch, capsys):
-    from ecgr import config
-    monkeypatch.setattr(config, 'PHYSIONET_DIR', str(tmp_path))
-    with pytest.raises(SystemExit):
-        evaluate.preflight(checkpoints=[], databases=[], score_v4=False, bxb_only=True)
-    assert 'CHECKPOINTS is empty' in capsys.readouterr().err
+def test_afib_record_gate_drops_unsustained_af_in_long_records_only():
+    from ecgr.rhythm import config as rc, ec57
+    hz = rc.SAMPLE_PROBS_HZ
+    decode = dict(beat_pp=False, afib_gate=True, min_seconds={'AFIB': 1}, merge_gap={}, smooth_seconds={})
+
+    def record(seconds, af_spans, p_af=0.95):
+        rhythm = np.zeros((seconds * hz, rc.NUM_CLASSES), np.float32)
+        rhythm[:, rc.SINUS] = 1.0
+        for a, b in af_spans:
+            rhythm[a * hz:b * hz, rc.SINUS] = 1 - p_af
+            rhythm[a * hz:b * hz, 1] = p_af
+        return rhythm
+
+    # 20 min record with only 10 s AF bursts -> gated away; a 40 s sustained one keeps them all
+    r = record(1200, [(100, 110), (500, 512), (900, 908)])
+    eps, _ = ec57.decode_record(r, np.zeros(len(r)), hz, None, decode)
+    assert not [e for e in eps if e['rhythm'] == 'AFIB']
+    r = record(1200, [(100, 110), (500, 540), (900, 908)])
+    eps, _ = ec57.decode_record(r, np.zeros(len(r)), hz, None, decode)
+    assert len([e for e in eps if e['rhythm'] == 'AFIB']) == 3
+    # a sustained but weak episode does not confirm AF
+    r = record(1200, [(500, 540)], p_af=0.5)
+    eps, _ = ec57.decode_record(r, np.zeros(len(r)), hz, None, decode)
+    assert not [e for e in eps if e['rhythm'] == 'AFIB']
+    # AF-confirmed record + relaxed acceptance: a weak 8 s burst (p 0.58, under the 0.6
+    # min_prob but still the argmax after the class prior) is accepted on the second pass only
+    r = record(1200, [(500, 540)])
+    r[900 * hz:908 * hz, rc.SINUS] = 0.42
+    r[900 * hz:908 * hz, 1] = 0.58
+    eps, _ = ec57.decode_record(r, np.zeros(len(r)), hz, None, decode)
+    assert len([e for e in eps if e['rhythm'] == 'AFIB']) == 1
+    relaxed = dict(decode, afib_gate={'relaxed': {'min_prob': {'AFIB': 0.5}}})
+    eps, _ = ec57.decode_record(r, np.zeros(len(r)), hz, None, relaxed)
+    assert len([e for e in eps if e['rhythm'] == 'AFIB']) == 2
+    # a 60 s strip is below min_record: untouched
+    r = record(60, [(10, 18)])
+    eps, _ = ec57.decode_record(r, np.zeros(len(r)), hz, None, decode)
+    assert len([e for e in eps if e['rhythm'] == 'AFIB']) == 1
 
 
-def test_preflight_names_the_missing_database(tmp_path, monkeypatch, capsys):
-    from ecgr import config
-    monkeypatch.setattr(config, 'PHYSIONET_DIR', str(tmp_path))
-    ckpt = tmp_path / 'm.keras'
-    ckpt.write_bytes(b'x')
-    with pytest.raises(SystemExit):
-        evaluate.preflight(checkpoints=[str(ckpt)], databases=['mitdb'], score_v4=False,
-                           bxb_only=True)
-    err = capsys.readouterr().err
-    assert 'mitdb' in err and 'ECGR_PHYSIONET_DIR' in err
+def _viewer_app():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('viewer_app', os.path.join(ROOT, 'webservice',
+                                                                             'app.py'))
+    app = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(app)
+    return app
 
 
-def test_preflight_passes_when_everything_is_there(tmp_path, monkeypatch):
-    from ecgr import config
-    (tmp_path / 'mitdb').mkdir()
-    monkeypatch.setattr(config, 'PHYSIONET_DIR', str(tmp_path))
-    ckpt = tmp_path / 'm.keras'
-    ckpt.write_bytes(b'x')
-    assert evaluate.preflight(checkpoints=[str(ckpt)], databases=['mitdb'],
-                              score_v4=False, bxb_only=True) == ['mitdb']
+def test_viewer_lists_a_run_and_serves_its_info(tmp_path):
+    from aiohttp.test_utils import TestClient, TestServer
+    app = _viewer_app()
+    app.check_classes()
+    run = tmp_path / 'ec57' / 'smoke'
+    (run / '_ann' / 'mitdb').mkdir(parents=True)
+    np.savez(run / '_ann' / 'mitdb' / '100.npz', rhythm=np.eye(5)[[0] * 50 + [1] * 50],
+             p_noise=np.zeros(100), fs=360, sig_len=3600, step_hz=10)
+    (run / 'evaluate_config.json').write_text(json.dumps({'overlap_s': 5, 'decode': None}))
 
+    async def go():
+        client = TestClient(TestServer(app.make_app(str(tmp_path), str(tmp_path), 'none')))
+        await client.start_server()
+        try:
+            runs = await (await client.get('/api/runs')).json()
+            assert runs['runs'] == [str(run)]
+            dbs = await (await client.get('/api/dbs', params={'run': str(run)})).json()
+            recs = await (await client.get('/api/records', params={'run': str(run), 'db': 'mitdb'})).json()
+            info = await (await client.get('/api/run_info', params={'run': str(run)})).json()
+            page = await client.get('/')
+            return dbs, recs, info, page.status, await page.text()
+        finally:
+            await client.close()
 
-def test_table_marks_targets_and_lists_what_is_below(capsys):
-    rows = [
-        {'db': 'mitdb', 'records': '44', 'Q_Se': '99.96', 'Q_+P': '99.90', 'V_Se': '95.0',
-         'V_+P': '96.0', 'S_Se': '56.9', 'S_+P': '65.6'},
-        {'db': 'nstdb', 'records': '12', 'Q_Se': '96.4', 'Q_+P': '84.0', 'V_Se': '83.0',
-         'V_+P': '67.0', 'S_Se': '78.0', 'S_+P': '24.0'},
-    ]
-    evaluate.print_table(rows)
-    out = capsys.readouterr().out
-    assert '99.96*' in out, "a metric at or above its target must be starred"
-    assert '99.90!' in out, "a metric below its target must be flagged"
-    assert '56.90' in out and '65.60!' in out
-    assert 'mitdb            Q_+P' in out and 'mitdb            S_+P' in out
-    nstdb_line = next(l for l in out.splitlines() if l.startswith('nstdb'))
-    assert '*' not in nstdb_line and '!' not in nstdb_line, "nstdb has no targets"
-
-
-def test_table_shows_deltas_against_a_baseline(capsys):
-    rows = [{'db': 'mitdb', 'records': '44', 'Q_Se': '99.96', 'Q_+P': '99.90',
-             'V_Se': '95.0', 'V_+P': '96.0', 'S_Se': '56.9', 'S_+P': '65.6'}]
-    baseline = {'mitdb': {'Q_Se': '99.90', 'Q_+P': '99.86', 'V_Se': '95.6', 'V_+P': '94.1',
-                          'S_Se': '45.8', 'S_+P': '61.2'}}
-    evaluate.print_table(rows, baseline)
-    out = capsys.readouterr().out
-    assert '+0.06' in out and '+11.10' in out, "deltas against the baseline must be shown"
-    assert '-0.60' in out, "a metric that went down must show a negative delta"
-
-
-def test_dashes_survive_a_database_without_that_class(capsys):
-    """ahadb has no reference S beats; bxb writes '-', which must not become 0.00."""
-    evaluate.print_table([{'db': 'ahadb', 'records': '79', 'Q_Se': '99.9', 'Q_+P': '99.8',
-                           'V_Se': '89.0', 'V_+P': '98.0', 'S_Se': '-', 'S_+P': '-'}])
-    out = capsys.readouterr().out
-    assert '0.00' not in out
-    assert out.count('-') >= 2
+    dbs, recs, info, status, html = asyncio.run(go())
+    assert dbs['dbs'] == ['mitdb'] and recs['records'] == ['100']
+    assert info['config']['overlap_s'] == 5 and info['rhythm'] == [] and info['beats'] == []
+    assert status == 200 and 'id="tr"' in html                 # the Run tab
+    eps, length = app.pre_episodes(str(run / '_ann' / 'mitdb' / '100.npz'))
+    assert length == 10.0 and [(e['rhythm'], e['start'], e['stop']) for e in eps] == [('AFIB', 5.0, 10.0)]

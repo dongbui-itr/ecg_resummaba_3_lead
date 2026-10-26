@@ -1,0 +1,61 @@
+2026-10-13 11:45:22.845250: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-13 11:45:22.873318: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-10-13 11:45:23.447912: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+xla          : --xla_gpu_cuda_data_dir=/usr/local/cuda
+1 GPU(s)
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1791866724.020893  894612 gpu_device.cc:2020] Created device /job:localhost/replica:0/task:0/device:GPU:0 with 20020 MB memory:  -> device: 0, name: NVIDIA RTX A5000, pci bus id: 0000:01:00.0, compute capability: 8.6
+2026-10-13 11:45:26.634845: I external/local_xla/xla/service/service.cc:163] XLA service 0x7b89dc045f20 initialized for platform CUDA (this does not guarantee that XLA will be used). Devices:
+2026-10-13 11:45:26.634872: I external/local_xla/xla/service/service.cc:171]   StreamExecutor device (0): NVIDIA RTX A5000, Compute Capability 8.6
+2026-10-13 11:45:26.712009: I tensorflow/compiler/mlir/tensorflow/utils/dump_mlir_util.cc:269] disabling MLIR crash reproducer, set env var `MLIR_CRASH_REPRODUCER_DIRECTORY` to enable.
+2026-10-13 11:45:27.071216: I external/local_xla/xla/stream_executor/cuda/cuda_dnn.cc:473] Loaded cuDNN version 92600
+2026-10-13 11:45:27.145971: I external/local_xla/xla/service/gpu/autotuning/dot_search_space.cc:208] All configs were filtered out because none of them sufficiently match the hints. Maybe the hints set does not contain a good representative set of valid configs? Working around this by using the full hints set instead.
+I0000 00:00:1791866737.464900  894734 device_compiler.h:196] Compiled cluster using XLA!  This line is logged at most once for the lifetime of the process.
+2026-10-13 11:45:43.211665: I external/local_xla/xla/service/gpu/autotuning/dot_search_space.cc:208] All configs were filtered out because none of them sufficiently match the hints. Maybe the hints set does not contain a good representative set of valid configs? Working around this by using the full hints set instead.
+2026-10-13 11:45:43.211692: I external/local_xla/xla/service/gpu/autotuning/dot_search_space.cc:208] All configs were filtered out because none of them sufficiently match the hints. Maybe the hints set does not contain a good representative set of valid configs? Working around this by using the full hints set instead.
+2026-10-13 11:45:43.407591: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2830', 12 bytes spill stores, 12 bytes spill loads
+
+2026-10-13 11:45:43.411017: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2837', 8 bytes spill stores, 8 bytes spill loads
+
+2026-10-13 11:45:43.645418: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2837', 16 bytes spill stores, 16 bytes spill loads
+
+1m_base segments_0.npy
+1m_base segments_1.npy
+1m_base segments_2.npy
+2026-10-13 11:46:01.132046: I external/local_xla/xla/service/gpu/autotuning/dot_search_space.cc:208] All configs were filtered out because none of them sufficiently match the hints. Maybe the hints set does not contain a good representative set of valid configs? Working around this by using the full hints set instead.
+1m_base segments_3.npy
+2026-10-13 11:46:14.127226: I external/local_xla/xla/service/gpu/autotuning/dot_search_space.cc:208] All configs were filtered out because none of them sufficiently match the hints. Maybe the hints set does not contain a good representative set of valid configs? Working around this by using the full hints set instead.
+2026-10-13 11:46:14.127254: I external/local_xla/xla/service/gpu/autotuning/dot_search_space.cc:208] All configs were filtered out because none of them sufficiently match the hints. Maybe the hints set does not contain a good representative set of valid configs? Working around this by using the full hints set instead.
+1m_base segments_0.npy
+2026-10-13 11:46:23.680672: I external/local_xla/xla/service/gpu/autotuning/dot_search_space.cc:208] All configs were filtered out because none of them sufficiently match the hints. Maybe the hints set does not contain a good representative set of valid configs? Working around this by using the full hints set instead.
+2026-10-13 11:46:23.810766: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2029', 12 bytes spill stores, 12 bytes spill loads
+
+100k_base segments_0.npy
+100k_base segments_1.npy
+100k_base segments_2.npy
+2026-10-13 11:46:43.363939: I external/local_xla/xla/service/gpu/autotuning/dot_search_space.cc:208] All configs were filtered out because none of them sufficiently match the hints. Maybe the hints set does not contain a good representative set of valid configs? Working around this by using the full hints set instead.
+100k_base segments_3.npy
+2026-10-13 11:46:50.808385: I external/local_xla/xla/service/gpu/autotuning/dot_search_space.cc:208] All configs were filtered out because none of them sufficiently match the hints. Maybe the hints set does not contain a good representative set of valid configs? Working around this by using the full hints set instead.
+100k_base segments_0.npy
+30k_base segments_0.npy
+30k_base segments_1.npy
+30k_base segments_2.npy
+30k_base segments_3.npy
+30k_base segments_0.npy
+1m_raw_ft segments_0.npy
+1m_raw_ft segments_1.npy
+1m_raw_ft segments_2.npy
+1m_raw_ft segments_3.npy
+1m_raw_ft segments_0.npy
+100k_raw_ft segments_0.npy
+100k_raw_ft segments_1.npy
+100k_raw_ft segments_2.npy
+100k_raw_ft segments_3.npy
+100k_raw_ft segments_0.npy
+30k_raw_ft segments_0.npy
+30k_raw_ft segments_1.npy
+30k_raw_ft segments_2.npy
+30k_raw_ft segments_3.npy
+30k_raw_ft segments_0.npy
+SOURCE_CM_DONE

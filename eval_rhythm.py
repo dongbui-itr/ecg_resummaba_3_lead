@@ -3,8 +3,9 @@
 
     python3 eval_rhythm.py          # edit the CONFIG block first
 
-The rhythm counterpart of evaluate.py: no command-line arguments on purpose - the CONFIG
-block is the record of what was measured. It is the front door of the same machinery
+evaluate.py scores the released checkpoint with a fixed decode; this script is the training-
+time variant (snapshot, validation tuning, A/B, audit). No command-line arguments on purpose -
+the CONFIG block is the record of what was measured. It is the front door of the same machinery
 `python3 -m ecgr.rhythm ec57` uses, in the order the project's rules prescribe:
 
   1. snapshot   the checkpoint is COPIED first. The file a running training job overwrites
@@ -76,10 +77,10 @@ VALIDATION_DECODE_ONLY = False              # same for the validation run
 AB_NO_BEAT_PP = True                        # also report EC57 without the beat stage
 MAX_RECORDS = None                          # first N records per database = smoke test
 GPU_MEMORY_MB = 6000                        # cap: the training job shares the card (None = growth)
-PREDICT_HOP_SECONDS = 5                     # window hop (10 = no overlap); TTA id,flip,swap
+PREDICT_OVERLAP_SECONDS = 5                 # s shared by consecutive 10 s windows (0 = none)
 PREDICT_TTA = 'id,flip,swap'                # 'swap' is a no-op for the dual U-Net (lead pooling)
 PREDICT_TAPER = 0.0                         # position weighting of overlapping windows (0 = off;
-                                            # e.g. 0.1 with PREDICT_HOP_SECONDS = 2, see config)
+                                            # e.g. 0.1 with PREDICT_OVERLAP_SECONDS = 8, see config)
 
 # ===========================================================================
 # End of CONFIG
@@ -101,7 +102,7 @@ def export_environment():
     os.environ['ECGR_RHYTHM_WORK_DIR'] = WORK_DIR
     os.environ['ECGR_RHYTHM_RUN_TAG'] = RUN_TAG
     os.environ['ECGR_RHYTHM_TRAIN_CONFIG'] = TRAIN_CONFIG
-    os.environ['ECGR_RHYTHM_PREDICT_HOP'] = str(PREDICT_HOP_SECONDS)
+    os.environ['ECGR_RHYTHM_PREDICT_OVERLAP'] = str(PREDICT_OVERLAP_SECONDS)
     os.environ['ECGR_RHYTHM_PREDICT_TTA'] = PREDICT_TTA
     os.environ['ECGR_RHYTHM_PREDICT_TAPER'] = str(PREDICT_TAPER)
 
@@ -385,7 +386,7 @@ def main():
     import tensorflow as tf
     limit_gpu(GPU_MEMORY_MB)
     from ecgr.rhythm import config as rc
-    assert rc.PREDICT_HOP_SECONDS == float(PREDICT_HOP_SECONDS) and \
+    assert rc.PREDICT_OVERLAP_SECONDS == float(PREDICT_OVERLAP_SECONDS) and \
         ','.join(rc.PREDICT_TTA) == PREDICT_TTA and rc.PREDICT_TAPER_FLOOR == float(PREDICT_TAPER)
     from ecgr.rhythm import ec57
     from ecgr.evaluation import report
@@ -395,7 +396,7 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
     sys.stdout = Tee(os.path.join(out_dir, 'eval_rhythm.log'))
     print(f"===== eval_rhythm {time.strftime('%Y-%m-%d %H:%M:%S')} -> {out_dir} =====")
-    print(f"hop {rc.PREDICT_HOP_SECONDS:g} s, TTA {','.join(rc.PREDICT_TTA)}, taper "
+    print(f"overlap {rc.PREDICT_OVERLAP_SECONDS:g} s, TTA {','.join(rc.PREDICT_TTA)}, taper "
           f"{rc.PREDICT_TAPER_FLOOR:g} (as ecgr.rhythm.config resolved them), GPU cap "
           f"{GPU_MEMORY_MB} MB")
     ckpt = apply_layer_overrides(snapshot_checkpoint(out_dir), out_dir)

@@ -1,0 +1,12 @@
+student      : dualunet_rhythm_30k, 23,361 params, all weights from /media/Project/ECG/Model_Dong/ecgr_rhythm/231026_rhythm_dual_30k_e36ft_F2/checkpoints/dualunet_rhythm_30k/epochs/epoch_07.keras
+EPOCH 1  val_rhythm_f1=0.8423
+EPOCH 1  beat: f1(N,S,V)=0.8531
+Epoch 1: val_rhythm_f1 improved from -inf to 0.84226, saving student to /media/Project/ECG/Model_Dong/ecgr_rhythm/231026_rhythm_dual_30k_e36ft_F2b/checkpoints/dualunet_rhythm_30k/best_model.keras
+EPOCH 2  val_rhythm_f1=0.8398
+EPOCH 2  beat: f1(N,S,V)=0.8517
+EPOCH 3  val_rhythm_f1=0.8406
+EPOCH 3  beat: f1(N,S,V)=0.8523
+EPOCH 4  val_rhythm_f1=0.8407
+EPOCH 4  beat: f1(N,S,V)=0.8507
+Terminated
+[17:10:09] F2B_DONE

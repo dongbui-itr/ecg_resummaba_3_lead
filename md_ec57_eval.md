@@ -2,7 +2,7 @@
 
 Code: [eval_rhythm.py](eval_rhythm.py) (cửa vào), [ecgr/rhythm/beats.py](ecgr/rhythm/beats.py)
 (post-process theo beat), [ecgr/rhythm/tune.py](ecgr/rhythm/tune.py) (chọn tham số trên
-validation), [ecgr/rhythm/ec57.py](ecgr/rhythm/ec57.py) (inference → npz → decode → epicmp/bxb).
+validation), [ecgr/rhythm/ec57.py](ecgr/rhythm/ec57.py) (theo từng record: inference → npz → decode + post-process → ghi annotation; theo từng database: chỉ chạy epicmp/bxb sinh report).
 Test: `tests/test_rhythm_beats.py` (17 test).
 
 ## 1. Chạy
@@ -12,7 +12,7 @@ Test: `tests/test_rhythm_beats.py` (17 test).
 python3 eval_rhythm.py
 ```
 
-Không có tham số dòng lệnh (giống `evaluate.py` của task beat): khối CONFIG là bản ghi của lần
+Không có tham số dòng lệnh (giống `evaluate.py`): khối CONFIG là bản ghi của lần
 đo. Thứ tự chạy:
 
 | # | Bước | Ghi chú |

@@ -1,0 +1,13 @@
+  mitdb        AFIB  records=   44  E_Se=84  E_+P=55  E_F1=66.5  D_Se=88  D_+P=78  D_F1=82.7
+  mitdb        AVB   records=   44  E_Se=100  E_+P=100  E_F1=100.0  D_Se=99  D_+P=100  D_F1=99.5
+  mitdb        SVT   records=   44  E_Se=65  E_+P=61  E_F1=62.9  D_Se=44  D_+P=53  D_F1=48.1
+  mitdb        VT    records=   44  E_Se=69  E_+P=85  E_F1=76.2  D_Se=73  D_+P=75  D_F1=74.0
+  beats mitdb: Q_Se=99.91 Q_+P=99.93 V_Se=96.61 V_+P=93.92 S_Se=44.41 S_+P=70.91 total_QRS=83978 total_VEB=5900 total_SVEB=2745 records=44
+  beats nstdb: Q_Se=95.25 Q_+P=93.07 V_Se=90.19 V_+P=90.55 S_Se=82.56 S_+P=40.84 total_QRS=21462 total_VEB=2262 total_SVEB=516 records=12
+  escdb        SVT   records=   90  E_Se=0  E_+P=0  E_F1=-  D_Se=0  D_+P=0  D_F1=-
+  escdb        VT    records=   90  E_Se=61  E_+P=100  E_F1=75.8  D_Se=51  D_+P=97  D_F1=66.9
+  beats escdb: Q_Se=99.98 Q_+P=99.96 V_Se=97.23 V_+P=95.62 S_Se=62.79 S_+P=21.23 total_QRS=759878 total_VEB=4375 total_SVEB=1075 records=90
+  beats ahadb: Q_Se=99.77 Q_+P=99.72 V_Se=89.67 V_+P=99.18 S_Se=- S_+P=0.00 total_QRS=179010 total_VEB=16496 total_SVEB=0 records=79
+  afdb         AFIB  records=   23  E_Se=93  E_+P=90  E_F1=91.5  D_Se=97  D_+P=99  D_F1=98.0
+  beats afdb: Q_Se=97.55 Q_+P=95.50 V_Se=- V_+P=0.00 S_Se=- S_+P=0.00 total_QRS=1119211 total_VEB=0 total_SVEB=0 records=23
+EC57H_DONE

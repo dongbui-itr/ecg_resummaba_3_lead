@@ -212,6 +212,8 @@ NOISE = len(rc.CLASS_NAMES)          # the decoded track's extra class, after th
 DECODE_NAMES = list(rc.CLASS_NAMES) + ['NOISE']
 
 
+# [VI] Hàm phụ trợ cho mọi bước gộp: trả về danh sách (start, stop) của các đoạn liên tục
+# cùng giá trị trên track 1 chiều. stop là chỉ số loại trừ.
 def runs(track):
     """[(start, stop)] of the maximal constant stretches of a 1-D track."""
     track = np.asarray(track)
@@ -229,6 +231,9 @@ def _smooth_column(x, steps):
     return np.convolve(x, kernel, mode='same') / count
 
 
+# [VI] Gộp bước 1 (tầng step): trung bình trượt xác suất của từng lớp theo thời gian. Độ rộng
+# có thể khác nhau theo lớp (dict) để AFIB/AVB mượt nhiều giây còn VT/SVT giữ biên. Mặc định
+# rc.DECODE_SMOOTH_SECONDS = 1 tức là tắt: làm mượt 5 s đã nuốt mất các run VT ngắn trong AF.
 def smooth_probs(rhythm, seconds):
     """Moving average along time over `seconds` steps (odd; 1 = off) - one width for every
     class, or {class_name: width}: a persistent rhythm (AFIB, AV block) can then be smoothed
@@ -245,6 +250,11 @@ def smooth_probs(rhythm, seconds):
     return np.stack([_smooth_column(rhythm[:, c], w) for c, w in enumerate(widths)], axis=1)
 
 
+# [VI] Gộp bước 2 (tầng step): nối hai episode CÙNG lớp cách nhau một khoảng trống ngắn.
+# Duyệt lớp theo thứ tự ưu tiên (rc.DECODE_PRIORITY: VT > SVT > AFIB > AVB). Khoảng trống được
+# tô thành lớp đó khi: dài <= merge_gap[lớp] giây VÀ chỉ chứa SINUS, NOISE hoặc lớp có ưu
+# tiên thấp hơn. Mặc định chỉ AFIB có gap 3 s (bản tuned 5 s); gap 0 = không nối.
+# Chạy hai lần trong decode_track: trước và sau khi xoá đoạn ngắn / kém tin cậy.
 def bridge_gaps(cls, merge_gap, priority):
     """Fill the gap between two episodes of the same class, one class at a time in
     `priority` order, when the gap is at most merge_gap[class] seconds and holds only SINUS,
@@ -267,6 +277,10 @@ def bridge_gaps(cls, merge_gap, priority):
     return cls
 
 
+# [VI] Gộp bước 3 (tầng step): xoá episode ngắn hơn ngưỡng của lớp (rc.DECODE_MIN_EPISODE_SECONDS:
+# AFIB 3 s, SVT 1 s, VT 1 s, AVB 2 s). Episode bị xoá nhận lớp của hai hàng xóm nếu hai bên
+# giống nhau và không phải NOISE, ngược lại thành SINUS. Duyệt trái sang phải trên track đang
+# sửa, nên đoạn vừa đổi trở thành hàng xóm trái của đoạn kế tiếp.
 def enforce_min_duration(cls, min_seconds):
     """An episode shorter than its class's minimum takes its neighbours' class when both
     neighbours agree, otherwise SINUS. Runs are processed left to right on the live track, so
@@ -286,6 +300,9 @@ def enforce_min_duration(cls, min_seconds):
     return cls
 
 
+# [VI] Gộp bước 4 (tầng step): giống enforce_min_duration nhưng điều kiện là xác suất trung bình
+# của chính lớp đó trong episode < min_prob[lớp]. Mặc định chỉ AFIB với ngưỡng 0.6
+# (rc.DECODE_MIN_EPISODE_PROB): các episode AF giả trên mitdb/ltafdb đều là AF kém tin cậy.
 def enforce_min_confidence(cls, probs, min_prob):
     """An episode whose mean probability of its own class (the probabilities the argmax saw)
     is below min_prob[class] goes the way of a too-short one: its neighbours' class when both
@@ -300,6 +317,42 @@ def enforce_min_confidence(cls, probs, min_prob):
         name = DECODE_NAMES[c]
         if name not in min_prob or c >= probs.shape[1] or \
                 float(probs[a:b, c].mean()) >= min_prob[name]:
+            continue
+        left = cls[a - 1] if a > 0 else None
+        right = cls[b] if b < n else None
+        if left is not None and right is not None and left == right and left not in (NOISE, c):
+            cls[a:b] = left
+        else:
+            cls[a:b] = rc.SINUS
+    return cls
+
+
+# [VI] Gộp bước 4b (tầng step, chỉ dùng xác suất rhythm của model): episode ngắn hơn
+# max_seconds mà xác suất trung bình của chính lớp đó trong context_seconds trước và sau nó
+# (không tính bản thân episode) thấp hơn min_context_prob -> coi là "đảo" đơn lẻ, xử lý như
+# episode quá ngắn: nhận lớp của hai hàng xóm nếu giống nhau, ngược lại SINUS. Mảnh ngắn
+# nằm trong vùng model vẫn thấy lớp đó xung quanh thì được giữ.
+def enforce_context(cls, rhythm, rule, step_hz=1):
+    """rule = {class_name: (max_seconds, context_seconds, min_context_prob)}. An episode of
+    that class shorter than max_seconds, whose class probability averages below
+    min_context_prob over the context_seconds on each side (the episode excluded), takes its
+    neighbours' class when both agree, else SINUS. `rhythm` = the model's probabilities
+    (T, NUM_CLASSES) at step_hz rows per second."""
+    if not rule:
+        return cls
+    cls = np.array(cls)
+    n = len(cls)
+    for a, b in runs(cls):
+        c = int(cls[a])
+        name = DECODE_NAMES[c]
+        if name not in rule or c >= rhythm.shape[1]:
+            continue
+        max_s, ctx_s, min_p = rule[name]
+        if b - a >= max_s * step_hz:
+            continue
+        w = int(round(ctx_s * step_hz))
+        around = np.concatenate([rhythm[max(0, a - w):a, c], rhythm[b:b + w, c]])
+        if len(around) and float(around.mean()) >= min_p:
             continue
         left = cls[a - 1] if a > 0 else None
         right = cls[b] if b < n else None
@@ -343,9 +396,13 @@ def decode_episodes(rhythm, p_noise=None, min_seconds=None, noise_threshold=None
     return episodes_from_track(cls, rhythm, p_noise, step_hz, start_second)
 
 
+# [VI] Tầng 1 - decode theo step (lưới 40 ms với dual U-Net). Thứ tự: nhân prior scale ->
+# smooth_probs -> argmax -> gán NOISE theo p_noise -> bridge_gaps -> enforce_min_duration ->
+# enforce_min_confidence -> bridge_gaps lần 2. Track kết quả đi tiếp vào beats.postprocess
+# (tầng 2, theo beat) khi mô hình có đầu ra beat.
 def decode_track(rhythm, p_noise=None, min_seconds=None, noise_threshold=None,
                  smooth_seconds=None, merge_gap=None, priority=None, step_hz=1,
-                 class_scale=None, min_prob=None):
+                 class_scale=None, min_prob=None, context_rule=None):
     """decode_episodes up to the class track: (cls (T,) int incl. NOISE, probs the argmax
     saw). The beat-level post-processing (beats.py) works on this track."""
     rhythm = np.asarray(rhythm, dtype=np.float32)
@@ -373,6 +430,8 @@ def decode_track(rhythm, p_noise=None, min_seconds=None, noise_threshold=None,
     cls = bridge_gaps(cls, merge_gap, priority)
     cls = enforce_min_duration(cls, min_seconds)
     cls = enforce_min_confidence(cls, probs, min_prob)
+    context_rule = rc.DECODE_CONTEXT_RULE if context_rule is None else context_rule
+    cls = enforce_context(cls, rhythm, context_rule, step_hz)
     cls = bridge_gaps(cls, merge_gap, priority)
     return cls, probs
 

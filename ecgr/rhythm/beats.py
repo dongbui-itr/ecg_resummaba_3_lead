@@ -65,6 +65,38 @@ def pick_beats(beat_probs, step_hz, threshold=None, refractory_s=None):
                 conf=ps[keep].astype(np.float32), probs=win.astype(np.float32))
 
 
+# [VI] Mỗi beat sở hữu một "ô" trên track step: từ trung điểm với beat trước đến trung điểm với
+# beat sau (ô đầu/cuối kéo tới hai đầu record). Đây là cách export sản phẩm đặt mốc chuyển
+# rhythm giữa hai beat.
+# [VI] Lọc beat V lưỡng lự: beat đang mang nhãn V mà p(V) không vượt max(p(N), p(S)) ít
+# nhất `margin` thì đổi sang lớp lớn hơn trong N/S. Dùng xác suất beat đã lưu trong npz nên
+# không cần chạy lại model. margin 0 = giữ nguyên argmax.
+def relabel_v(beats, margin):
+    """Beats whose V call wins by less than `margin` (p(V) - max(p(N), p(S)), from the stored
+    per-beat probabilities) become the larger of N / S. Returns a new dict; margin <= 0 or
+    no beats = unchanged. Used by ec57.decode_record (decode['v_margin'])."""
+    if beats is None or not margin or margin <= 0 or len(beats['t']) == 0:
+        return beats
+    probs = np.asarray(beats['probs'], dtype=np.float32)          # (n, 3) N, S, V
+    cls = np.asarray(beats['cls'], dtype=int).copy()
+    weak = (cls == V_BEAT) & (probs[:, 2] - probs[:, :2].max(axis=1) < margin)
+    cls[weak] = 1 + np.argmax(probs[weak, :2], axis=1)
+    return dict(beats, cls=cls)
+
+
+def relabel_s(beats, margin):
+    """The S twin of relabel_v: beats whose S call wins by less than `margin` (p(S) -
+    max(p(N), p(V))) become the larger of N / V. Used by ec57.decode_record
+    (decode['s_margin']) - the SVEB +P lever of the validation tuning."""
+    if beats is None or not margin or margin <= 0 or len(beats['t']) == 0:
+        return beats
+    probs = np.asarray(beats['probs'], dtype=np.float32)          # (n, 3) N, S, V
+    cls = np.asarray(beats['cls'], dtype=int).copy()
+    weak = (cls == S_BEAT) & (probs[:, 1] - probs[:, [0, 2]].max(axis=1) < margin)
+    cls[weak] = np.where(probs[weak, 0] >= probs[weak, 2], N_BEAT, V_BEAT)
+    return dict(beats, cls=cls)
+
+
 def beat_cells(t, n_steps, step_hz):
     """Step range [a, b) each beat owns: midpoints to its neighbours (the production export
     puts rhythm transitions at midpoints between beats); the first and last cell run to the
@@ -79,6 +111,8 @@ def beat_cells(t, n_steps, step_hz):
     return a, b
 
 
+# [VI] Rhythm của một beat = lớp chiếm đa số trong ô của nó (ô rỗng -> SINUS). Từ đây mọi bước
+# gộp/tách của tầng 2 làm việc trên mảng r (một rhythm cho mỗi beat), không còn trên step.
 def rhythm_per_beat(track, a, b):
     """Majority class of the track inside each beat's cell (SINUS for an empty cell)."""
     out = np.full(len(a), rc.SINUS, dtype=int)
@@ -109,6 +143,11 @@ def _max_run(sym, lo, hi, value):
     return best
 
 
+# [VI] Kiểm tra một vùng beat liên tục [lo, hi) mang rhythm `name` có đạt tiêu chí không
+# (rc.BEAT_PP_CRITERIA): duration, num_beat (lỗi A của sản phẩm đã sửa: có tác dụng thật),
+# min_hr cho VT/SVT (lỗi J), max_hr cho AVB, run V liên tiếp cho VT. SVT được chấp nhận khi
+# có run S, HOẶC tỉ lệ S >= min_frac, HOẶC HR nhảy vọt >= onset_ratio x HR 4 beat trước.
+# Hàm này không gộp gì; kết quả valid/invalid quyết định hai bước gộp bên dưới.
 def region_valid(name, t, sym, lo, hi, prev_hr=None, criteria=None):
     """Does the region of beats [lo, hi) called `name` meet its criteria? Fixes A (beat
     counts enforced) and J (VT / SVT need a fast rate). SVT accepts N beats: in sustained
@@ -178,6 +217,9 @@ def _rank():
     return order
 
 
+# [VI] Bước 2 (tuỳ chọn, mặc định tắt; bản tuned bật): một chuỗi beat V liên tiếp tự thoả tiêu
+# chí VT (số beat, run, HR) thì cả chuỗi thành VT dù track step không nói; tương tự S -> SVT.
+# Tương đương VES_RUN / SVES_RUN của sản phẩm mà export EC57 cộng vào VT. Bỏ qua beat trong NOISE.
 def _runs_to_rhythm(r, t, sym, criteria, which):
     """Step 2: a run of V (S) beats that on its own meets the VT (SVT) criteria - length,
     rate, beat count - is VT (SVT) even where the step track never said so. This is the
@@ -197,6 +239,8 @@ def _runs_to_rhythm(r, t, sym, criteria, which):
     return r
 
 
+# [VI] Bước 3 (giống sản phẩm): chuỗi V liên tiếp có BẤT KỲ beat nào mang VT -> cả chuỗi VT.
+# Tương tự chuỗi S với SVT.
 def _extend_along_runs(r, sym):
     """Step 3: a V (S) run with any VT (SVT) beat is VT (SVT) throughout."""
     for value, name in ((V_BEAT, 'VT'), (S_BEAT, 'SVT')):
@@ -207,6 +251,8 @@ def _extend_along_runs(r, sym):
     return r
 
 
+# [VI] Bước 4: gọi region_valid cho từng vùng liên tục cùng rhythm, trả về mảng valid theo beat.
+# prev_hr = HR của tối đa 4 beat ngay trước vùng, dùng cho tiêu chí onset của SVT.
 def _validate(r, t, sym, criteria):
     valid = np.ones(len(r), dtype=bool)
     for lo, hi in runs(r):
@@ -217,6 +263,9 @@ def _validate(r, t, sym, criteria):
     return valid
 
 
+# [VI] Gộp bước 5 (sửa lỗi C, H): một dải invalid LIÊN TỤC TỐI ĐA (bất kể gồm những lớp nào)
+# dài >= long_invalid giây (mặc định 10 s) -> SINUS và được đánh dấu valid. Thay cho ngưỡng
+# "1/4 record" của sản phẩm (phụ thuộc độ dài record) và cách xét gap sai trên mask valid.
 def _long_invalid_to_sinus(r, t, valid, long_invalid):
     """Step 5 (fixes C and H): the production step joins invalid VT / SVT / AVB regions
     across gaps and turns the joined stretch into SINUS when it is long enough - but tests
@@ -230,6 +279,16 @@ def _long_invalid_to_sinus(r, t, valid, long_invalid):
     return r, valid
 
 
+# [VI] Gộp bước 6 (sửa lỗi E, H): các vùng invalid còn lại nhận rhythm của hàng xóm theo luật
+# tường minh (spec = VT/SVT/AVB):
+#   - không có hàng xóm nào                 -> SINUS
+#   - chỉ có một bên                        -> bên đó, nhưng nếu bên đó là spec -> SINUS
+#   - hai bên giống nhau                    -> lớp đó
+#   - hai bên đều là spec                   -> SINUS
+#   - một bên là spec                       -> lấy bên kia
+#   - còn lại                               -> lớp cao hơn theo rc.BEAT_PP_PRIORITY
+#                                              (AFIB > SINUS > NOISE)
+# Vùng invalid dài >= long_invalid vẫn về SINUS như bước 5.
 def _merge_invalid(r, t, valid, long_invalid):
     """Step 6 (fixes E and H): invalid regions take their neighbours' rhythm by an explicit
     rule - both neighbours alike -> that; both 'spec' (VT/SVT/AVB) -> SINUS; one spec -> the
@@ -264,6 +323,8 @@ def _merge_invalid(r, t, valid, long_invalid):
     return r
 
 
+# [VI] Rhythm "nền" quanh một vùng VT/SVT: lớp không-spec, không-NOISE ở ngay bên trái, nếu
+# không có thì bên phải, mặc định SINUS. Dùng cho bước tách bên dưới.
 def _background(r, lo, hi):
     """The non-spec rhythm around a VT/SVT region (left first), SINUS by default."""
     spec = _spec()
@@ -273,6 +334,10 @@ def _background(r, lo, hi):
     return rc.SINUS
 
 
+# [VI] Tách bước 7 (sửa lỗi D): trong vùng VT, beat KHÔNG phải V nhận rhythm nền xung quanh
+# (AFIB giữ AFIB) thay vì bị ép SINUS như sản phẩm. Trong SVT, beat N có RR <= fast_rr (0.6 s)
+# được giữ lại vì SVT kéo dài làm beat mất tính sớm. Các mảnh VT/SVT còn lại được validate lại,
+# mảnh không đạt tiêu chí cũng về rhythm nền.
 def _split_by_beats(r, t, sym, criteria, fast_rr):
     """Step 7 (fix D): inside VT, beats that are not V take the surrounding rhythm (not
     SINUS); inside SVT, beats that are neither S nor fast do. The fragments are validated
@@ -296,6 +361,10 @@ def _split_by_beats(r, t, sym, criteria, fast_rr):
     return r
 
 
+# [VI] Gộp bước 8 (tuỳ chọn, mặc định tắt theo validation; sửa lỗi B, G): cửa sổ gồm các vùng
+# liên tiếp chỉ có AFIB / SVT / SINUS ngắn hơn SINUS.duration, và có cả AFIB lẫn SVT, thì cả
+# cửa sổ thành SVT khi thời lượng SVT >= svt_ratio x thời lượng AFIB, ngược lại thành AFIB.
+# Không nuốt OTHER/VT/AVB như sản phẩm, và không còn off-by-one ở phía phải.
 def _afib_svt_windows(r, t, sym, criteria, svt_ratio):
     """Step 8: the production AFib/SVT arbitration with fixes B and G: a window of
     consecutive AFIB / SVT / short-SINUS regions (nothing else) becomes SVT when SVT time >=
@@ -329,6 +398,9 @@ def _afib_svt_windows(r, t, sym, criteria, svt_ratio):
     return r
 
 
+# [VI] Bước 9: ký hiệu beat ghi cho bxb. S trong AFIB -> N (reference không gán S trong AF).
+# Với s_prematurity > 0: beat S ngoài SVT mà RR không ngắn hơn s_prematurity x trung vị 8 RR
+# trước đó thì không "sớm" -> N. Bên trong SVT giữ nguyên.
 def beat_symbols(r, t, sym, s_prematurity=0.0, s_in_afib_to_n=True):
     """Step 9: the beat labels written for bxb. S inside AFIB -> N (the reference databases
     do not label supraventricular beats inside AF; the production `S in AFIB -> N`). With
@@ -350,6 +422,10 @@ def beat_symbols(r, t, sym, s_prematurity=0.0, s_in_afib_to_n=True):
     return out
 
 
+# [VI] Tầng 2 - post-process theo beat. Thứ tự: rhythm_per_beat -> _runs_to_rhythm ->
+# _extend_along_runs -> _validate -> _long_invalid_to_sinus -> _merge_invalid -> _split_by_beats
+# -> (_afib_svt_windows) -> beat_symbols -> ghi ngược: ô của mỗi beat nhận rhythm của beat,
+# trừ ô đang là NOISE thì giữ NOISE. Record < 3 beat trả về nguyên trạng.
 def postprocess(track, beats, step_hz, criteria=None, options=None):
     """Step class track (T,) + beats -> (track, beat symbols). See the module docstring."""
     criteria = rc.BEAT_PP_CRITERIA if criteria is None else criteria

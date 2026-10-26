@@ -1,0 +1,496 @@
+
+EPOCH 1  beats matched at 150 ms: QRS Se=99.68 +P=99.45  type F1(N,S,V)=0.8273
+==============================================================================
+rows = reference, columns = predicted (beats (col 0 = missed))
+           none        N        S        V
+none          0        0        0        0
+N            47    10819      462      100
+S            37     4135    12815      654
+V            19      109       94     2537
+
+class      support       Se       +P       F1
+none             0      nan     0.00      nan
+N            11428    94.67    71.83    81.68
+S            17641    72.64    95.84    82.65
+V             2759    91.95    77.09    83.87
+
+EPOCH 1  val_rhythm_f1=0.8850
+=============================
+rows = reference, columns = predicted (seconds)
+           SINUS     AFIB      SVT       VT      AVB
+SINUS   44119463   373429   323170    64281   124954
+AFIB      515059  6564988   177113    11397    23881
+SVT       217105   145666  2291310    30151     1133
+VT         76690    21324    27671   563199      954
+AVB       134492     6951      943      754  1011984
+
+class      support       Se       +P       F1
+SINUS     45005297    98.03    97.91    97.97
+AFIB       7292438    90.02    92.30    91.15
+SVT        2685365    85.33    81.25    83.24
+VT          689838    81.64    84.09    82.85
+AVB        1155124    87.61    87.02    87.31
+
+EPOCH 1  channel: acc=0.8501  noise_f1=0.9630
+=============================================
+rows = reference, columns = predicted (2 s segments)
+           NOISE      CH1      CH2      CH3
+NOISE     106614     1350     1348     1349
+CH1         1345    57851     6703     6848
+CH2         1415     6797    57912     7075
+CH3         1395     6967     6784    57662
+
+class      support       Se       +P       F1
+NOISE       110661    96.34    96.25    96.30
+CH1          72747    79.52    79.29    79.40
+CH2          73199    79.12    79.61    79.36
+CH3          72808    79.20    79.06    79.13
+
+EPOCH 1  beat: f1(N,S,V)=0.9036
+===============================
+rows = reference, columns = predicted (8 ms steps)
+           none        N        S        V
+none          0        0        0        0
+N             0  7512971   229035    37704
+S             0   142282  1124734    25115
+V             0    38628    32919   604215
+
+class      support       Se       +P       F1
+none             0      nan      nan      nan
+N          7779710    96.57    97.65    97.11
+S          1292131    87.04    81.11    83.97
+V           675762    89.41    90.58    89.99
+
+EPOCH 2  beats matched at 150 ms: QRS Se=99.66 +P=99.46  type F1(N,S,V)=0.8287
+==============================================================================
+rows = reference, columns = predicted (beats (col 0 = missed))
+           none        N        S        V
+none          0        0        0        0
+N            46    10872      400      110
+S            45     4070    12826      700
+V            18       95       84     2562
+
+class      support       Se       +P       F1
+none             0      nan     0.00      nan
+N            11428    95.13    72.30    82.16
+S            17641    72.71    96.36    82.88
+V             2759    92.86    75.98    83.58
+
+EPOCH 2  val_rhythm_f1=0.8844
+=============================
+rows = reference, columns = predicted (seconds)
+           SINUS     AFIB      SVT       VT      AVB
+SINUS   44111215   419177   307843    66542   100520
+AFIB      468074  6646219   145583    17308    15254
+SVT       218185   173898  2259823    32471      988
+VT         74130    20971    26346   567752      639
+AVB       163776     8765      950     1012   980621
+
+class      support       Se       +P       F1
+SINUS     45005297    98.01    97.95    97.98
+AFIB       7292438    91.14    91.43    91.29
+SVT        2685365    84.15    82.46    83.30
+VT          689838    82.30    82.87    82.59
+AVB        1155124    84.89    89.31    87.04
+
+EPOCH 2  channel: acc=0.8513  noise_f1=0.9626
+=============================================
+rows = reference, columns = predicted (2 s segments)
+           NOISE      CH1      CH2      CH3
+NOISE     106647     1342     1325     1347
+CH1         1412    57884     6696     6755
+CH2         1440     6664    58104     6991
+CH3         1424     6905     6679    57800
+
+class      support       Se       +P       F1
+NOISE       110661    96.37    96.15    96.26
+CH1          72747    79.57    79.52    79.54
+CH2          73199    79.38    79.81    79.59
+CH3          72808    79.39    79.29    79.34
+
+EPOCH 2  beat: f1(N,S,V)=0.9045
+===============================
+rows = reference, columns = predicted (8 ms steps)
+           none        N        S        V
+none          0        0        0        0
+N             0  7527814   209964    41932
+S             0   145911  1120353    25867
+V             0    37241    32897   605624
+
+class      support       Se       +P       F1
+none             0      nan      nan      nan
+N          7779710    96.76    97.62    97.19
+S          1292131    86.71    82.18    84.38
+V           675762    89.62    89.93    89.78
+
+EPOCH 3  beats matched at 150 ms: QRS Se=99.67 +P=99.44  type F1(N,S,V)=0.8262
+==============================================================================
+rows = reference, columns = predicted (beats (col 0 = missed))
+           none        N        S        V
+none          0        0        0        0
+N            46    10793      487      102
+S            43     4169    12764      665
+V            17      119       70     2553
+
+class      support       Se       +P       F1
+none             0      nan     0.00      nan
+N            11428    94.44    71.57    81.43
+S            17641    72.35    95.82    82.45
+V             2759    92.53    76.90    83.99
+
+EPOCH 3  val_rhythm_f1=0.8822
+=============================
+rows = reference, columns = predicted (seconds)
+           SINUS     AFIB      SVT       VT      AVB
+SINUS   44196270   322692   314453    62407   109475
+AFIB      562106  6512845   177889    20358    19240
+SVT       226064   145787  2282080    30424     1010
+VT         75131    20724    26861   566439      683
+AVB       174291     6095      890      550   973298
+
+class      support       Se       +P       F1
+SINUS     45005297    98.20    97.71    97.95
+AFIB       7292438    89.31    92.93    91.09
+SVT        2685365    84.98    81.44    83.17
+VT          689838    82.11    83.28    82.69
+AVB        1155124    84.26    88.18    86.18
+
+EPOCH 3  channel: acc=0.8508  noise_f1=0.9620
+=============================================
+rows = reference, columns = predicted (2 s segments)
+           NOISE      CH1      CH2      CH3
+NOISE     107177     1155     1164     1165
+CH1         1584    57686     6682     6795
+CH2         1698     6678    57840     6983
+CH3         1692     6913     6656    57547
+
+class      support       Se       +P       F1
+NOISE       110661    96.85    95.56    96.20
+CH1          72747    79.30    79.64    79.47
+CH2          73199    79.02    79.95    79.48
+CH3          72808    79.04    79.39    79.21
+
+EPOCH 3  beat: f1(N,S,V)=0.9021
+===============================
+rows = reference, columns = predicted (8 ms steps)
+           none        N        S        V
+none          0        0        0        0
+N             0  7506848   226125    46737
+S             0   142505  1121623    28003
+V             0    36115    31039   608608
+
+class      support       Se       +P       F1
+none             0      nan      nan      nan
+N          7779710    96.49    97.68    97.08
+S          1292131    86.80    81.35    83.99
+V           675762    90.06    89.06    89.56
+
+EPOCH 4  beats matched at 150 ms: QRS Se=99.67 +P=99.43  type F1(N,S,V)=0.8385
+==============================================================================
+rows = reference, columns = predicted (beats (col 0 = missed))
+           none        N        S        V
+none          0        0        0        0
+N            46    10826      458       98
+S            40     3689    13267      645
+V            18      114       86     2541
+
+class      support       Se       +P       F1
+none             0      nan     0.00      nan
+N            11428    94.73    74.00    83.09
+S            17641    75.21    96.06    84.36
+V             2759    92.10    77.38    84.10
+
+EPOCH 4  val_rhythm_f1=0.8852
+=============================
+rows = reference, columns = predicted (seconds)
+           SINUS     AFIB      SVT       VT      AVB
+SINUS   44024706   444843   337982    65351   132415
+AFIB      432395  6652762   167722    15389    24170
+SVT       202857   158677  2292223    30529     1079
+VT         69183    22164    30535   567262      694
+AVB       128742     6629      960      543  1018250
+
+class      support       Se       +P       F1
+SINUS     45005297    97.82    98.14    97.98
+AFIB       7292438    91.23    91.32    91.27
+SVT        2685365    85.36    81.01    83.13
+VT          689838    82.23    83.53    82.88
+AVB        1155124    88.15    86.54    87.34
+
+EPOCH 4  channel: acc=0.8522  noise_f1=0.9632
+=============================================
+rows = reference, columns = predicted (2 s segments)
+           NOISE      CH1      CH2      CH3
+NOISE     106591     1356     1353     1361
+CH1         1338    58017     6643     6749
+CH2         1387     6632    58233     6947
+CH3         1347     6943     6629    57889
+
+class      support       Se       +P       F1
+NOISE       110661    96.32    96.32    96.32
+CH1          72747    79.75    79.53    79.64
+CH2          73199    79.55    79.93    79.74
+CH3          72808    79.51    79.36    79.43
+
+EPOCH 4  beat: f1(N,S,V)=0.9021
+===============================
+rows = reference, columns = predicted (8 ms steps)
+           none        N        S        V
+none          0        0        0        0
+N             0  7503170   233224    43316
+S             0   138329  1127087    26715
+V             0    37470    32942   605350
+
+class      support       Se       +P       F1
+none             0      nan      nan      nan
+N          7779710    96.45    97.71    97.07
+S          1292131    87.23    80.90    83.94
+V           675762    89.58    89.63    89.61
+
+EPOCH 5  beats matched at 150 ms: QRS Se=99.67 +P=99.43  type F1(N,S,V)=0.8281
+==============================================================================
+rows = reference, columns = predicted (beats (col 0 = missed))
+           none        N        S        V
+none          0        0        0        0
+N            48    10795      490       95
+S            40     3973    12996      632
+V            17      138      118     2486
+
+class      support       Se       +P       F1
+none             0      nan     0.00      nan
+N            11428    94.46    72.42    81.99
+S            17641    73.67    95.53    83.19
+V             2759    90.11    77.37    83.26
+
+EPOCH 5  val_rhythm_f1=0.8823
+=============================
+rows = reference, columns = predicted (seconds)
+           SINUS     AFIB      SVT       VT      AVB
+SINUS   44108672   402701   311330    55606   126988
+AFIB      474451  6606804   173933    12094    25156
+SVT       223561   154892  2276819    28987     1106
+VT         86157    23149    28522   551206      804
+AVB       151066     6342      889      513   996314
+
+class      support       Se       +P       F1
+SINUS     45005297    98.01    97.92    97.97
+AFIB       7292438    90.60    91.84    91.21
+SVT        2685365    84.79    81.56    83.14
+VT          689838    79.90    85.01    82.38
+AVB        1155124    86.25    86.61    86.43
+
+EPOCH 5  channel: acc=0.8521  noise_f1=0.9627
+=============================================
+rows = reference, columns = predicted (2 s segments)
+           NOISE      CH1      CH2      CH3
+NOISE     106965     1218     1236     1242
+CH1         1497    57894     6631     6725
+CH2         1561     6636    58077     6925
+CH3         1538     6895     6632    57743
+
+class      support       Se       +P       F1
+NOISE       110661    96.66    95.88    96.27
+CH1          72747    79.58    79.70    79.64
+CH2          73199    79.34    80.02    79.68
+CH3          72808    79.31    79.50    79.40
+
+EPOCH 5  beat: f1(N,S,V)=0.9028
+===============================
+rows = reference, columns = predicted (8 ms steps)
+           none        N        S        V
+none          0        0        0        0
+N             0  7513093   225785    40832
+S             0   139930  1126656    25545
+V             0    38263    34966   602533
+
+class      support       Se       +P       F1
+none             0      nan      nan      nan
+N          7779710    96.57    97.68    97.12
+S          1292131    87.19    81.21    84.09
+V           675762    89.16    90.08    89.62
+
+EPOCH 6  beats matched at 150 ms: QRS Se=99.68 +P=99.45  type F1(N,S,V)=0.8402
+==============================================================================
+rows = reference, columns = predicted (beats (col 0 = missed))
+           none        N        S        V
+none          0        0        0        0
+N            47    10807      480       94
+S            39     3832    13257      513
+V            16      141       96     2506
+
+class      support       Se       +P       F1
+none             0      nan     0.00      nan
+N            11428    94.57    73.12    82.47
+S            17641    75.15    95.84    84.24
+V             2759    90.83    80.50    85.35
+
+EPOCH 6  val_rhythm_f1=0.8848
+=============================
+rows = reference, columns = predicted (seconds)
+           SINUS     AFIB      SVT       VT      AVB
+SINUS   44056349   447641   316921    54897   129489
+AFIB      443300  6647594   167457    10755    23332
+SVT       216954   157835  2280692    28863     1021
+VT         80965    24057    28637   555483      696
+AVB       133356     9439      924      481  1010924
+
+class      support       Se       +P       F1
+SINUS     45005297    97.89    98.05    97.97
+AFIB       7292438    91.16    91.23    91.19
+SVT        2685365    84.93    81.61    83.24
+VT          689838    80.52    85.40    82.89
+AVB        1155124    87.52    86.74    87.13
+
+EPOCH 6  channel: acc=0.8513  noise_f1=0.9630
+=============================================
+rows = reference, columns = predicted (2 s segments)
+           NOISE      CH1      CH2      CH3
+NOISE     106879     1262     1259     1261
+CH1         1466    57827     6659     6795
+CH2         1498     6692    58018     6991
+CH3         1473     6919     6719    57697
+
+class      support       Se       +P       F1
+NOISE       110661    96.58    96.01    96.30
+CH1          72747    79.49    79.54    79.52
+CH2          73199    79.26    79.85    79.56
+CH3          72808    79.25    79.32    79.28
+
+EPOCH 6  beat: f1(N,S,V)=0.9042
+===============================
+rows = reference, columns = predicted (8 ms steps)
+           none        N        S        V
+none          0        0        0        0
+N             0  7515566   229167    34977
+S             0   140342  1128188    23601
+V             0    39178    34804   601780
+
+class      support       Se       +P       F1
+none             0      nan      nan      nan
+N          7779710    96.60    97.67    97.13
+S          1292131    87.31    81.04    84.06
+V           675762    89.05    91.13    90.08
+
+EPOCH 7  beats matched at 150 ms: QRS Se=99.69 +P=99.44  type F1(N,S,V)=0.8306
+==============================================================================
+rows = reference, columns = predicted (beats (col 0 = missed))
+           none        N        S        V
+none          0        0        0        0
+N            46    10852      435       95
+S            37     4199    12849      556
+V            16      143       90     2510
+
+class      support       Se       +P       F1
+none             0      nan     0.00      nan
+N            11428    94.96    71.42    81.53
+S            17641    72.84    96.07    82.86
+V             2759    90.97    79.41    84.80
+
+EPOCH 7  val_rhythm_f1=0.8841
+=============================
+rows = reference, columns = predicted (seconds)
+           SINUS     AFIB      SVT       VT      AVB
+SINUS   44108321   417756   300852    60372   117996
+AFIB      473658  6627799   157465    11356    22160
+SVT       223675   167146  2263971    29473     1100
+VT         78653    23049    28405   559035      696
+AVB       150410     8422      922      465   994905
+
+class      support       Se       +P       F1
+SINUS     45005297    98.01    97.94    97.97
+AFIB       7292438    90.89    91.49    91.19
+SVT        2685365    84.31    82.28    83.28
+VT          689838    81.04    84.61    82.79
+AVB        1155124    86.13    87.51    86.82
+
+EPOCH 7  channel: acc=0.8517  noise_f1=0.9630
+=============================================
+rows = reference, columns = predicted (2 s segments)
+           NOISE      CH1      CH2      CH3
+NOISE     106893     1264     1250     1254
+CH1         1469    57873     6633     6772
+CH2         1498     6673    58067     6961
+CH3         1483     6922     6660    57743
+
+class      support       Se       +P       F1
+NOISE       110661    96.60    96.00    96.30
+CH1          72747    79.55    79.57    79.56
+CH2          73199    79.33    79.97    79.65
+CH3          72808    79.31    79.39    79.35
+
+EPOCH 7  beat: f1(N,S,V)=0.9040
+===============================
+rows = reference, columns = predicted (8 ms steps)
+           none        N        S        V
+none          0        0        0        0
+N             0  7525450   216155    38105
+S             0   146907  1120403    24821
+V             0    39086    33742   602934
+
+class      support       Se       +P       F1
+none             0      nan      nan      nan
+N          7779710    96.73    97.59    97.16
+S          1292131    86.71    81.76    84.16
+V           675762    89.22    90.55    89.88
+
+EPOCH 8  beats matched at 150 ms: QRS Se=99.68 +P=99.44  type F1(N,S,V)=0.8344
+==============================================================================
+rows = reference, columns = predicted (beats (col 0 = missed))
+           none        N        S        V
+none          0        0        0        0
+N            46    10832      455       95
+S            40     4004    13033      564
+V            17      130       98     2514
+
+class      support       Se       +P       F1
+none             0      nan     0.00      nan
+N            11428    94.78    72.38    82.08
+S            17641    73.88    95.93    83.47
+V             2759    91.12    79.23    84.76
+
+EPOCH 8  val_rhythm_f1=0.8840
+=============================
+rows = reference, columns = predicted (seconds)
+           SINUS     AFIB      SVT       VT      AVB
+SINUS   44089951   420340   317372    58677   118957
+AFIB      458981  6634824   164760    12071    21802
+SVT       215007   164334  2275379    29515     1130
+VT         78547    22800    29328   558468      695
+AVB       149694     8596      927      435   995472
+
+class      support       Se       +P       F1
+SINUS     45005297    97.97    97.99    97.98
+AFIB       7292438    90.98    91.50    91.24
+SVT        2685365    84.73    81.62    83.15
+VT          689838    80.96    84.72    82.80
+AVB        1155124    86.18    87.47    86.82
+
+EPOCH 8  channel: acc=0.8515  noise_f1=0.9628
+=============================================
+rows = reference, columns = predicted (2 s segments)
+           NOISE      CH1      CH2      CH3
+NOISE     107006     1221     1205     1229
+CH1         1520    57812     6658     6757
+CH2         1560     6666    57991     6982
+CH3         1539     6926     6657    57686
+
+class      support       Se       +P       F1
+NOISE       110661    96.70    95.86    96.28
+CH1          72747    79.47    79.60    79.54
+CH2          73199    79.22    79.98    79.60
+CH3          72808    79.23    79.40    79.31
+
+EPOCH 8  beat: f1(N,S,V)=0.9030
+===============================
+rows = reference, columns = predicted (8 ms steps)
+           none        N        S        V
+none          0        0        0        0
+N             0  7510572   229926    39212
+S             0   141334  1125838    24959
+V             0    38236    34152   603374
+
+class      support       Se       +P       F1
+none             0      nan      nan      nan
+N          7779710    96.54    97.66    97.10
+S          1292131    87.13    81.00    83.95
+V           675762    89.29    90.39    89.83

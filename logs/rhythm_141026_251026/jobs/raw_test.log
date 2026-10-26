@@ -1,0 +1,38 @@
+2026-10-13 09:34:31.921979: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-13 09:34:31.949267: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-10-13 09:34:32.627208: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+xla          : --xla_gpu_cuda_data_dir=/usr/local/cuda
+1 GPU(s)
+test 4909 events 7234 windows
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1791858876.592562  781417 gpu_device.cc:2020] Created device /job:localhost/replica:0/task:0/device:GPU:0 with 19382 MB memory:  -> device: 0, name: NVIDIA RTX A5000, pci bus id: 0000:01:00.0, compute capability: 8.6
+2026-10-13 09:34:39.244001: I external/local_xla/xla/service/service.cc:163] XLA service 0x7f3d180144b0 initialized for platform CUDA (this does not guarantee that XLA will be used). Devices:
+2026-10-13 09:34:39.244027: I external/local_xla/xla/service/service.cc:171]   StreamExecutor device (0): NVIDIA RTX A5000, Compute Capability 8.6
+2026-10-13 09:34:39.324258: I tensorflow/compiler/mlir/tensorflow/utils/dump_mlir_util.cc:269] disabling MLIR crash reproducer, set env var `MLIR_CRASH_REPRODUCER_DIRECTORY` to enable.
+2026-10-13 09:34:39.687234: I external/local_xla/xla/stream_executor/cuda/cuda_dnn.cc:473] Loaded cuDNN version 92600
+2026-10-13 09:34:39.765369: I external/local_xla/xla/service/gpu/autotuning/dot_search_space.cc:208] All configs were filtered out because none of them sufficiently match the hints. Maybe the hints set does not contain a good representative set of valid configs? Working around this by using the full hints set instead.
+2026-10-13 09:34:39.765391: I external/local_xla/xla/service/gpu/autotuning/dot_search_space.cc:208] All configs were filtered out because none of them sufficiently match the hints. Maybe the hints set does not contain a good representative set of valid configs? Working around this by using the full hints set instead.
+2026-10-13 09:34:39.902387: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2267', 12 bytes spill stores, 12 bytes spill loads
+
+I0000 00:00:1791858882.045528  781815 cuda_executor.cc:508] failed to allocate 8.00GiB (8589934592 bytes) from device: RESOURCE_EXHAUSTED: : CUDA_ERROR_OUT_OF_MEMORY: out of memory
+I0000 00:00:1791858882.045633  781815 cuda_executor.cc:508] failed to allocate 7.20GiB (7730940928 bytes) from device: RESOURCE_EXHAUSTED: : CUDA_ERROR_OUT_OF_MEMORY: out of memory
+I0000 00:00:1791858882.045703  781815 cuda_executor.cc:508] failed to allocate 6.48GiB (6957846528 bytes) from device: RESOURCE_EXHAUSTED: : CUDA_ERROR_OUT_OF_MEMORY: out of memory
+I0000 00:00:1791858882.045772  781815 cuda_executor.cc:508] failed to allocate 5.83GiB (6262061568 bytes) from device: RESOURCE_EXHAUSTED: : CUDA_ERROR_OUT_OF_MEMORY: out of memory
+I0000 00:00:1791858882.045837  781815 cuda_executor.cc:508] failed to allocate 5.25GiB (5635855360 bytes) from device: RESOURCE_EXHAUSTED: : CUDA_ERROR_OUT_OF_MEMORY: out of memory
+2026-10-13 09:34:42.045844: W external/local_xla/xla/tsl/framework/bfc_allocator.cc:382] Garbage collection: deallocate free memory regions (i.e., allocations) so that we can re-allocate a larger region to avoid OOM due to memory fragmentation. If you see this message frequently, you are running near the threshold of the available device memory and re-allocation may incur great performance overhead. You may try smaller batch sizes to observe the performance impact. Set TF_ENABLE_GPU_GARBAGE_COLLECTION=false if you'd like to disable this feature.
+I0000 00:00:1791858882.172796  781815 cuda_executor.cc:508] failed to allocate 8.00GiB (8589934592 bytes) from device: RESOURCE_EXHAUSTED: : CUDA_ERROR_OUT_OF_MEMORY: out of memory
+I0000 00:00:1791858890.002487  781815 device_compiler.h:196] Compiled cluster using XLA!  This line is logged at most once for the lifetime of the process.
+2026-10-13 09:34:53.438278: I external/local_xla/xla/service/gpu/autotuning/dot_search_space.cc:208] All configs were filtered out because none of them sufficiently match the hints. Maybe the hints set does not contain a good representative set of valid configs? Working around this by using the full hints set instead.
+2026-10-13 09:34:53.438302: I external/local_xla/xla/service/gpu/autotuning/dot_search_space.cc:208] All configs were filtered out because none of them sufficiently match the hints. Maybe the hints set does not contain a good representative set of valid configs? Working around this by using the full hints set instead.
+dual1m_s1_e26 SINUS 83.03 AFIB 91.90 SVT 73.05 VT 77.89 AVB2 91.94 AVB3 90.69 margin -20.51
+dual1m_ft2_best SINUS 85.64 AFIB 92.72 SVT 69.74 VT 76.68 AVB2 92.03 AVB3 90.83 margin -23.82
+2026-10-13 09:35:13.206820: I external/local_xla/xla/service/gpu/autotuning/dot_search_space.cc:208] All configs were filtered out because none of them sufficiently match the hints. Maybe the hints set does not contain a good representative set of valid configs? Working around this by using the full hints set instead.
+2026-10-13 09:35:13.352271: I external/local_xla/xla/stream_executor/cuda/subprocess_compilation.cc:346] ptxas warning : Registers are spilled to local memory in function 'gemm_fusion_dot_2029', 12 bytes spill stores, 12 bytes spill loads
+
+2026-10-13 09:35:20.256540: I external/local_xla/xla/service/gpu/autotuning/dot_search_space.cc:208] All configs were filtered out because none of them sufficiently match the hints. Maybe the hints set does not contain a good representative set of valid configs? Working around this by using the full hints set instead.
+dual100k SINUS 80.72 AFIB 91.34 SVT 78.04 VT 82.45 AVB2 93.59 AVB3 94.16 margin -15.52
+dual100k_ft2_last SINUS 81.42 AFIB 92.40 SVT 77.52 VT 82.56 AVB2 95.47 AVB3 95.37 margin -16.04
+dual30k SINUS 80.91 AFIB 87.61 SVT 78.64 VT 84.06 AVB2 93.48 AVB3 92.46 margin -15.13
+dual30k_ft_e3 SINUS 80.10 AFIB 90.93 SVT 76.26 VT 85.29 AVB2 93.52 AVB3 93.56 margin -17.30
+RAW_DONE

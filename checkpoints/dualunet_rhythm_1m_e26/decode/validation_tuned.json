@@ -1,0 +1,77 @@
+{
+  "merge_gap": {
+    "AFIB": 5,
+    "SVT": 0,
+    "VT": 0,
+    "AVB": 0
+  },
+  "min_seconds": {
+    "AFIB": 3,
+    "SVT": 1,
+    "VT": 1,
+    "AVB": 2
+  },
+  "min_prob": {
+    "AFIB": 0.6
+  },
+  "class_scale": {
+    "SINUS": 2.0384558498222356,
+    "AFIB": 1.553135044561372,
+    "SVT": 1.3214343151979362,
+    "VT": 1.0749768582195556,
+    "AVB": 1.2157964799775092
+  },
+  "beat_pp": true,
+  "beat_criteria": {
+    "AFIB": {
+      "duration": 3.0
+    },
+    "VT": {
+      "num_beat": 3,
+      "run": 3,
+      "min_hr": 120
+    },
+    "SVT": {
+      "num_beat": 3,
+      "run": 3,
+      "min_hr": 120,
+      "min_frac": 0.5,
+      "onset_ratio": 1.25
+    },
+    "AVB": {
+      "duration": 2.5,
+      "max_hr": 60.0
+    },
+    "SINUS": {
+      "duration": 8
+    }
+  },
+  "beat_options": {
+    "long_invalid": 10,
+    "runs_to_rhythm": {
+      "VT": true,
+      "SVT": true
+    },
+    "s_prematurity": 0.85,
+    "s_in_afib_to_n": true
+  },
+  "_chosen": {
+    "af": {
+      "gap": 5,
+      "amin": 3,
+      "aprob": 0.6,
+      "alpha": 0.5
+    },
+    "pp": {
+      "vt_hr": 120,
+      "svt_frac": 0.5,
+      "onset": 1.25,
+      "sinus": 8,
+      "long_inv": 10,
+      "runs_vt": true,
+      "runs_svt": true
+    },
+    "s_prematurity": 0.85,
+    "s_in_afib_to_n": true
+  }
+}

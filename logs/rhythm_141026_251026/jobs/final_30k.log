@@ -1,0 +1,112 @@
+2026-10-12 16:40:14.487067: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-12 16:40:14.516145: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-10-12 16:40:15.171813: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+xla          : --xla_gpu_cuda_data_dir=/usr/local/cuda
+1 GPU(s)
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1791798016.027264 1936381 gpu_device.cc:2020] Created device /job:localhost/replica:0/task:0/device:GPU:0 with 20602 MB memory:  -> device: 0, name: NVIDIA RTX A5000, pci bus id: 0000:01:00.0, compute capability: 8.6
+2026-10-12 16:40:18.132679: I external/local_xla/xla/service/service.cc:163] XLA service 0x7c10cc0419f0 initialized for platform CUDA (this does not guarantee that XLA will be used). Devices:
+2026-10-12 16:40:18.132700: I external/local_xla/xla/service/service.cc:171]   StreamExecutor device (0): NVIDIA RTX A5000, Compute Capability 8.6
+2026-10-12 16:40:18.203099: I tensorflow/compiler/mlir/tensorflow/utils/dump_mlir_util.cc:269] disabling MLIR crash reproducer, set env var `MLIR_CRASH_REPRODUCER_DIRECTORY` to enable.
+2026-10-12 16:40:18.603501: I external/local_xla/xla/stream_executor/cuda/cuda_dnn.cc:473] Loaded cuDNN version 92600
+I0000 00:00:1791798024.808658 1936661 device_compiler.h:196] Compiled cluster using XLA!  This line is logged at most once for the lifetime of the process.
+  500/4909 records predicted
+  1000/4909 records predicted
+  1500/4909 records predicted
+  2000/4909 records predicted
+  2500/4909 records predicted
+  3000/4909 records predicted
+  3500/4909 records predicted
+  4000/4909 records predicted
+  4500/4909 records predicted
+  4909/4909 records predicted
+## dual30k_ft_e3 - validation, decode tuned on validation (tuned_dual30k_ft_e3.json) (3778 events)
+
+**epicmp, segment to segment (inside the mark)** - ours vs target (E Se / E +P / D Se / D +P)
+
+| class | E Se | E +P | D Se | D +P | target |
+|---|---|---|---|---|---|
+| AFIB | 90 | 92 ! | 89 | 96 | 90/94/88/96 |
+| SVT | 89 | 85 ! | 74 | 83 | 89/88/60/78 |
+| VT | 86 | 92 | 83 | 84 ! | 81/90/62/86 |
+| AVB | 35 | 100 | 43 | 93 | 25/77/31/65 |
+
+**sample to sample (row %, inside the mark)**
+
+| true \ pred | SINUS | AFIB | SVT | VT | AVB | NOISE | target diag |
+|---|---|---|---|---|---|---|---|
+| SINUS | 89.61 | 3.69 | 2.67 | 0.39 | 3.62 | 0.01 | 92.89 |
+| AFIB | 7.67 | 88.68 | 3.29 | 0.34 | 0.00 | 0.00 | 88.07 |
+| SVT | 18.06 | 6.69 | 73.62 | 1.58 | 0.00 | 0.05 | 72.6 |
+| VT | 13.50 | 2.41 | 1.45 | 82.63 | 0.00 | 0.00 | 69.37 |
+| AVB2 | 57.91 | 0.89 | 0.16 | 0.00 | 41.02 | 0.01 | 26.58 |
+| AVB3 | 52.83 | 0.68 | 0.00 | 0.00 | 46.49 | 0.00 | 30.69 |
+
+**event level (one label per event)**
+
+| true \ pred | AFIB | SVT | VT | AVB | (none inside mark) |
+|---|---|---|---|---|---|
+| AFIB | 1487 | 69 | 7 | 6 | 106 |
+| SVT | 87 | 863 | 13 | 0 | 73 |
+| VT | 26 | 9 | 296 | 0 | 28 |
+| AVB2 | 29 | 11 | 3 | 577 | 379 |
+| AVB3 | 11 | 25 | 1 | 258 | 161 |
+
+| class | Se | PPV | F1 | target Se / PPV / F1 |
+|---|---|---|---|---|
+| AFIB | 94.8 | 90.7 | 92.7 | 86.6/80.3/83.3 |
+| SVT | 89.6 | 88.3 | 89.0 | 86.6/81.1/83.8 |
+| VT | 89.4 | 92.5 | 90.9 | 70.1/53.3/60.6 |
+| AVB | 91.3 | 99.3 | 95.1 | 40.2/62.5/48.9 |
+| AVB2 row Se | 93.1 | | | 22.6 |
+| AVB3 row Se | 87.5 | | | 19.9 |
+
+**32/36 target cells met; smallest margin -3.3**
+below target: epicmp AFIB E +P 92.0<94, epicmp SVT E +P 85.0<88, epicmp VT D +P 84.0<86, sample SINUS recall 89.6<92.89
+
+## dual30k_ft_e3 - rhythm_eval, decode tuned on validation (tuned_dual30k_ft_e3.json) (4909 events)
+
+**epicmp, segment to segment (inside the mark)** - ours vs target (E Se / E +P / D Se / D +P)
+
+| class | E Se | E +P | D Se | D +P | target |
+|---|---|---|---|---|---|
+| AFIB | 95 | 90 ! | 92 | 94 ! | 90/94/88/96 |
+| SVT | 81 ! | 91 | 70 | 91 | 89/88/60/78 |
+| VT | 79 ! | 88 ! | 71 | 87 | 81/90/62/86 |
+| AVB | 32 | 99 | 38 | 94 | 25/77/31/65 |
+
+**sample to sample (row %, inside the mark)**
+
+| true \ pred | SINUS | AFIB | SVT | VT | AVB | NOISE | target diag |
+|---|---|---|---|---|---|---|---|
+| SINUS | 92.90 | 2.74 | 1.46 | 0.19 | 2.71 | 0.00 | 92.89 |
+| AFIB | 4.07 | 92.16 | 3.38 | 0.36 | 0.00 | 0.03 | 88.07 |
+| SVT | 22.01 | 6.49 | 70.25 | 1.21 | 0.00 | 0.04 | 72.6 |
+| VT | 24.27 | 3.33 | 1.18 | 71.22 | 0.00 | 0.00 | 69.37 |
+| AVB2 | 66.00 | 1.37 | 0.04 | 0.00 | 32.57 | 0.02 | 26.58 |
+| AVB3 | 44.35 | 1.68 | 0.00 | 0.23 | 53.75 | 0.00 | 30.69 |
+
+**event level (one label per event)**
+
+| true \ pred | AFIB | SVT | VT | AVB | (none inside mark) |
+|---|---|---|---|---|---|
+| AFIB | 1617 | 46 | 6 | 4 | 55 |
+| SVT | 161 | 1613 | 29 | 0 | 253 |
+| VT | 45 | 12 | 381 | 1 | 69 |
+| AVB2 | 44 | 3 | 0 | 639 | 468 |
+| AVB3 | 17 | 8 | 2 | 281 | 173 |
+
+| class | Se | PPV | F1 | target Se / PPV / F1 |
+|---|---|---|---|---|
+| AFIB | 96.7 | 85.8 | 90.9 | 86.6/80.3/83.3 |
+| SVT | 89.5 | 95.9 | 92.6 | 86.6/81.1/83.8 |
+| VT | 86.8 | 91.1 | 88.9 | 70.1/53.3/60.6 |
+| AVB | 92.6 | 99.5 | 95.9 | 40.2/62.5/48.9 |
+| AVB2 row Se | 93.1 | | | 22.6 |
+| AVB3 row Se | 91.2 | | | 19.9 |
+
+**30/36 target cells met; smallest margin -8.0**
+below target: epicmp AFIB E +P 90.0<94, epicmp AFIB D +P 94.0<96, epicmp SVT E Se 81.0<89, epicmp VT E Se 79.0<81, epicmp VT E +P 88.0<90, sample SVT recall 70.2<72.6
+
+FINAL_DONE dual30k_ft_e3

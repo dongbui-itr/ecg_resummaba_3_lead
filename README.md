@@ -19,6 +19,47 @@ bài toán nhịp không bao giờ nắn lại được nó.
 
 ---
 
+## Checkpoint hiện hành (cập nhật 15/10/2026) — dual U-Net rhythm + beat
+
+| | |
+|---|---|
+| Checkpoint | [`checkpoints/dualunet_rhythm_1m_e26/`](checkpoints/dualunet_rhythm_1m_e26/) — `best_model.keras`, run `071026_rhythm_dual_1m_s1`, epoch 26, 988,773 tham số, SHA256 trong `SHA256` |
+| Vào | `(2500, 3)` = 10 s × 3 chuyển đạo @ 250 Hz, z-score từng lead |
+| Ra | `beat (1250, 4)` none/N/S/V · `rhythm (1250, 5)` SINUS/AFIB(+AFL)/SVT/VT/AVB · `channel (5, 4)` NOISE/CH1-3 mỗi 2 s |
+| Mô tả đầy đủ | [`manifest.json`](checkpoints/dualunet_rhythm_1m_e26/manifest.json): contract, cấu hình train, bảng EC57 chính thức, các file decode thử nghiệm |
+
+Kết quả chính thức (decode mặc định trong config, overlap 5 s, TTA id/flip/swap), Episode Se/+P/F1 · Duration Se/+P/F1:
+
+| | mitdb | afdb | escdb | rhythm_eval |
+|---|---|---|---|---|
+| AFIB | 86/75/80.1 · 92/94/93.0 | 93/92/92.5 · 96/99/97.5 | | 96/80/87.3 · 89/62/73.1 |
+| SVT | 69/46/55.2 · 58/46/51.3 | | 9/15/11.2 · 6/2/3.0 | 87/77/81.7 · 57/70/62.8 |
+| VT | 65/73/68.8 · 68/46/54.9 | | 69/100/81.7 · 62/97/75.6 | 80/72/75.8 · 57/62/59.4 |
+| AVB | 100/44/61.1 · 100/95/97.4 | | | 87/83/85.0 · 75/47/57.8 |
+
+Beat (bxb) mitdb: Q Se/+P 99.96/99.96, V Se/+P 96.88/93.17, S Se/+P 57.60/63.55.
+
+Một lệnh cho cả quy trình, cấu hình bằng khối `CONFIG` ở đầu [`run.py`](run.py): kiểm tra
+checkpoint (test) → chấm EC57 + rhythm_eval → mở viewer trên kết quả vừa chấm. Một bước lỗi thì
+dừng cả chuỗi.
+
+```bash
+python3 run.py               # STEPS = ['test', 'evaluate', 'viewer']; EVALUATE / VIEWER = ghi đè CONFIG của từng công cụ
+```
+
+Hoặc chạy từng công cụ, mỗi file cũng có khối `CONFIG` riêng (không có tham số dòng lệnh):
+
+```bash
+python3 evaluate.py          # EC57 (mitdb nstdb escdb ahadb afdb) + rhythm_eval -> eval_results/.../ec57/<tag>/ (mục 7d)
+python3 webservice/app.py    # xem ECG + rhythm thô / sau post-process, bảng EC57 của từng run, XAI -> http://127.0.0.1:8765
+python3 tune_overlap.py      # chọn lại decode trên validation cho một overlap khác (PREDICT_OVERLAP_SECONDS)
+python3 summarize_ec57.py <out> [<out2> ...] --records   # bảng csv / md / xlsx, nhiều run cạnh nhau
+```
+
+Checkpoint beat cũ (`260917_3lead`, `legacy_1lead/`) và `evaluate.py` beat đã được gỡ; nội dung
+cũ còn trong git (commit `b9c82c8`). Các mục 5–11 bên dưới là lịch sử của họ model beat ResUMamba,
+mục 12 là bài toán rhythm.
+
 ## 0. Cài đặt
 
 ```bash
@@ -763,67 +804,40 @@ Cả hai tính chất — lát kín chính xác, và round-trip `nhãn → dự 
 
 ## 7d. Đánh giá tại local — [`evaluate.py`](evaluate.py)
 
-Chấm một checkpoint trên EC57 + bộ v4 beat-eval. **Không có tham số dòng lệnh**: sửa khối
-`CONFIG` ở đầu file rồi chạy.
+Chấm checkpoint rhythm hiện hành trên EC57 (epicmp từng lớp rhythm + bxb cho beat) và tập
+holdout rhythm_eval. **Không có tham số dòng lệnh**: sửa khối `CONFIG` ở đầu file rồi chạy.
 
 ```bash
-~/miniconda3/envs/beat/bin/python evaluate.py      # env có tensorflow
+python3 evaluate.py
 ```
-
-Khối `CONFIG` là toàn bộ giao diện:
 
 ```python
-CHECKPOINTS = ['checkpoints/resumamba_2m.keras']   # nhiều file = ensemble (trung bình softmax)
-DATABASES   = ['mitdb', 'nstdb', 'escdb', 'ahadb', 'afdb']
-SCORE_V4    = True        # bộ v4 beat-eval 5,227 record
-LEAD_MODE   = 'native'    # bao nhiêu chuyển đạo THẬT: native / single / auto
-LEAD_FILL   = 'zero'      # lấp kênh còn thiếu: zero / duplicate
-MIN_RUN     = 1           # bỏ run ngắn hơn N bước 20 ms
-S_BOOST     = 1.0         # hiệu chuẩn trên portal, KHÔNG trên mitdb
-MAX_RECORDS = None        # đặt số nhỏ = chạy thử
-GPU         = None        # ví dụ '0'
-BXB_ONLY    = False       # True = chấm lại, không suy luận (giây thay vì phút)
-BASELINE    = None        # một ec57_summary.csv để so, mọi chỉ số kèm delta
+CHECKPOINT = 'checkpoints/dualunet_rhythm_1m_e26/best_model.keras'
+DECODE     = None          # None = decode mặc định trong config (CHÍNH THỨC); hoặc một file
+                           #   checkpoints/dualunet_rhythm_1m_e26/decode/*.json (thử nghiệm)
+WORK_DIR, RUN_TAG, TAG = 'eval_results', 'dualunet_rhythm_1m_e26', None   # TAG None = ec57_ov<x>_<ngày giờ>
+DATABASES  = ['mitdb', 'nstdb', 'escdb', 'ahadb', 'afdb']; SCORE_RHYTHM_EVAL = True
+PREDICT_OVERLAP_SECONDS = 5    # số giây 2 cửa sổ 10 s liên tiếp dùng chung (0 = nối tiếp, 9.5 = cách 0.5 s)
+PREDICT_TTA = 'id,flip,swap'; PREDICT_TAPER = 0.0
+MAX_RECORDS = None; DECODE_ONLY = False; INCLUDE_EXCLUDED = False
+GPU = None; GPU_MEMORY_MB = None   # đặt GPU_MEMORY_MB khi card đang có job train
+WRITE_SUMMARY = True; BASELINE = None   # BASELINE = một thư mục <out> cũ để so cạnh nhau
 ```
 
-Không dùng argparse là **có chủ ý**: một lần đánh giá là một bản ghi về những gì đã đo, và một
-khối hằng số có tên trong file chính là bản ghi đó. Một dòng shell thì trôi khỏi history, và
-không để lại dấu vết nào cho biết bảng kết quả kia đến từ một hay ba chuyển đạo.
+Luồng một lần chạy (`ecgr.rhythm.ec57.run`):
 
-Nó là cửa vào mỏng của cùng bộ máy `python -m ecgr ec57` dùng, khác ở bốn điểm — mỗi điểm là một
-thứ đã từng làm mất thời gian:
+1. **Theo từng record**: inference (cửa sổ 10 s chồng nhau `PREDICT_OVERLAP_SECONDS`, xác suất mỗi
+   bước lấy trung bình trên mọi cửa sổ phủ nó × các biến thể TTA) → `_ann/<db>/<rec>.npz` → decode +
+   post-process theo beat → ghi ngay annotation (`.rhi` episode, `.bti` beat, một file hypothesis
+   mỗi lớp) và reference.
+2. **Theo từng database**: chỉ chạy công cụ WFDB — epicmp mỗi lớp → `<db>/<db>_<LỚP>_report_line.out`,
+   bxb → `beats/<db>/<db>_QRS_report_line.out`.
+3. **Tổng hợp**: `summarize_ec57.py` → `<out>/summary/` (csv, md, xlsx, từng record); thông số của
+   lần chạy ghi ở `<out>/evaluate_config.json`.
 
-* **Checkpoint tường minh**, ghi vào `./eval_results/<tên>/`. `ecgr ec57` ghi vào thư mục của
-  `ECGR_RUN_TAG` và mặc định lấy checkpoint mà một run huấn luyện tình cờ để lại.
-* **Kiểm tra điều kiện TRƯỚC khi tốn GPU**: `bxb`/`sumstats` trên PATH, database có trên đĩa,
-  file checkpoint tồn tại, giá trị `LEAD_MODE`/`LEAD_FILL` hợp lệ, và tensorflow import được bằng
-  đúng interpreter đang chạy — chạy bằng `/usr/bin/python3` sẽ báo ngay *"tensorflow is not
-  importable by /usr/bin/python3 … invoke it with ~/miniconda3/envs/beat/bin/python"* thay vì
-  chết giữa chừng. Thiếu bất kỳ cái nào bình thường sẽ hiện ra dưới dạng một báo cáo rỗng sau
-  một giờ.
-* **Đánh dấu theo ngưỡng nghiệm thu**: `*` đạt, `!` chưa, kèm danh sách thiếu bao nhiêu. Ngưỡng
-  ở hằng `TARGETS` (mitdb Q ≥ 99.95 hai chiều, S Se > 43 / +P > 80; v4-beat S Se > 88 / +P > 92);
-  database không có ngưỡng thì không bị đánh dấu, và `-` của lớp không có nhịp tham chiếu được
-  giữ nguyên chứ không thành 0.00.
-* **Không chấm hai split portal** (mục 7b) — chúng là công cụ của một run huấn luyện, không phải
-  của việc nghiệm thu một file.
-
-Mặc định của script **bằng** mặc định của dự án (`LEAD_MODE`/`LEAD_FILL`), có test ghim, nên chạy
-trần là đo đúng thứ `ecgr ec57` sẽ đo. Dự đoán `.ain` và báo cáo WFDB thô được giữ dưới thư mục
-kết quả, nên mọi con số truy ngược được về từng record.
-
-Ví dụ đầu ra:
-
-```
-database        records    Q_Se    Q_+P    V_Se    V_+P    S_Se    S_+P
------------------------------------------------------------------------
-dataset-v4-beat       3 100.00 100.00       -       -  70.00!  87.50!
-mitdb                 3 100.00*  99.96* 100.00  33.33  91.18* 100.00*
-
-* = meets the acceptance target, ! = below it
-below target:
-  dataset-v4-beat  S_Se   70.00  (target 88.0)
-```
+`DECODE_ONLY = True` decode và chấm lại từ npz đã lưu dưới cùng `TAG`, không cần model (vài phút thay
+vì ~40 phút). Trước khi tốn GPU, script kiểm tra tensorflow, checkpoint, file decode, `bxb`/`epicmp`/
+`sumstats` trên PATH và thư mục database. Kết quả xem bằng [`webservice/app.py`](webservice/app.py).
 
 ## 7e. Kiểm tra rò rỉ và shape — kết quả đo ngày 22/09/2026
 
@@ -918,7 +932,7 @@ thận trọng ấy lại có lợi. **F1 mức bước không quyết định �
 
 Cả bốn kích thước, cùng data, cùng cấu hình, cùng mẫu 5,000 record cho hai split. File gốc:
 `<RUN_DIR>/ec57/<model>/ec57_summary.csv`; bốn checkpoint tốt nhất và bộ weights tự giám sát
-tương ứng nằm trong [`checkpoints/`](checkpoints/) kèm [`manifest.json`](checkpoints/manifest.json).
+tương ứng từng nằm trong `checkpoints/` kèm `manifest.json` (đã gỡ ngày 15/10/2026, còn trong git `b9c82c8`).
 
 **Train và tự giám sát**
 
@@ -1169,7 +1183,7 @@ hai ô xuống là V Se mitdb (−0.52) và escdb (−0.07). Q trên escdb chạ
    và ổn định khi có V5 (34 → 1, và 632 → 6 cho chính checkpoint đã lật).
 
 `duplicate` vẫn chạy được bằng `--lead-mode duplicate` và mọi bảng `duplicate` vẫn nằm trong
-[`checkpoints/manifest.json`](checkpoints/manifest.json), vì nó là bài kiểm "một chuyển đạo"
+`checkpoints/manifest.json` (đã gỡ ngày 15/10/2026, còn trong git `b9c82c8`), vì nó là bài kiểm "một chuyển đạo"
 khắt khe nhất và là đối chứng của phát hiện này.
 
 ### 8g. Kết luận vòng tuning (đến 20:45 ngày 18/09) — cái gì giao được, cái gì chưa
@@ -1333,21 +1347,23 @@ ecg_resumamba/
 │   ├── evaluation/         step_metrics.py · bxb.py · ec57.py · report.py
 │   ├── rhythm/             rhythm theo từng giây + lead tốt nhất / NOISE theo cửa sổ (mục 12)
 │   └── cli.py              `python -m ecgr <stage>`
-├── evaluate.py             chấm EC57 + v4 beat-eval tại local, một lệnh (mục 7d)
+├── run.py                  một lệnh: test → evaluate → viewer (khối CONFIG)
+├── evaluate.py             chấm EC57 + rhythm_eval cho checkpoint rhythm, một lệnh (mục 7d)
+├── summarize_ec57.py       bảng tổng hợp từ report epicmp / bxb, nhiều run cạnh nhau
+├── tune_overlap.py         chọn lại decode trên validation cho một overlap khác
+├── webservice/             app.py + static/index.html: viewer ECG / rhythm / bảng EC57 / XAI
 ├── tests/                  111 test, chạy ở đâu cũng được
 ├── docs/references/        danh mục tài liệu tham khảo
-├── checkpoints/            4 checkpoint 3 chuyển đạo + weights ssl/cpc + manifest.json; legacy_1lead/ = 3 bản cũ
-├── logs/tensorboard_legacy_1lead/  log train của 3 run 1 chuyển đạo cũ
+├── checkpoints/            dualunet_rhythm_1m_e26/: checkpoint rhythm hiện hành + manifest.json + decode/
 ├── scripts/                driver shell của WFDB (bxb, sumstats, …)
 ├── assets/                 danh sách study eval v4 (đi kèm project)
 └── run_pipeline.sh
 ```
 
 > Log TensorBoard của các run **mới** nằm trong `<RUN_DIR>/logs/<model>/`
-> (`tensorboard --logdir <RUN_DIR>/logs`). `logs/tensorboard_legacy_1lead/` là 3 run 1 chuyển
-> đạo cũ, giữ lại để đối chiếu — xem `epoch_loss` cùng đường weighted F1 trong
-> `confusion_log.txt` của run đó: chúng đi ngược chiều nhau từ epoch 2, và đó chính là bằng
-> chứng cho việc monitor phải là F1 chứ không phải loss (mục 6c).
+> (`tensorboard --logdir <RUN_DIR>/logs`). Log train của checkpoint rhythm hiện hành:
+> `checkpoints/dualunet_rhythm_1m_e26/train_logs/` (history, confusion log) và tensorboard tại
+> `/media/Project/ECG/Model_Dong/ecgr_rhythm/071026_rhythm_dual_1m_s1/logs`.
 
 ## 11. Những gì đã thay đổi so với bản 1 chuyển đạo
 

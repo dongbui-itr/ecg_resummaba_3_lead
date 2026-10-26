@@ -270,3 +270,18 @@ def test_trim_to_beats_shrinks_runs_to_their_beats():
     assert classes_in(out) == [SINUS, SVT, SINUS]
     # off / no beats: unchanged
     assert (B.trim_to_beats(track, beats, HZ, {}) == track).all()
+
+
+def test_relabel_s_margin_demotes_weak_s_only():
+    from ecgr.rhythm import beats as B
+    import numpy as np
+    probs = np.array([[0.1, 0.8, 0.1],     # strong S: kept
+                      [0.45, 0.5, 0.05],   # weak S (margin 0.05 < 0.2): -> N
+                      [0.05, 0.5, 0.45],   # weak S: -> V (V > N)
+                      [0.2, 0.2, 0.6]],    # V: untouched
+                     np.float32)
+    beats = dict(t=np.arange(4) * 0.8, cls=np.array([2, 2, 2, 3]), conf=np.ones(4), probs=probs)
+    out = B.relabel_s(beats, 0.2)
+    assert out['cls'].tolist() == [2, 1, 3, 3]
+    assert beats['cls'].tolist() == [2, 2, 2, 3]            # input untouched
+    assert B.relabel_s(beats, 0.0) is beats

@@ -1,0 +1,32 @@
+2026-10-13 09:33:15.510537: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-10-13 09:33:15.539935: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-10-13 09:33:16.117724: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+test holdout : 1966 studies from /media/MegaDataSet/DATA_4TINYML/Holter_report_strip/dataset-eval/rhythm_eval
+eval holdout: 4044 studies from /media/Project/ECG/Source_Dong/project_ai/ecg_resummaba_3_lead/assets/list_studies_eval_v4.json
+afib-2    :   7,962 events, kept   6,129, held out  1,833, duplicate      0
+rhythm-2  :   4,558 events, kept   3,492, held out  1,066, duplicate      0
+rhythm-3  :     686 events, kept     468, held out    218, duplicate      0
+dataset-4 :  89,852 events, kept  82,564, held out  7,288, duplicate      0
+dataset-5 :  41,011 events, kept  34,313, held out  6,698, duplicate      0
+sinus-2   :   1,055 events, kept     993, held out     62, duplicate      0
+sinus-3   :  24,036 events, kept  22,789, held out  1,247, duplicate      0
+sinus-4   :  14,736 events, kept       0, held out    460, duplicate 14,276
+sinus-4p  :   1,262 events, kept     739, held out     35, duplicate    488
+hard sinus   : 22,247 look-alike strips kept on top of the cap (8 per study)
+sinus cap    : 3 per study, 11,825 strips dropped, 139,662 events left
+split OK     : train n eval = train n test = eval n test = 0
+
+rhythm train: 111,361 events, 16 workers
+rhythm train: 126,818 windows from 111,339 of 111,361 events | seconds {'SINUS': 992191, 'AFIB': 148221, 'SVT': 72198, 'VT': 18217, 'AVB': 37353, 'IGNORE': 0}
+  skipped: beat_runs 663, dead 2, header_span 55,761, header_span_missing 6,869, run_not_found 20
+
+rhythm eval: 28,301 events, 16 workers
+rhythm eval: 32,020 windows from 28,293 of 28,301 events | seconds {'SINUS': 250408, 'AFIB': 35750, 'SVT': 17620, 'VT': 4086, 'AVB': 12336, 'IGNORE': 0}
+  skipped: beat_runs 180, dead 1, header_span 14,021, header_span_missing 1,737, run_not_found 7
+
+manifest -> /media/Project/ECG/Model_Dong/ecgr_rhythm/npy_portal_mark10/manifest.json
+test holdout : 1966 studies from /media/MegaDataSet/DATA_4TINYML/Holter_report_strip/dataset-eval/rhythm_eval
+eval holdout: 4044 studies from /media/Project/ECG/Source_Dong/project_ai/ecg_resummaba_3_lead/assets/list_studies_eval_v4.json
+audit        : {'train': 30849, 'eval': 7840, 'test': 0, 'rhythm_test_dir': 1966} -> /media/Project/ECG/Model_Dong/ecgr_rhythm/npy_portal_mark10/audit_written.json
+audit OK     : train n eval = 0, train/eval n rhythm_eval = 0

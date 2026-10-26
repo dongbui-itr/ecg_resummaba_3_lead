@@ -1,0 +1,352 @@
+{
+  "inventory": {
+    "sources": {
+      "dataset-1": {
+        "events": 103904,
+        "kept": 98748,
+        "held_out": 5156,
+        "duplicate": 0,
+        "skipped_types": {
+          "OTHERS": 41845,
+          "ARTIFACT": 7
+        }
+      },
+      "dataset-4": {
+        "events": 89852,
+        "kept": 82564,
+        "held_out": 7288,
+        "duplicate": 0,
+        "skipped_types": {
+          "OTHERS": 66539,
+          "ARTIFACT": 9
+        }
+      },
+      "dataset-5": {
+        "events": 41011,
+        "kept": 34313,
+        "held_out": 6698,
+        "duplicate": 0,
+        "skipped_types": {
+          "OTHERS": 14326,
+          "ARTIFACT": 3
+        }
+      },
+      "rhythm-2": {
+        "events": 4558,
+        "kept": 3492,
+        "held_out": 1066,
+        "duplicate": 0,
+        "skipped_types": {}
+      },
+      "rhythm-3": {
+        "events": 686,
+        "kept": 468,
+        "held_out": 218,
+        "duplicate": 0,
+        "skipped_types": {}
+      },
+      "afib-2": {
+        "events": 7962,
+        "kept": 6129,
+        "held_out": 1833,
+        "duplicate": 0,
+        "skipped_types": {}
+      },
+      "sinus-2": {
+        "events": 1055,
+        "kept": 993,
+        "held_out": 62,
+        "duplicate": 0,
+        "skipped_types": {}
+      },
+      "sinus-3": {
+        "events": 24036,
+        "kept": 22789,
+        "held_out": 1247,
+        "duplicate": 0,
+        "skipped_types": {}
+      },
+      "sinus-4": {
+        "events": 14736,
+        "kept": 0,
+        "held_out": 460,
+        "duplicate": 14276,
+        "skipped_types": {
+          "OTHERS": 1331
+        }
+      },
+      "sinus-4p": {
+        "events": 1262,
+        "kept": 739,
+        "held_out": 35,
+        "duplicate": 488,
+        "skipped_types": {}
+      },
+      "ptbxl": {
+        "records": 21799,
+        "kept": {
+          "train": {
+            "SINUS": 7536,
+            "AFIB": 1243,
+            "SVT": 23,
+            "AVB": 20
+          },
+          "eval": {
+            "AFIB": 156,
+            "SINUS": 939,
+            "AVB": 3,
+            "SVT": 5
+          }
+        },
+        "windows_per_record": 2,
+        "plain_cap": 3000,
+        "plain_kept": 3000,
+        "skipped": {
+          "reserved_fold": 2198,
+          "several_classes": 10,
+          "ambiguous": 143,
+          "plain_over_cap": 9523
+        },
+        "studies": {
+          "train": 7785,
+          "eval": 1000
+        }
+      },
+      "physionet_train": {
+        "ltafdb": {
+          "train": {
+            "records": 69,
+            "windows": 41915,
+            "categories": {
+              "sinus": 2389,
+              "sinus_ectopy": 2345,
+              "AF_edge": 3029,
+              "AF_ectopy": 12254,
+              "VT": 498,
+              "AF": 9460,
+              "sinus_pac": 4976,
+              "SVT": 1401,
+              "sinus_tachy": 986,
+              "sinus_brady": 4577
+            }
+          },
+          "eval": {
+            "records": 15,
+            "windows": 7779,
+            "categories": {
+              "sinus_brady": 778,
+              "sinus": 540,
+              "sinus_pac": 914,
+              "sinus_ectopy": 626,
+              "SVT": 223,
+              "AF_ectopy": 2127,
+              "AF": 1656,
+              "AF_edge": 336,
+              "sinus_tachy": 433,
+              "VT": 146
+            }
+          }
+        },
+        "svdb": {
+          "train": {
+            "records": 62,
+            "windows": 399,
+            "categories": {
+              "SVT": 253,
+              "VT": 146
+            }
+          },
+          "eval": {
+            "records": 16,
+            "windows": 143,
+            "categories": {
+              "SVT": 110,
+              "VT": 33
+            }
+          }
+        },
+        "incartdb": {
+          "train": {
+            "records": 66,
+            "windows": 8503,
+            "categories": {
+              "sinus": 2597,
+              "sinus_tachy": 1093,
+              "sinus_ectopy": 2212,
+              "sinus_brady": 1857,
+              "SVT": 33,
+              "VT": 81,
+              "sinus_pac": 300,
+              "AF": 300,
+              "AF_ectopy": 30
+            }
+          },
+          "eval": {
+            "records": 9,
+            "windows": 1166,
+            "categories": {
+              "sinus": 388,
+              "sinus_ectopy": 234,
+              "sinus_tachy": 140,
+              "sinus_brady": 168,
+              "VT": 234,
+              "SVT": 2
+            }
+          }
+        }
+      },
+      "challenge2020": {
+        "kept": {
+          "train": {
+            "SINUS": 9454,
+            "AFIB": 1773,
+            "AVB": 57
+          },
+          "eval": {
+            "SINUS": 1615,
+            "AFIB": 298,
+            "AVB": 15
+          }
+        },
+        "skipped": {
+          "shorter_than_10s": 74,
+          "paroxysmal_or_ambiguous": 176,
+          "several_classes": 6,
+          "plain_over_cap": 7206
+        }
+      }
+    },
+    "sinus_cap": {
+      "per_study": 3,
+      "dropped": 18653,
+      "hard_extra": 40523
+    },
+    "event_list": {
+      "path": "/media/Project/ECG/Model_Dong/ecgr_rhythm/datasel_131026/train_events_v3.csv",
+      "listed": 174664,
+      "kept": 173724,
+      "dropped": 57858
+    },
+    "studies": {
+      "train": 45894,
+      "eval": 0,
+      "held_out": 4154,
+      "rhythm_test": 1966,
+      "ptbxl": {
+        "train": 19208,
+        "eval": 2956
+      }
+    }
+  },
+  "splits": {
+    "train": {
+      "windows": 278534,
+      "events": 264753,
+      "seconds": {
+        "SINUS": 2143649,
+        "AFIB": 446051,
+        "SVT": 124215,
+        "VT": 27344,
+        "AVB": 38181,
+        "IGNORE": 5900
+      },
+      "stats": {
+        "beat_runs": 21679,
+        "events_used": 263468,
+        "windows": 278534,
+        "header_span": 51909,
+        "header_span_missing": 6527,
+        "no_beat_annotation": 40212,
+        "errors": 154,
+        "error:KeyError": 154,
+        "dead": 1131
+      }
+    },
+    "eval": {
+      "windows": 65883,
+      "events": 62236,
+      "seconds": {
+        "SINUS": 515862,
+        "AFIB": 87219,
+        "SVT": 31302,
+        "VT": 8161,
+        "AVB": 13343,
+        "IGNORE": 2943
+      },
+      "stats": {
+        "events_used": 61912,
+        "windows": 65883,
+        "dead": 280,
+        "beat_runs": 5944,
+        "run_not_found": 8,
+        "header_span": 11391,
+        "header_span_missing": 1636,
+        "no_beat_annotation": 6062,
+        "errors": 36,
+        "error:KeyError": 36
+      },
+      "linked_from": "/media/Project/ECG/Model_Dong/ecgr_rhythm/npy_250hz_10s_3lead_10sec/eval"
+    },
+    "test": {
+      "windows": 7233,
+      "events": 4909,
+      "seconds": {
+        "SINUS": 11361,
+        "AFIB": 29425,
+        "SVT": 16556,
+        "VT": 3306,
+        "AVB": 11682,
+        "IGNORE": 0
+      },
+      "stats": {
+        "no_beat_annotation": 4909,
+        "events_used": 4908,
+        "windows": 7233,
+        "run_not_found": 1
+      },
+      "linked_from": "/media/Project/ECG/Model_Dong/ecgr_rhythm/npy_250hz_10s_3lead_10sec/test"
+    }
+  },
+  "segment_samples": 2500,
+  "in_channels": 3,
+  "sampling_rate": 250,
+  "output_seconds": 10,
+  "class_names": [
+    "SINUS",
+    "AFIB",
+    "SVT",
+    "VT",
+    "AVB"
+  ],
+  "ignore_label": 255,
+  "signal_dtype": "float16",
+  "labels_dtype": "uint8",
+  "sample_labels": true,
+  "beat_labels": true,
+  "sources": [
+    "dataset-1",
+    "dataset-4",
+    "dataset-5",
+    "rhythm-2",
+    "rhythm-3",
+    "afib-2",
+    "sinus-2",
+    "sinus-3",
+    "sinus-4",
+    "sinus-4p",
+    "ltafdb",
+    "svdb",
+    "incartdb",
+    "ptbxl",
+    "challenge2020"
+  ],
+  "limit": null,
+  "class_weights": [
+    0.2407188965869103,
+    0.5277093184823268,
+    1.0,
+    2.1313560160000793,
+    1.8036961257356716
+  ],
+  "eval_note": "eval/test are the original npy_250hz_10s_3lead_10sec splits, symlinked"
+}

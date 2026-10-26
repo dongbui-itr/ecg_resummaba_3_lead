@@ -151,3 +151,30 @@ Kết quả s1 (2026-10-13, n = 8 + 8, ~30 s / lớp trên CPU):
 không phải "núm lấy nét" đặc trưng; bỏ nó làm dịch prior giữa các lớp. Tune trên 8 window là công cụ
 chẩn đoán (layer nào cản lớp nào), không phải cách chọn tham số suy luận: mọi cấu hình phải qua
 validation tune + EC57 như mục 3.
+
+## 6. Tab "Predict vs Label" (so kết quả predict với label trên cả record)
+
+Code: [ecgr/rhythm/xai_predict.py](ecgr/rhythm/xai_predict.py) (API `/api/pred/*`) + tab thứ hai của
+[xai_web.html](ecgr/rhythm/xai_web.html). Test: `tests/test_rhythm_xai_predict.py`.
+Link trực tiếp: `http://<máy>:8777/?view=pred&rec=<record>&start=<s>&span=<s>`.
+
+- **Record**: database (PhysionetData, physionet_data training, rhythm_eval theo thư mục), record (lọc theo
+  tên) hoặc đường dẫn; annotation dùng làm label (.atr, .qrs, … hoặc "không dùng" → nhãn trong .hea);
+  kênh record cho từng lead model.
+- **Model**: *npz EC57 đã lưu* (mọi `<run>/ec57/<tag>/_ann/<db>/<rec>.npz` có record này: mở ngay, đúng xác
+  suất đã chấm EC57) hoặc *checkpoint* (mọi `<WORK_DIR>/*/checkpoints/*/best_model.keras` + `checkpoints/*`;
+  chạy `predict_signal` trên cả record với overlap / TTA / taper chọn được; ~3 s cho 30 phút trên CPU;
+  kết quả stage 1 được cache theo checkpoint + record + lead + overlap + TTA + taper).
+- **Post-process**: preset (config mặc định, `checkpoints/*/decode/*.json`, mọi `tuned_decode.json` /
+  `summary_*/**/tuned*.json`) + ghi đè: beat PP, AF gate, ngưỡng NOISE, V/S margin, min p / min s từng lớp.
+  Đổi là decode lại ngay (`ec57.decode_record`, đúng đường chấm EC57) vì xác suất đã cache.
+- **Toàn record**: label / predict (sau post-process) / argmax thô theo giây, dải đỏ = giây sai; nhấp để nhảy;
+  "Nhảy tới" giây sai kế tiếp, hoặc episode kế tiếp của một lớp (label hoặc predict).
+- **Khung tín hiệu** 10 / 20 / 30 / 60 s, 3 layer như tab XAI (lưới AAMI 25 mm/s, tín hiệu mV + xung chuẩn,
+  nhãn). Rhythm vẽ bằng mũi tên `|◀ (AFIB ▶|` (label, mã annotation) và `|◀ AFIB 0.93 ▶|` (predict, p trung
+  bình episode); đầu mũi tên + vạch = biên episode, `…` = episode còn tiếp ngoài khung; vạch đứt qua các lane
+  tại điểm bắt đầu episode. Beat: hàng trên = annotation (vòng đỏ = model bỏ sót), hàng dưới = model sau PP
+  hoặc thô (khung đỏ = beat thừa, gạch đỏ = sai lớp so với label). Dải HR atr vs model như tab XAI.
+  ←/→ dịch nửa khung.
+- **Điểm**: theo giây Se / +P từng lớp (sau decode và argmax thô), % giây khớp; beat QRS Se / +P, V và S
+  (ghép ±150 ms - đơn giản hoá của bxb, chỉ để soi, không thay EC57).

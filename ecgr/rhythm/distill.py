@@ -313,11 +313,30 @@ class SaveBestStudent(keras.callbacks.Callback):
         self.model.student.save(self.path)
 
 
+class SaveEveryStudent(keras.callbacks.Callback):
+    """epochs/epoch_<n>.keras = the STUDENT after every epoch from start_epoch (the epoch pick is
+    made later on validation, not by the val_rhythm_f1 of the training monitor)."""
+
+    def __init__(self, directory, start_epoch=None):
+        super().__init__()
+        self.directory = directory
+        self.start_epoch = rc.CKPT_START_EPOCH if start_epoch is None else start_epoch
+        os.makedirs(directory, exist_ok=True)
+
+    def on_epoch_end(self, epoch, logs=None):
+        if epoch + 1 >= self.start_epoch:
+            self.model.student.save(os.path.join(self.directory, f'epoch_{epoch + 1:02d}.keras'))
+
+
 def distill(model_name, teacher_path=None, ssl_from=None, epochs=None, batch_size=None,
             lr=None, patience=None, steps_per_epoch=None, max_windows=None, alpha=None,
-            temperature=None):
+            temperature=None, init_from=None, train_only=None):
     """Stage 2. ssl_from: an ssl_encoder.keras (default: this run's, if it exists; 'none' =
-    random init). Returns the student."""
+    random init). init_from: a full student checkpoint (.keras) of the SAME model: every weight
+    (encoder + decoders) starts there and trains again under the teacher (a fine-tune; it
+    replaces ssl_from). train_only: regex on student layer names; every other layer is frozen
+    (incl. BatchNorm statistics), e.g. '^(rhythm|rr_)' = the rhythm decoder only, leaving the
+    encoder, the beat head and the channel head bit-identical. Returns the student."""
     from ..training.train import setup_gpus
     from .train import (BeatMatchLog, ConfusionLog, LogLR, class_weights, cosine_schedule,
                         init_matching, model_dirs)
@@ -329,11 +348,21 @@ def distill(model_name, teacher_path=None, ssl_from=None, epochs=None, batch_siz
 
     teacher = load_teacher(teacher_path)
     student = rmodel.build(model_name)
+    if init_from:
+        student.load_weights(init_from)
+        ssl_from = 'none'
     if ssl_from is None and os.path.exists(ssl_path(model_name)):
         ssl_from = ssl_path(model_name)
     if ssl_from and ssl_from != 'none':
         init_matching(student, ssl_from)
 
+    if train_only:
+        import re
+        kept = [l.name for l in student.layers if re.search(train_only, l.name)]
+        for layer in student.layers:
+            layer.trainable = layer.name in kept
+        print(f"train-only   : /{train_only}/ -> {len(kept)} layers, "
+              f"{sum(l.count_params() for l in student.layers if l.name in kept):,} params trainable")
     outputs = rmodel.output_names(student)
     steps = rmodel.rhythm_steps(student)
     train_ds, train_arrays = pipeline.load_split(
@@ -354,7 +383,8 @@ def distill(model_name, teacher_path=None, ssl_from=None, epochs=None, batch_siz
                     jit_compile=False)
     print(f"\n{rc.describe()}")
     print(f"student      : {student.name}, {student.count_params():,} params"
-          + (f", encoder from {ssl_from}" if ssl_from and ssl_from != 'none' else ", random init"))
+          + (f", all weights from {init_from}" if init_from else
+             f", encoder from {ssl_from}" if ssl_from and ssl_from != 'none' else ", random init"))
     print(f"teacher      : {teacher.name}, {teacher.count_params():,} params (frozen)")
     print(f"KD           : alpha {trainer.alpha}, T {trainer.temperature}; class weights "
           f"{dict(zip(rc.CLASS_NAMES, np.round(weights, 3)))}")
@@ -363,6 +393,7 @@ def distill(model_name, teacher_path=None, ssl_from=None, epochs=None, batch_siz
     with open(os.path.join(ckpt_dir, 'train_config.json'), 'w') as f:
         json.dump({'model': model_name, 'params': student.count_params(), 'stage': 'distill',
                    'teacher': teacher_path or rc.DISTILL_TEACHER, 'ssl_from': ssl_from,
+                   'init_from': init_from, 'train_only': train_only,
                    'kd_alpha': trainer.alpha, 'kd_temperature': trainer.temperature,
                    'class_weights': weights, 'sampler': 'stratified', 'sampler_repeat': repeat,
                    'batch_size': batch_size, 'lr': lr, 'npy_dir': rc.NPY_DIR}, f, indent=2)
@@ -374,6 +405,7 @@ def distill(model_name, teacher_path=None, ssl_from=None, epochs=None, batch_siz
         ConfusionLog(trainer.rhythm_f1, trainer.channel_acc, report_dir, 'channel',
                      beat_metric=trainer.beat_f1),
         SaveBestStudent(os.path.join(ckpt_dir, 'best_model.keras')),
+        SaveEveryStudent(os.path.join(ckpt_dir, 'epochs')),
         keras.callbacks.EarlyStopping(monitor=rc.MONITOR, mode='max', patience=patience,
                                       start_from_epoch=max(0, rc.CKPT_START_EPOCH - 1),
                                       restore_best_weights=True, verbose=1),
